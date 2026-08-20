@@ -224,7 +224,7 @@ function getGmailDigest() {
       const important = GMAIL_IMPORTANT_KEYWORDS.some(k => hay.includes(k.toLowerCase()));
       return {
         subject, from: last.getFrom(), date: last.getDate().toISOString(),
-        snippet: body.slice(0, 120), important
+        snippet: body.slice(0, 120), important, threadId: t.getId()
       };
     });
     out.sort((a, b) => (b.important - a.important) || (new Date(b.date) - new Date(a.date)));

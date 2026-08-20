@@ -256,6 +256,8 @@ textarea.fi{resize:vertical;min-height:56px;}
 .ovToggleIcon{font-size:.68rem;color:var(--tx3);}
 
 .ovMailItem{display:flex;align-items:flex-start;gap:8px;padding:2px 0;}
+a.ovMailItem{color:inherit;text-decoration:none;}
+a.ovMailItem:hover{text-decoration:underline;}
 .ovMailBadge{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:rgba(217,119,6,.14);
   display:flex;align-items:center;justify-content:center;font-size:.66rem;margin-top:2px;}
 .ovMailBadge.plain{background:rgba(148,163,184,.16);}
@@ -1179,7 +1181,12 @@ function renderOverview(){
 
   const mails=c.gmail||[];
   const mailHtml=mails.length
-    ? mails.map(m=>`<div class="ovMailItem"><span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span></div>`).join('')
+    ? mails.map(m=>{
+        const inner=`<span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span>`;
+        return m.threadId
+          ? `<a class="ovMailItem" href="https://mail.google.com/mail/u/0/#all/${esc(m.threadId)}" target="_blank" rel="noopener">${inner}</a>`
+          : `<div class="ovMailItem">${inner}</div>`;
+      }).join('')
     : `<div class="ovItem ovEmpty">沒有未讀的重要信件</div>`;
 
   const news=c.news||{};
