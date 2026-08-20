@@ -1,0 +1,1569 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ybot · 個人助理</title>
+<link rel="manifest" href="ybot-manifest.webmanifest">
+<link rel="icon" href="ybot-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="ybot-icon.svg">
+<meta name="theme-color" content="#6d28d9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ybot">
+<style>
+:root{
+  --pri:#6d28d9;--pri2:#4c1d95;
+  --tx:#0f172a;--tx2:#475569;--tx3:#94a3b8;
+  --bg:#f1f5f9;--card:#ffffff;--line:#e2e8f0;--bub:#ede9fe;
+  --ok:#059669;--warn:#d97706;--bad:#dc2626;
+  --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+  --shadow-md:0 10px 28px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.05);
+  --shadow-pri:0 3px 10px rgba(109,40,217,.28);
+}
+@media(prefers-color-scheme:dark){
+  :root{--tx:#f1f5f9;--tx2:#cbd5e1;--tx3:#94a3b8;--bg:#0b1220;--card:#111a2e;--line:#1e293b;--bub:#2e1a63;
+    --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+    --shadow-md:0 12px 32px rgba(0,0,0,.5),0 2px 10px rgba(0,0,0,.35);}
+}
+:root[data-theme="dark"]{--tx:#f1f5f9;--tx2:#cbd5e1;--tx3:#94a3b8;--bg:#0b1220;--card:#111a2e;--line:#1e293b;--bub:#2e1a63;
+  --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+  --shadow-md:0 12px 32px rgba(0,0,0,.5),0 2px 10px rgba(0,0,0,.35);}
+:root[data-theme="light"]{--tx:#0f172a;--tx2:#475569;--tx3:#94a3b8;--bg:#f1f5f9;--card:#ffffff;--line:#e2e8f0;--bub:#ede9fe;
+  --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+  --shadow-md:0 10px 28px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.05);}
+html{font-size:calc(clamp(0.9rem,0.78rem + 0.6vw,1.15rem) * var(--font-scale,1));}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Microsoft JhengHei','Noto Sans TC',system-ui,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+a{color:var(--pri);}
+button,input,textarea{font-family:inherit;}
+button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:8px;}
+.wrap{max-width:760px;margin:0 auto;padding:16px 14px 60px;transition:max-width .2s;}
+@media(min-width:860px){.wrap{max-width:1080px;}}
+.hero{position:relative;overflow:hidden;border-radius:20px;padding:20px 20px 22px;margin-bottom:16px;
+  background:radial-gradient(circle at 50% 30%,rgba(139,92,246,.30),transparent 60%),
+             radial-gradient(circle at 6% 100%,rgba(76,29,149,.28),transparent 55%),
+             linear-gradient(160deg,#0a0e1f,#0d1226 55%,#160b2e);
+  color:#f1f5f9;box-shadow:0 18px 44px rgba(0,0,0,.32);}
+.heroDeco{position:absolute;width:56px;height:56px;border:1px solid rgba(148,163,184,.3);pointer-events:none;}
+.heroDeco.tl{top:-1px;left:-1px;border-right:none;border-bottom:none;border-radius:20px 0 0 0;}
+.heroDeco.tr{top:-1px;right:-1px;border-left:none;border-bottom:none;border-radius:0 20px 0 0;}
+.heroTop{display:flex;justify-content:space-between;align-items:flex-start;padding-right:44px;gap:10px;}
+.heroWeatherMini{display:flex;align-items:center;gap:5px;font-size:.78rem;color:#e2e8f0;flex-shrink:0;}
+.heroWeatherMini .icon{font-size:1.15rem;line-height:1;}
+.heroWeatherMini .t{font-weight:800;font-size:.95rem;color:#fff;}
+.heroWeatherMini .d{color:#94a3b8;font-size:.68rem;}
+.heroClock{font-size:1.02rem;color:#cbd5e1;text-align:right;line-height:1.4;user-select:none;flex-shrink:0;}
+.heroClock .clockTime{font-weight:700;color:#fff;}
+.heroClock .clockLunar{color:#94a3b8;}
+.heroBadgeRow{display:flex;align-items:flex-start;gap:16px;margin-top:10px;}
+.heroScheduleMini{flex:1;min-width:0;font-size:.85rem;text-align:left;padding-top:8px;}
+.heroScheduleMini a{color:#e2e8f0;text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.heroScheduleMini a:hover{color:#c4b5fd;}
+.heroScheduleMini .more{color:#a78bfa;font-size:.78rem;}
+.heroSub{font-size:.86rem;color:#e2e8f0;margin-top:14px;font-weight:600;}
+.heroSub a{color:#c4b5fd;font-weight:700;}
+
+/* 全息投影風格 Logo：外圈軌道＋粒子點＋發光核心＋投影光束與底座光暈，取代文字 Logo，置於左上角 */
+.heroOrbGroup{display:flex;flex-direction:column;align-items:center;width:fit-content;flex-shrink:0;}
+.heroOrbWrap{position:relative;width:75px;height:75px;flex-shrink:0;}
+.heroOrbRing{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(167,139,250,.28);}
+.heroOrbRing.outer{animation:heroSpin 34s linear infinite;}
+.heroOrbRing.mid{inset:9.5px;border-style:dashed;border-color:rgba(167,139,250,.32);animation:heroSpin 22s linear infinite reverse;}
+.heroOrbDot{position:absolute;width:3px;height:3px;border-radius:50%;background:#c4b5fd;box-shadow:0 0 5px #c4b5fd,0 0 1px #fff;}
+.heroOrbDot.d1{top:-1.5px;left:50%;margin-left:-1.5px;}
+.heroOrbDot.d2{top:18%;right:-1.5px;}
+.heroOrbDot.d3{bottom:12%;left:-1.5px;}
+.heroOrbCore{position:absolute;inset:15px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,rgba(139,92,246,.18),rgba(10,14,31,.7) 72%);
+  border:1.5px solid rgba(233,213,255,.9);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.56rem;letter-spacing:-.01em;
+  box-shadow:0 0 16px rgba(196,181,253,.85),0 0 32px rgba(139,92,246,.45),inset 0 0 10px rgba(196,181,253,.3);
+  text-shadow:0 0 8px rgba(196,181,253,.95),0 0 16px rgba(139,92,246,.6);
+  animation:heroPulse 3s ease-in-out infinite;}
+.heroOrbBeam{width:9px;height:19px;margin-top:-2px;
+  background:linear-gradient(180deg,rgba(196,181,253,.55),rgba(196,181,253,0));filter:blur(.5px);}
+.heroOrbBase{position:relative;width:75px;height:15px;margin-top:-2px;border-radius:50%;
+  background:radial-gradient(ellipse at center,rgba(167,139,250,.42),rgba(167,139,250,.1) 55%,transparent 75%);}
+.heroOrbBase::before,.heroOrbBase::after{content:'';position:absolute;border-radius:50%;border:1px solid rgba(167,139,250,.22);}
+.heroOrbBase::before{inset:-4px 11.5px;}
+.heroOrbBase::after{inset:-8px 20px;border-color:rgba(167,139,250,.13);}
+@keyframes heroPulse{
+  0%,100%{box-shadow:0 0 34px rgba(167,139,250,.8),0 0 64px rgba(139,92,246,.4),inset 0 0 16px rgba(255,255,255,.4);}
+  50%{box-shadow:0 0 48px rgba(167,139,250,1),0 0 84px rgba(139,92,246,.55),inset 0 0 20px rgba(255,255,255,.5);}
+}
+@keyframes heroSpin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+.theme-btn{background:var(--card);border:1px solid var(--line);color:var(--tx);width:38px;height:38px;
+  border-radius:50%;cursor:pointer;font-size:1.05rem;display:flex;align-items:center;justify-content:center;
+  box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s;}
+.theme-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
+.tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px;margin:16px 0;box-shadow:var(--shadow);}
+.tab{flex:1;text-align:center;padding:9px 6px;border-radius:10px;font-size:.86rem;font-weight:700;color:var(--tx2);cursor:pointer;user-select:none;
+  transition:background-color .15s,color .15s,box-shadow .15s;}
+.tab.active{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;box-shadow:var(--shadow-pri);}
+.pane{display:none;}
+.pane.active{display:block;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow-md);transition:box-shadow .2s,transform .2s;}
+
+/* 對話分頁：桌面/平板寬螢幕採 2×2 卡片網格排版，手機仍維持單欄堆疊 */
+@media(min-width:860px){
+  #pane-chat.active{display:grid;grid-template-columns:minmax(300px,38%) 1fr;grid-template-areas:"hero chat" "overview links";gap:18px;align-items:start;}
+  #pane-chat #heroCard{grid-area:hero;margin-bottom:0;}
+  #pane-chat #chatCard{grid-area:chat;margin-bottom:0;}
+  #pane-chat #chatCard #chatBox{max-height:min(56vh,460px);}
+  #pane-chat #overviewCard{grid-area:overview;margin-bottom:0;}
+  #pane-chat #linksCard{grid-area:links;margin-bottom:0;align-self:start;}
+}
+#linksCard .linkChips{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;}
+#linksCard .linkChips a.chip{display:flex;align-items:center;gap:6px;justify-content:flex-start;
+  padding:11px 12px;border-radius:12px;font-weight:700;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* Chat */
+#chatBox{display:flex;flex-direction:column;gap:10px;max-height:56vh;overflow-y:auto;padding:4px 2px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;}
+#chatBox:empty{padding:0;}
+#chatBox::-webkit-scrollbar{width:6px;}
+#chatBox::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+.msg{max-width:82%;padding:10px 13px;border-radius:14px;font-size:.88rem;line-height:1.6;white-space:pre-wrap;box-shadow:0 1px 2px rgba(15,23,42,.05);}
+.msg.bot{align-self:flex-start;background:var(--bub);color:var(--tx);border-bottom-left-radius:4px;}
+.msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;border-bottom-right-radius:4px;box-shadow:var(--shadow-pri);}
+.msg.sys{align-self:center;color:var(--tx3);font-size:.74rem;box-shadow:none;background:none;padding:4px 10px;}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
+.chip{font-size:.76rem;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--tx2);cursor:pointer;
+  transition:border-color .15s,color .15s,box-shadow .15s;}
+.chip:hover{border-color:var(--pri);color:var(--pri);box-shadow:var(--shadow);}
+.inputRow{display:flex;gap:8px;margin-top:10px;}
+.imgPreview{display:flex;align-items:center;gap:8px;margin-top:10px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);}
+.imgPreview img{width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;}
+.imgPreview span{font-size:.8rem;color:var(--tx2);}
+.imgPreview .rmImgBtn{margin-left:auto;background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;}
+.imgPreview .rmImgBtn:hover{color:var(--bad);}
+#chatInput{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.9rem;
+  background:var(--bg);color:var(--tx);font-family:inherit;min-height:44px;max-height:120px;
+  transition:border-color .15s,box-shadow .15s;}
+#chatInput:focus{border-color:var(--pri);outline:none;box-shadow:0 0 0 3px rgba(109,40,217,.14);}
+.sendBtn{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;border:none;border-radius:12px;
+  padding:0 18px;font-weight:800;cursor:pointer;font-size:.9rem;box-shadow:var(--shadow-pri);
+  transition:transform .12s,box-shadow .12s,opacity .15s;}
+.sendBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
+.sendBtn:disabled{opacity:.5;cursor:default;box-shadow:none;}
+.ctxbar{display:flex;align-items:center;justify-content:space-between;font-size:.72rem;color:var(--tx3);margin-bottom:8px;}
+.ctxbar button{background:none;border:none;color:var(--pri);font-weight:700;cursor:pointer;font-size:.72rem;}
+
+/* Notes */
+.typeSel{display:flex;gap:6px;margin-bottom:10px;}
+.typeSel label{flex:1;text-align:center;padding:8px 4px;border:1px solid var(--line);border-radius:10px;font-size:.8rem;cursor:pointer;color:var(--tx2);
+  transition:border-color .15s,color .15s,background-color .15s;}
+.typeSel input{display:none;}
+.typeSel input:checked + span{font-weight:800;}
+.typeSel label:has(input:checked){border-color:var(--pri);color:var(--pri);background:rgba(109,40,217,.08);}
+.fi{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:.88rem;
+  background:var(--bg);color:var(--tx);font-family:inherit;margin-bottom:8px;transition:border-color .15s,box-shadow .15s;}
+.fi:focus{border-color:var(--pri);outline:none;box-shadow:0 0 0 3px rgba(109,40,217,.12);}
+textarea.fi{resize:vertical;min-height:56px;}
+.btn{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;border:none;border-radius:10px;
+  padding:9px 16px;font-weight:700;cursor:pointer;font-size:.85rem;box-shadow:var(--shadow-pri);
+  transition:transform .12s,box-shadow .12s,opacity .15s;}
+.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
+.btn:disabled{opacity:.5;cursor:default;transform:none;box-shadow:none;}
+.btn.ghost{background:none;border:1px solid var(--line);color:var(--tx2);box-shadow:none;}
+.btn.ghost:hover:not(:disabled){border-color:var(--pri);color:var(--pri);transform:none;box-shadow:var(--shadow);}
+.filterRow{display:flex;gap:6px;margin:4px 0 12px;}
+.filterRow .chip.active{background:var(--pri);color:#fff;border-color:var(--pri);}
+.noteItem{display:flex;align-items:flex-start;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line);}
+.noteItem:last-child{border-bottom:none;}
+.noteItem input[type=checkbox]{margin-top:3px;width:17px;height:17px;accent-color:var(--pri);flex-shrink:0;}
+.noteBody{flex:1;}
+.noteContent{font-size:.88rem;line-height:1.5;}
+.noteContent.done{text-decoration:line-through;color:var(--tx3);}
+.noteMeta{font-size:.72rem;color:var(--tx3);margin-top:3px;}
+.noteMeta.overdue{color:var(--bad);font-weight:700;}
+.typeTag{font-size:.66rem;padding:2px 8px;border-radius:8px;font-weight:700;margin-right:6px;}
+.typeTag.note{background:rgba(148,163,184,.18);color:var(--tx2);}
+.typeTag.todo{background:rgba(13,148,136,.14);color:#0d9488;}
+.typeTag.reminder{background:rgba(217,119,6,.14);color:var(--warn);}
+.delBtn{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;transition:color .15s;}
+.delBtn:hover{color:var(--bad);}
+.empty{text-align:center;color:var(--tx3);font-size:.84rem;padding:28px 0;}
+
+/* Settings */
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:.8rem;font-weight:700;color:var(--tx2);margin-bottom:5px;}
+.hint{font-size:.7rem;color:var(--tx3);margin-top:4px;line-height:1.5;}
+.section-title{font-size:.72rem;font-weight:800;margin:2px 0 14px;color:var(--tx2);
+  text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:8px;}
+.section-title::before{content:'';width:3px;height:13px;border-radius:2px;flex-shrink:0;
+  background:linear-gradient(180deg,var(--pri),var(--pri2));}
+.row2{display:flex;gap:8px;}
+.row2 .fi{flex:1;}
+.statusLine{font-size:.76rem;margin-top:8px;padding:8px 10px;border-radius:8px;}
+.statusLine.ok{background:rgba(5,150,105,.1);color:var(--ok);}
+.statusLine.bad{background:rgba(220,38,38,.1);color:var(--bad);}
+.linkRow{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;}
+.linkRow .row2{margin-bottom:6px;}
+.linkRow .row2 .fi{margin-bottom:0;}
+.linkRow .rmBtn{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.76rem;float:right;}
+.linkRow .rmBtn:hover{color:var(--bad);}
+.linkChips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.linkChips a.chip{text-decoration:none;}
+
+/* Overview */
+#overviewCard{background-image:linear-gradient(180deg,rgba(109,40,217,.07),transparent 45%);}
+.ovMono{font-family:'SF Mono','Roboto Mono',ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
+.ovLivePulse{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 0 rgba(5,150,105,.5);animation:ovPulse 2s infinite;flex-shrink:0;}
+@keyframes ovPulse{
+  0%{box-shadow:0 0 0 0 rgba(5,150,105,.5);}
+  70%{box-shadow:0 0 0 6px rgba(5,150,105,0);}
+  100%{box-shadow:0 0 0 0 rgba(5,150,105,0);}
+}
+/* 儀表板統計列：甜甜圈進度圈＋統計方塊，仿參考圖 Dashboard Metrics 視覺 */
+.dashStats{display:flex;align-items:center;gap:14px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+.dashRing{width:64px;height:64px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.dashRingInner{width:48px;height:48px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:.86rem;color:var(--pri);}
+.dashRingInner span{font-size:.62rem;margin-left:1px;}
+.dashTiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:1;min-width:0;}
+.dashTile{border-radius:10px;padding:7px 8px;text-align:center;}
+.dashTile b{display:block;font-size:.98rem;font-weight:800;line-height:1.3;}
+.dashTile span{font-size:.6rem;color:var(--tx2);}
+.dashTile.todo{background:rgba(109,40,217,.1);}
+.dashTile.todo b{color:var(--pri);}
+.dashTile.mail{background:rgba(217,119,6,.12);}
+.dashTile.mail b{color:var(--warn);}
+.dashTile.news{background:rgba(3,105,161,.1);}
+.dashTile.news b{color:#0369a1;}
+.dashTile.standup{background:rgba(148,163,184,.16);}
+.dashTile.standup b{color:var(--tx2);}
+.dashTile.standup.on{background:rgba(5,150,105,.12);}
+.dashTile.standup.on b{color:var(--ok);}
+.dashTile.school{background:rgba(180,83,9,.12);}
+.dashTile.school b{color:#b45309;}
+
+.ovSection{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+.ovSection:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
+.ovLabel{font-size:.72rem;font-weight:800;color:var(--tx2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;}
+.ovItem{font-size:.84rem;line-height:1.6;padding:2px 0;}
+.ovItem a{color:var(--tx);text-decoration:none;}
+.ovItem a:hover{color:var(--pri);text-decoration:underline;}
+.ovSub{color:var(--tx3);font-size:.76rem;}
+.ovEmpty{color:var(--tx3);}
+.ovNewsGroup{margin-bottom:6px;}
+.ovNewsGroup:last-child{margin-bottom:0;}
+.ovNewsGroup b{font-size:.78rem;color:var(--tx2);}
+.ovLabelToggle{cursor:pointer;display:flex;align-items:center;gap:4px;user-select:none;padding:4px 0;margin:-4px 0 2px;-webkit-tap-highlight-color:rgba(109,40,217,.15);}
+.ovToggleIcon{font-size:.68rem;color:var(--tx3);}
+
+.ovMailItem{display:flex;align-items:flex-start;gap:8px;padding:2px 0;}
+.ovMailBadge{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:rgba(217,119,6,.14);
+  display:flex;align-items:center;justify-content:center;font-size:.66rem;margin-top:2px;}
+.ovMailBadge.plain{background:rgba(148,163,184,.16);}
+
+</style>
+</head>
+<body>
+<button class="theme-btn" id="themeBtn" style="position:fixed;top:16px;right:16px;z-index:9;" onclick="toggleTheme()">🌓</button>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</div>
+    <div class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</div>
+    <div class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</div>
+  </div>
+
+  <!-- 💬 對話 -->
+  <div class="pane active" id="pane-chat">
+    <div class="hero" id="heroCard">
+      <div class="heroDeco tl"></div>
+      <div class="heroDeco tr"></div>
+      <div class="heroTop">
+        <div class="heroWeatherMini" id="heroWeatherMini"></div>
+        <div class="heroClock" id="clockBox"></div>
+      </div>
+      <div class="heroBadgeRow">
+        <div class="heroOrbGroup">
+          <div class="heroOrbWrap">
+            <div class="heroOrbRing outer"></div>
+            <div class="heroOrbRing mid"></div>
+            <span class="heroOrbDot d1"></span>
+            <span class="heroOrbDot d2"></span>
+            <span class="heroOrbDot d3"></span>
+            <div class="heroOrbCore">Ybot</div>
+          </div>
+          <div class="heroOrbBeam"></div>
+          <div class="heroOrbBase"></div>
+        </div>
+        <div class="heroScheduleMini" id="heroScheduleMini"></div>
+      </div>
+      <div class="heroSub">你的個人助理 · <a href="https://cyysongyy.github.io/remediation-system/portal.html">← 回整合入口</a></div>
+    </div>
+    <div class="card" id="overviewCard" style="display:none;"></div>
+    <div class="card" id="chatCard">
+      <div class="section-title">💬 Ybot 對話</div>
+      <div class="ctxbar">
+        <span id="ctxStatus">尚未載入雲端資料</span>
+        <span style="display:flex;gap:10px;flex-shrink:0;">
+          <button onclick="refreshContext()">🔄 重新整理資料</button>
+          <button onclick="clearChatOnly()">🗑️ 清除對話</button>
+        </span>
+      </div>
+      <div id="chatBox"></div>
+      <div id="chatImagePreview" style="display:none;"></div>
+      <div class="inputRow">
+        <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
+        <button class="btn ghost" id="chatImageBtn" onclick="document.getElementById('chatImageInput').click()" style="flex:0 0 auto;" title="附加圖片，讓 Ybot 看圖辨識/回答">📷</button>
+        <textarea id="chatInput" class="fi" placeholder="問 Ybot 任何事…（Enter 送出，Shift+Enter 換行）" style="margin-bottom:0;"></textarea>
+        <button class="sendBtn" id="sendBtn" onclick="sendChat()">送出</button>
+      </div>
+    </div>
+    <div class="card" id="linksCard" style="display:none;">
+      <div class="section-title">🔗 快速連結</div>
+      <div class="linkChips" id="linkChips"></div>
+    </div>
+  </div>
+
+  <!-- 📝 待辦與筆記 -->
+  <div class="pane" id="pane-notes">
+    <div class="card">
+      <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
+    </div>
+
+    <div class="card">
+      <div class="section-title">新增</div>
+      <div class="typeSel">
+        <label><input type="radio" name="ntype" value="note" checked><span>📌 瑣事筆記</span></label>
+        <label><input type="radio" name="ntype" value="todo"><span>✅ 待辦</span></label>
+        <label><input type="radio" name="ntype" value="reminder"><span>⏰ 定時提醒</span></label>
+      </div>
+      <textarea id="noteContent" class="fi" placeholder="寫下內容…"></textarea>
+      <div class="row2" style="margin-bottom:10px;">
+        <button class="btn ghost" id="voiceBtn" onclick="toggleRecording()" style="flex:0 0 auto;display:none;">🎙️ 錄音</button>
+        <span id="voiceStatus" class="hint" style="margin:0;align-self:center;"></span>
+      </div>
+      <div class="field" id="dueField" style="display:none;">
+        <label>提醒時間</label>
+        <input type="datetime-local" id="noteDue" class="fi" style="margin-bottom:0;">
+      </div>
+      <div class="row2" style="margin-bottom:0;">
+        <button class="btn" onclick="addNote()" style="flex:1;">新增</button>
+        <button class="btn ghost" id="aiAddBtn" onclick="addNoteAI()" style="flex:1;">🤖 AI 智慧新增</button>
+      </div>
+      <div class="hint" style="margin-top:8px;">🤖 AI 智慧新增：讀懂內容自動判斷是瑣事／待辦／提醒，內容若有提到具體日期時間（例如「週五下午2點開會」），會直接建立 Google 日曆事件。需先在「設定」填好 AI 金鑰與雲端後台網址。</div>
+    </div>
+
+    <div class="card">
+      <div class="filterRow">
+        <span class="chip active" data-f="all" onclick="setFilter('all')">全部</span>
+        <span class="chip" data-f="note" onclick="setFilter('note')">📌 瑣事</span>
+        <span class="chip" data-f="todo" onclick="setFilter('todo')">✅ 待辦</span>
+        <span class="chip" data-f="reminder" onclick="setFilter('reminder')">⏰ 提醒</span>
+      </div>
+      <div id="noteList"></div>
+    </div>
+  </div>
+
+  <!-- ⚙️ 設定 -->
+  <div class="pane" id="pane-settings">
+    <div class="card">
+      <div class="section-title">📲 安裝到主畫面</div>
+      <div class="hint">iPhone：分享 → 加入主畫面｜Android：Chrome 會自動提示安裝</div>
+    </div>
+    <div class="card">
+      <div class="section-title">🔤 字體大小</div>
+      <div class="row2" style="align-items:center;">
+        <button class="btn ghost" onclick="adjustFontScale(-0.1)" style="flex:0 0 auto;">－</button>
+        <span id="fontScaleLabel" style="flex:1;text-align:center;font-weight:800;color:var(--pri);">100%</span>
+        <button class="btn ghost" onclick="adjustFontScale(0.1)" style="flex:0 0 auto;">＋</button>
+      </div>
+      <div class="hint">80%~200%，會記住設定</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🧍 起立提醒</div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <input type="checkbox" id="standupEnabled" style="width:18px;height:18px;accent-color:var(--pri);">
+        <label for="standupEnabled" style="margin:0;">啟用起立提醒</label>
+      </div>
+      <div class="field">
+        <label>提醒間隔（分鐘）</label>
+        <input type="number" id="standupInterval" class="fi" min="15" max="480" step="15" placeholder="60" style="margin-bottom:0;">
+      </div>
+      <div class="row2" style="margin-top:10px;">
+        <div style="flex:1;">
+          <label style="display:block;font-size:.8rem;font-weight:700;color:var(--tx2);margin-bottom:5px;">開始時間</label>
+          <select id="standupStart" class="fi" style="margin-bottom:0;"></select>
+        </div>
+        <div style="flex:1;">
+          <label style="display:block;font-size:.8rem;font-weight:700;color:var(--tx2);margin-bottom:5px;">結束時間</label>
+          <select id="standupEnd" class="fi" style="margin-bottom:0;"></select>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:8px;">首次使用需執行一次 <code>setupStandupWatch()</code> 授權</div>
+      <button class="btn" onclick="saveStandupSettings()" style="margin-top:8px;">儲存</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🤖 AI 引擎（用於對話回覆與簡報摘要）</div>
+      <div class="field">
+        <label>優先順序</label>
+        <select id="aiProvider" class="fi" style="margin-bottom:0;">
+          <option value="auto">自動（Gemini → OpenAI → NVIDIA）</option>
+          <option value="gemini">優先 Gemini</option>
+          <option value="openai">優先 OpenAI</option>
+          <option value="nvidia">優先 NVIDIA</option>
+        </select>
+      </div>
+      <div class="field"><label>Gemini API Key</label><input id="geminiKey" class="fi" type="password" placeholder="AIzaSy… 或 AQ.…"></div>
+      <div class="field"><label>OpenAI API Key</label><input id="openaiKey" class="fi" type="password" placeholder="sk-…"></div>
+      <div class="field"><label>NVIDIA NIM API Key</label><input id="nvidiaKey" class="fi" type="password" placeholder="nvapi-…"></div>
+      <div class="hint">Key 僅存於你自己的瀏覽器，直接呼叫各家 API，不經第三方伺服器。免費取得：<a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>。與「校長助理」共用同一個網域，貼過一次兩邊都能用。</div>
+      <button class="btn" onclick="saveSettings(true)">儲存</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">☁️ 雲端後台（Ybot Apps Script）</div>
+      <div class="field">
+        <label>後台網址</label>
+        <input id="gasUrl" class="fi" placeholder="https://script.google.com/macros/s/…/exec" style="margin-bottom:0;">
+      </div>
+      <div class="field">
+        <label>天氣地點</label>
+        <div class="row2">
+          <input id="weatherCity" class="fi" placeholder="台北" style="margin-bottom:0;">
+          <button class="btn ghost" onclick="saveWeatherCity()" style="flex:0 0 auto;">儲存地點</button>
+        </div>
+        <div class="row2" style="margin-top:6px;">
+          <button class="btn ghost" onclick="useGpsLocation()" style="flex:0 0 auto;">📍 使用目前位置</button>
+          <span id="gpsStatus" class="hint" style="margin:0;align-self:center;"></span>
+        </div>
+      </div>
+      <div class="row2" style="margin-top:8px;">
+        <button class="btn" onclick="saveSettings(false);testConnection()">🔌 測試連線</button>
+        <button class="btn ghost" onclick="syncNotesToCloud()">⬆️ 同步待辦至雲端</button>
+      </div>
+      <div id="connStatus"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🔗 整合其他系統</div>
+      <div class="hint" style="margin-bottom:10px;">填入其他兩套系統的 Apps Script 後台網址，Ybot 對話與每日簡報就能一併帶入考卷批改與健康預測的最新摘要。</div>
+      <div class="field"><label>🎯 Remedial System 後台網址</label><input id="remUrl" class="fi" placeholder="remediation-backend.gs 部署網址" style="margin-bottom:0;"></div>
+      <div class="field" style="margin-top:10px;"><label>🫀 LifeSpan 健康 後台網址</label><input id="hltUrl" class="fi" placeholder="health-backend.gs 部署網址" style="margin-bottom:0;"></div>
+      <button class="btn" onclick="saveLinked()">儲存整合設定</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🏫 校務管理系統（CK-SCHADMIN）</div>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;">
+        <input type="checkbox" id="useSchoolDb" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useSchoolDb=this.checked;save();">
+        對話時附上校務系統資料給 AI 參考
+      </label>
+      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含聯絡方式），僅排除身分證字號、薪資與學生成績（不讀取）。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🔗 我的其他 App</div>
+      <div class="hint" style="margin-bottom:10px;">你在 GitHub 上的其他自建 App，可在對話中快速開啟、也讓 Ybot 知道它們存在。若該 App 有自己的 Apps Script 後台網址，填入「後台網址」欄位，Ybot 每日簡報與對話會一併嘗試帶入其摘要（讀不到會自動略過）。</div>
+      <div id="linkList"></div>
+      <button class="btn ghost" onclick="addLinkRow()">＋ 新增 App</button>
+      <button class="btn" style="margin-left:8px;" onclick="saveLinksAll()">儲存</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">🗑️ 資料管理</div>
+      <button class="btn ghost" onclick="clearLocal()">清除本機資料（對話紀錄與筆記）</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 狀態管理 ─────────────────────────────
+const LS_KEY='ybot_v1';
+function defaults(){return{
+  theme:'',fontScale:1,newsCollapsed:false,standupCollapsed:true,
+  ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
+  useSchoolDb:false,
+  gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
+  standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
+  countdownMin:5,
+  links:[
+    {id:'principal-assistant',name:'Principal Assistant',url:'https://cyysongyy.github.io/principal-assistant/',apiUrl:''},
+    {id:'ck-schadmin',name:'校務管理系統',url:'https://cyysongyy.github.io/CK-SCHADMIN/',apiUrl:''},
+    {id:'micro-politics',name:'Micro Politics',url:'https://cyysongyy.github.io/micro-politics/',apiUrl:''},
+    {id:'footdrop-rehab',name:'垂足復健 5 步驟',url:'https://cyysongyy.github.io/5-steps-rehab-for-footdrop/',apiUrl:''}
+  ],
+  notes:[],chat:[],
+  context:null,contextAt:null
+};}
+let state;
+function load(){try{state=Object.assign(defaults(),JSON.parse(localStorage.getItem(LS_KEY))||{});}catch(e){state=defaults();}}
+function save(){localStorage.setItem(LS_KEY,JSON.stringify(state));}
+load();
+// links 陣列存進 localStorage 後，defaults() 新增的預設連結（例如後來才加的
+// 校務管理系統）不會自動出現在已經有舊資料的使用者畫面上，這裡補一次性遷移。
+(function migrateDefaultLinks(){
+  let changed=false;
+  defaults().links.forEach(def=>{
+    if(!state.links.some(l=>l.id===def.id)){state.links.push(def);changed=true;}
+  });
+  if(changed)save();
+})();
+
+// ── 與同一個 cyysongyy.github.io origin 底下的其他 App（例如校長助理）共用 AI Key ──
+// 瀏覽器 localStorage 是以 origin 為單位隔離、不分路徑，兩個 App 雖然是不同 repo，
+// 部署後其實同一個 origin，本來就共用同一份 localStorage，只是各自用不同 key 存。
+// 這裡只補一份「共用」快照：貼過 key 的那個 App 存進去，另一個 App 沒填過的欄位
+// 就撿來用；已經自己填過的欄位不會被覆蓋，避免兩邊金鑰不同時互相打架。
+const SHARED_AI_KEY='shared_ai_keys_v1';
+function loadSharedAiKeys(){
+  try{return JSON.parse(localStorage.getItem(SHARED_AI_KEY))||{};}catch(e){return{};}
+}
+function hydrateSharedAiKeys(){
+  const shared=loadSharedAiKeys();
+  ['gemini','openai','nvidia'].forEach(k=>{
+    if(!state.ai[k]&&shared[k])state.ai[k]=shared[k];
+  });
+}
+function pushSharedAiKeys(){
+  const shared=loadSharedAiKeys();
+  ['gemini','openai','nvidia'].forEach(k=>{
+    if(state.ai[k])shared[k]=state.ai[k];
+  });
+  shared.updatedAt=new Date().toISOString();
+  localStorage.setItem(SHARED_AI_KEY,JSON.stringify(shared));
+}
+hydrateSharedAiKeys();
+
+// ── 主題 ────────────────────────────────
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t);}
+function toggleTheme(){
+  const sysDark=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  const now=state.theme||(sysDark?'dark':'light');
+  state.theme=now==='dark'?'light':'dark';applyTheme(state.theme);save();
+}
+if(state.theme)applyTheme(state.theme);
+
+// ── 字體大小 ────────────────────────────
+function applyFontScale(){
+  document.documentElement.style.setProperty('--font-scale',state.fontScale);
+  const label=document.getElementById('fontScaleLabel');
+  if(label)label.textContent=Math.round(state.fontScale*100)+'%';
+}
+function adjustFontScale(delta){
+  state.fontScale=Math.min(2.0,Math.max(0.8,+(state.fontScale+delta).toFixed(1)));
+  applyFontScale();save();
+}
+applyFontScale();
+
+// ── Tabs ────────────────────────────────
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
+  if(name==='notes')renderNotes();
+  if(name==='settings')fillSettings();
+}
+
+// ── 設定 ────────────────────────────────
+function populateHourSelects(){
+  const opts=Array.from({length:24},(_,h)=>`<option value="${h}">${String(h).padStart(2,'0')}:00</option>`).join('');
+  const s=document.getElementById('standupStart'), e=document.getElementById('standupEnd');
+  if(s&&!s.dataset.filled){s.innerHTML=opts;s.dataset.filled='1';}
+  if(e&&!e.dataset.filled){e.innerHTML=opts;e.dataset.filled='1';}
+}
+function fillSettings(){
+  applyFontScale();
+  document.getElementById('aiProvider').value=state.ai.provider;
+  document.getElementById('geminiKey').value=state.ai.gemini;
+  document.getElementById('openaiKey').value=state.ai.openai;
+  document.getElementById('nvidiaKey').value=state.ai.nvidia;
+  document.getElementById('gasUrl').value=state.gasUrl;
+  document.getElementById('weatherCity').value=(state.weatherLat&&state.weatherLon)?`📍 目前位置（${state.weatherLat}, ${state.weatherLon}）`:state.weatherCity;
+  document.getElementById('remUrl').value=state.remUrl;
+  document.getElementById('hltUrl').value=state.hltUrl;
+  document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
+  populateHourSelects();
+  document.getElementById('standupEnabled').checked=!!state.standup.enabled;
+  document.getElementById('standupInterval').value=state.standup.intervalMin;
+  document.getElementById('standupStart').value=state.standup.startHour;
+  document.getElementById('standupEnd').value=state.standup.endHour;
+  renderLinks();
+}
+function applyStandupSettings(enabled,intervalMin,startHour,endHour){
+  state.standup={
+    enabled,
+    intervalMin:Math.max(15,Number(intervalMin)||60),
+    startHour:Number(startHour),
+    endHour:Number(endHour)
+  };
+  if(state.context)state.context.standup=state.standup; // 立刻同步，避免總覽卡片顯示舊的雲端快照
+  save();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'saveStandupSettings',enabled:state.standup.enabled,intervalMin:state.standup.intervalMin,startHour:state.standup.startHour,endHour:state.standup.endHour})})
+      .then(()=>refreshContext()).catch(()=>{});
+  }
+  renderOverview();
+}
+function saveStandupSettings(){
+  applyStandupSettings(
+    document.getElementById('standupEnabled').checked,
+    document.getElementById('standupInterval').value,
+    document.getElementById('standupStart').value,
+    document.getElementById('standupEnd').value
+  );
+  alert('已儲存起立提醒設定');
+}
+function saveStandupFromOverview(){
+  applyStandupSettings(
+    document.getElementById('ovStandupEnabled').checked,
+    document.getElementById('ovStandupInterval').value,
+    document.getElementById('ovStandupStart').value,
+    document.getElementById('ovStandupEnd').value
+  );
+  state.standupCollapsed=true; // 存檔後自動收合，首頁維持精簡
+  save();
+  renderOverview();
+}
+
+// ── 快速倒數計時（手動啟動的簡易倒數，獨立於自動起立提醒）──
+// 只顯示在首頁總覽「起立提醒」標題列，不用切到設定頁。
+// 暫停或倒數結束時，會把剩下（或原本設定）的分鐘數記住，下次開啟直接帶入，不用重新輸入。
+// CD_INSTANCES 用陣列設計是為了將來若要在別處也顯示同一份倒數狀態時能直接加進來同步。
+const CD_MAX_MIN=60;
+const CD_INSTANCES=[
+  {input:'ovCdMinInput',display:'ovCdDisplay',btn:'ovCdStartBtn'}
+];
+let cdRemainingSec=0,cdTimer=null,cdRunning=false;
+function formatMMSS(sec){
+  const m=Math.floor(sec/60).toString().padStart(2,'0');
+  const s=(sec%60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
+function cdClamp(min){return Math.min(CD_MAX_MIN,Math.max(1,min||1));}
+function syncCdInputs(min){
+  CD_INSTANCES.forEach(ids=>{const el=document.getElementById(ids.input);if(el)el.value=min;});
+}
+function setCdRunningUI(running){
+  CD_INSTANCES.forEach(ids=>{
+    const input=document.getElementById(ids.input),display=document.getElementById(ids.display),btn=document.getElementById(ids.btn);
+    if(btn)btn.textContent=running?'⏸':'▶';
+    if(input)input.style.display=running?'none':'';
+    if(display)display.style.display=running?'inline':'none';
+  });
+}
+function renderCountdown(){
+  const txt=formatMMSS(cdRemainingSec);
+  CD_INSTANCES.forEach(ids=>{const el=document.getElementById(ids.display);if(el)el.textContent=txt;});
+}
+// 只同步畫面顯示成目前的即時狀態，不會重設正在倒數的秒數；
+// 首頁總覽每次重繪（renderOverview）都要呼叫這個，避免正在跑的倒數被畫面重置。
+function syncCountdownDom(){
+  if(!cdRunning)syncCdInputs(cdClamp(Math.round(cdRemainingSec/60)||Number(state.countdownMin)||5));
+  renderCountdown();
+  setCdRunningUI(cdRunning);
+}
+function initCountdownUI(){
+  cdRemainingSec=cdClamp(Number(state.countdownMin)||5)*60;
+  syncCountdownDom();
+}
+function onCdInputChange(ev){
+  if(cdRunning)return;
+  const input=ev&&ev.target?ev.target:document.getElementById('cdMinInput');
+  const min=cdClamp(parseInt(input.value,10));
+  if(Number(input.value)>CD_MAX_MIN)input.value=CD_MAX_MIN;
+  cdRemainingSec=min*60;
+  syncCdInputs(min);
+}
+function readCdInputMin(fallback){
+  for(const ids of CD_INSTANCES){
+    const el=document.getElementById(ids.input);
+    if(el)return cdClamp(parseInt(el.value,10)||fallback);
+  }
+  return cdClamp(fallback);
+}
+function toggleCountdown(){cdRunning?pauseCountdown():startCountdown();}
+function startCountdown(){
+  unlockCdAudio(); // 按下開始是一次真正的使用者點擊，趁機解鎖音效，之後倒數結束（非點擊觸發）才播得出聲音
+  if(cdRemainingSec<=0)cdRemainingSec=readCdInputMin(5)*60;
+  cdRunning=true;
+  setCdRunningUI(true);
+  renderCountdown();
+  cdTimer=setInterval(()=>{
+    cdRemainingSec--;
+    renderCountdown();
+    if(cdRemainingSec<=0){
+      clearInterval(cdTimer);cdTimer=null;cdRunning=false;
+      setCdRunningUI(false);
+      // 自然倒數完：下次預設值恢復成原本設定的分鐘數（不會變成 0）
+      state.countdownMin=readCdInputMin(5);
+      cdRemainingSec=state.countdownMin*60;
+      renderCountdown();
+      save();
+      countdownAlert();
+    }
+  },1000);
+}
+function pauseCountdown(){
+  clearInterval(cdTimer);cdTimer=null;cdRunning=false;
+  setCdRunningUI(false);
+  const leftMin=cdClamp(Math.ceil(cdRemainingSec/60));
+  syncCdInputs(leftMin);
+  // 暫停：剩下的時間變成下次預設值
+  state.countdownMin=leftMin;
+  save();
+}
+function resetCountdown(){
+  clearInterval(cdTimer);cdTimer=null;cdRunning=false;
+  setCdRunningUI(false);
+  const min=readCdInputMin(state.countdownMin||5);
+  syncCdInputs(min);
+  cdRemainingSec=min*60;
+  renderCountdown();
+}
+// iOS/Safari 規定音效一定要在「使用者點擊」當下解鎖 AudioContext，
+// 之後才能在非點擊觸發的情境（例如倒數計時自然跑完）播出聲音；
+// 所以在 startCountdown()（真正的點擊事件）先呼叫這個解鎖，供 countdownAlert() 之後重複使用。
+let cdAudioCtx=null;
+function unlockCdAudio(){
+  try{
+    if(!cdAudioCtx)cdAudioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(cdAudioCtx.state==='suspended')cdAudioCtx.resume();
+  }catch(e){/* 瀏覽器不支援 Web Audio 就略過，畫面上的彈窗提醒仍會出現 */}
+}
+function countdownAlert(){
+  try{
+    if(!cdAudioCtx)cdAudioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(cdAudioCtx.state==='suspended')cdAudioCtx.resume();
+    const now=cdAudioCtx.currentTime;
+    for(let i=0;i<4;i++){
+      const o=cdAudioCtx.createOscillator(),g=cdAudioCtx.createGain();
+      o.connect(g);g.connect(cdAudioCtx.destination);
+      o.frequency.value=i%2===0?880:660;
+      g.gain.value=.25;
+      const t=now+i*0.35;
+      o.start(t);o.stop(t+0.25);
+    }
+  }catch(e){/* 部分瀏覽器仍會擋自動播音，忽略即可，畫面彈窗提醒還是會出現 */}
+  if(navigator.vibrate)try{navigator.vibrate([200,100,200,100,200]);}catch(e){/* 忽略 */}
+  alert('⏱️ 時間到！');
+}
+function saveWeatherLocation(){
+  save();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'saveWeatherLocation',city:state.weatherCity,lat:state.weatherLat,lon:state.weatherLon})})
+      .then(()=>refreshContext()).catch(()=>{});
+  }
+}
+function saveWeatherCity(){
+  state.weatherCity=document.getElementById('weatherCity').value.trim();
+  state.weatherLat='';state.weatherLon=''; // 手動輸入城市名，取消 GPS 定位模式
+  saveWeatherLocation();
+  alert('已儲存天氣地點');
+}
+function applyGpsPosition(pos,statusEl,silent){
+  const lat=pos.coords.latitude.toFixed(4), lon=pos.coords.longitude.toFixed(4);
+  const unchanged=state.weatherLat===lat&&state.weatherLon===lon;
+  if(unchanged&&silent)return; // 自動定位時，位置沒變就不用重存/重打後台；手動按按鈕則一定要有回饋
+  state.weatherLat=lat;state.weatherLon=lon;state.weatherCity='';
+  if(!unchanged)saveWeatherLocation(); else save();
+  const field=document.getElementById('weatherCity');
+  if(field)field.value=`📍 目前位置（${lat}, ${lon}）`;
+  if(statusEl){statusEl.textContent='✅ 已使用目前位置';setTimeout(()=>statusEl.textContent='',2500);}
+}
+const GPS_ERROR_LABEL={1:'權限被拒絕（請到系統/瀏覽器設定允許定位）',2:'無法判斷位置（訊號不佳、室內或裝置暫時抓不到定位）',3:'定位逾時（訊號太弱，可以再試一次）'};
+function useGpsLocation(){
+  const statusEl=document.getElementById('gpsStatus');
+  if(!navigator.geolocation){statusEl.textContent='❌ 此瀏覽器不支援定位';return;}
+  statusEl.textContent='定位中…';
+  navigator.geolocation.getCurrentPosition(
+    pos=>applyGpsPosition(pos,statusEl,false),
+    err=>{statusEl.textContent='❌ 定位失敗：'+(GPS_ERROR_LABEL[err.code]||err.message||'未知錯誤');},
+    {timeout:10000,enableHighAccuracy:false}
+  );
+}
+// 自動定位：已授權過的話，每次打開 Ybot 都靜默重新定位更新天氣位置，不用再按按鈕。
+// 第一次使用「不」自動觸發——手機瀏覽器（尤其 iOS Safari）常常要求定位權限詢問
+// 必須是使用者當下點擊的直接結果，自動偷偷觸發常常會被瀏覽器直接忽略、完全不跳出詢問。
+// 所以第一次改成在畫面上顯示「📍 點此使用目前位置」讓使用者自己點一下。
+function tryAutoLocate(){
+  if(!navigator.geolocation)return;
+  const go=()=>navigator.geolocation.getCurrentPosition(pos=>applyGpsPosition(pos,null,true),()=>{},{timeout:8000});
+  if(navigator.permissions&&navigator.permissions.query){
+    navigator.permissions.query({name:'geolocation'}).then(status=>{
+      if(status.state==='granted')go(); // 已授權過，不需要使用者手勢也能靜默更新
+    }).catch(()=>{});
+  }
+}
+function saveSettings(showToast){
+  state.ai.provider=document.getElementById('aiProvider').value;
+  state.ai.gemini=document.getElementById('geminiKey').value.trim();
+  state.ai.openai=document.getElementById('openaiKey').value.trim();
+  state.ai.nvidia=document.getElementById('nvidiaKey').value.trim();
+  state.gasUrl=document.getElementById('gasUrl').value.trim();
+  save();
+  pushSharedAiKeys();
+  if(showToast){const el=document.getElementById('connStatus');el.className='statusLine ok';el.textContent='✅ 已儲存';el.style.display='block';setTimeout(()=>el.style.display='none',1800);}
+}
+function saveLinked(){
+  state.remUrl=document.getElementById('remUrl').value.trim();
+  state.hltUrl=document.getElementById('hltUrl').value.trim();
+  save();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'saveLinkedBackends',remediationBackendUrl:state.remUrl,healthBackendUrl:state.hltUrl})}).catch(()=>{});
+  }
+  alert('已儲存整合設定');
+}
+async function testConnection(){
+  const el=document.getElementById('connStatus');
+  if(!state.gasUrl){el.className='statusLine bad';el.textContent='請先輸入後台網址';el.style.display='block';return;}
+  el.className='statusLine';el.textContent='連線中…';el.style.display='block';
+  try{
+    const r=await fetch(state.gasUrl+'?action=ping');
+    const d=await r.json();
+    if(d.ok){el.className='statusLine ok';el.textContent='✅ 連線成功：'+d.message;}
+    else{el.className='statusLine bad';el.textContent='❌ '+(d.error||'連線失敗');}
+  }catch(e){el.className='statusLine bad';el.textContent='❌ 連線失敗，請確認網址與部署設定';}
+}
+function renderLinks(){
+  const box=document.getElementById('linkList');
+  if(!box)return;
+  if(!state.links.length){box.innerHTML='<div class="empty">還沒有串聯的 App</div>';renderLinkChips();return;}
+  box.innerHTML=state.links.map((l,i)=>`
+    <div class="linkRow">
+      <button class="rmBtn" onclick="removeLinkRow(${i})">✕ 移除</button>
+      <div class="row2"><input class="fi" placeholder="名稱" value="${esc(l.name)}" onchange="state.links[${i}].name=this.value"></div>
+      <div class="row2"><input class="fi" placeholder="網頁網址 https://…" value="${esc(l.url)}" onchange="state.links[${i}].url=this.value"></div>
+      <div class="row2"><input class="fi" placeholder="後台 API 網址（選填）" value="${esc(l.apiUrl)}" onchange="state.links[${i}].apiUrl=this.value"></div>
+    </div>`).join('');
+  renderLinkChips();
+}
+function addLinkRow(){state.links.push({id:'app'+Date.now(),name:'',url:'',apiUrl:''});renderLinks();}
+function removeLinkRow(i){state.links.splice(i,1);renderLinks();}
+function renderLinkChips(){
+  const box=document.getElementById('linkChips');
+  const card=document.getElementById('linksCard');
+  if(!box)return;
+  const items=state.links.filter(l=>l.name&&l.url);
+  box.innerHTML=items.length
+    ? items.map(l=>`<a class="chip" href="${esc(l.url)}" target="_blank" rel="noopener">🔗 ${esc(l.name)}</a>`).join('')
+    : `<div class="ovItem ovEmpty">還沒有常用連結，可在「設定 → 我的其他 App」新增</div>`;
+  if(card)card.style.display='';
+}
+function saveLinksAll(){
+  save();renderLinkChips();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'saveOtherLinks',links:state.links})}).catch(()=>{});
+  }
+  alert('已儲存');
+}
+function clearChatOnly(){
+  if(!state.chat.length)return;
+  if(!confirm('確定清除 Ybot 對話紀錄？（不影響待辦/筆記等其他資料）'))return;
+  state.chat=[];save();renderChat();
+}
+function clearLocal(){
+  if(!confirm('確定清除本機的對話紀錄與筆記？（雲端資料不受影響）'))return;
+  state.chat=[];state.notes=[];save();renderChat();renderNotes();renderOverview();
+}
+
+// ── 待辦與筆記 ──────────────────────────
+document.querySelectorAll('input[name=ntype]').forEach(r=>r.addEventListener('change',()=>{
+  document.getElementById('dueField').style.display=r.value==='reminder'&&r.checked?'block':'none';
+}));
+
+// ── 錄音轉文字（MediaRecorder 錄音 → AI 轉文字稿 → 填入筆記內容框）──
+const REC_MIME=['audio/mp4','audio/webm;codecs=opus','audio/webm'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m))||'';
+let mediaRecorder=null,recChunks=[],recording=false;
+function initVoiceButton(){
+  const btn=document.getElementById('voiceBtn');
+  if(!btn)return;
+  btn.style.display=(navigator.mediaDevices&&window.MediaRecorder)?'inline-flex':'none';
+}
+async function toggleRecording(){
+  const btn=document.getElementById('voiceBtn');
+  const status=document.getElementById('voiceStatus');
+  if(recording){mediaRecorder&&mediaRecorder.stop();return;}
+  if(!(state.ai.gemini||state.ai.openai)){status.textContent='❌ 請先在「設定」填入 Gemini 或 OpenAI API Key';return;}
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    recChunks=[];
+    mediaRecorder=REC_MIME?new MediaRecorder(stream,{mimeType:REC_MIME}):new MediaRecorder(stream);
+    mediaRecorder.ondataavailable=e=>{if(e.data&&e.data.size)recChunks.push(e.data);};
+    mediaRecorder.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());
+      recording=false;btn.textContent='🎙️ 錄音';
+      const blob=new Blob(recChunks,{type:mediaRecorder.mimeType||REC_MIME||'audio/mp4'});
+      status.textContent='⏳ 轉換文字稿中…';
+      try{
+        const text=await transcribeAudio(blob,mediaRecorder.mimeType||REC_MIME||'audio/mp4');
+        if(text){
+          const ta=document.getElementById('noteContent');
+          ta.value=(ta.value?ta.value+' ':'')+text;
+        }
+        status.textContent=text?'✅ 已轉成文字稿':'⚠️ 沒有辨識到內容';
+      }catch(err){status.textContent='❌ 轉文字失敗：'+err.message;}
+    };
+    mediaRecorder.start();
+    recording=true;btn.textContent='🔴 錄音中…（再按一次停止）';status.textContent='';
+  }catch(err){status.textContent='❌ 無法取得麥克風權限';}
+}
+async function transcribeAudio(blob,mime){
+  const order=aiOrder().filter(id=>id!=='nvidia');
+  if(!order.length)throw new Error('請先設定 Gemini 或 OpenAI API Key');
+  let lastErr;
+  for(const id of order){
+    try{
+      if(id==='gemini')return await transcribeWithGemini(blob,mime);
+      if(id==='openai')return await transcribeWithOpenAI(blob,mime);
+    }catch(e){lastErr=e;}
+  }
+  throw lastErr||new Error('語音轉文字失敗');
+}
+function blobToBase64(blob){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(',')[1]);
+    r.onerror=rej;
+    r.readAsDataURL(blob);
+  });
+}
+async function transcribeWithGemini(blob,mime){
+  const b64=await blobToBase64(blob);
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${state.ai.gemini}`,
+    {method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({contents:[{parts:[
+       {text:'請將這段語音逐字轉成繁體中文文字稿，只輸出文字稿內容本身，不要加任何說明、標題或引號。'},
+       {inline_data:{mime_type:mime.split(';')[0],data:b64}}
+     ]}],generationConfig:{temperature:.2,maxOutputTokens:1024}})});
+  const d=await r.json();if(!r.ok)throw new Error(d.error?.message||`Gemini ${r.status}`);
+  return (d.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+}
+async function transcribeWithOpenAI(blob,mime){
+  const fd=new FormData();
+  const ext=mime.includes('mp4')?'mp4':mime.includes('webm')?'webm':'m4a';
+  fd.append('file',blob,`rec.${ext}`);
+  fd.append('model','whisper-1');
+  const r=await fetch('https://api.openai.com/v1/audio/transcriptions',
+    {method:'POST',headers:{'Authorization':`Bearer ${state.ai.openai}`},body:fd});
+  const d=await r.json();if(!r.ok)throw new Error(d.error?.message||`OpenAI ${r.status}`);
+  return (d.text||'').trim();
+}
+initVoiceButton();
+let noteFilter='all';
+function setFilter(f){
+  noteFilter=f;
+  document.querySelectorAll('.filterRow .chip').forEach(c=>c.classList.toggle('active',c.dataset.f===f));
+  renderNotes();
+}
+function addNote(){
+  const type=document.querySelector('input[name=ntype]:checked').value;
+  const content=document.getElementById('noteContent').value.trim();
+  if(!content){alert('請輸入內容');return;}
+  const dueAt=type==='reminder'?document.getElementById('noteDue').value:'';
+  if(type==='reminder'&&!dueAt){alert('請設定提醒時間');return;}
+  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt:dueAt?new Date(dueAt).toISOString():'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+  state.notes.unshift(n);save();
+  document.getElementById('noteContent').value='';
+  document.getElementById('noteDue').value='';
+  renderNotes();renderOverview();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+  }
+}
+// AI 智慧新增：讀懂輸入內容自動判斷類型（瑣事／待辦／提醒），
+// 若內容牽涉具體日期時間，額外呼叫後台在 Google 日曆建立事件。
+async function addNoteAI(){
+  const content=document.getElementById('noteContent').value.trim();
+  if(!content){alert('請輸入內容');return;}
+  const btn=document.getElementById('aiAddBtn');
+  const origText=btn.textContent;
+  btn.disabled=true;btn.textContent='🤖 分析中…';
+  try{
+    const now=new Date();
+    const weekday=['日','一','二','三','四','五','六'][now.getDay()];
+    const prompt=`你是待辦事項分類助手。現在時間是 ${now.toLocaleString('zh-TW')}（星期${weekday}）。
+請分析以下使用者輸入的內容，判斷：
+1. type：歸類為 "note"(瑣事筆記，無時間性)、"todo"(待辦事項，需要做但沒有明確時間)、"reminder"(需要在特定時間提醒) 三者之一
+2. content：整理過的簡潔內容，保留原意
+3. dueAt：若 type 是 reminder，或內容有明確提到日期/時間，換算成 ISO 8601 本地時間字串（例如 2026-08-15T14:00:00），無法判斷則為 null
+4. calendarEvent：若內容牽涉「具體日期或時間的行程/約會/會議/活動」，給出 {"title":"事件標題","start":"ISO時間","end":"ISO時間，未提及長度則預設比start晚1小時"}；若只是單純提醒事項、無具體行程性質，則為 null
+
+使用者輸入：「${content}」
+
+只回傳 JSON，不要有其他文字或說明，格式：
+{"type":"note|todo|reminder","content":"...","dueAt":"ISO字串或null","calendarEvent":{"title":"...","start":"...","end":"..."}或null}`;
+    const raw=await callAI(prompt);
+    const m=raw.match(/\{[\s\S]*\}/);
+    if(!m)throw new Error('AI 回覆格式錯誤，請稍後再試');
+    const parsed=JSON.parse(m[0]);
+    const type=['note','todo','reminder'].includes(parsed.type)?parsed.type:'note';
+    const dueAt=parsed.dueAt&&!isNaN(new Date(parsed.dueAt))?new Date(parsed.dueAt).toISOString():'';
+    const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content:parsed.content||content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+    state.notes.unshift(n);save();
+    document.getElementById('noteContent').value='';
+    document.getElementById('noteDue').value='';
+    renderNotes();renderOverview();
+    if(state.gasUrl){
+      fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+    }
+    let msg=`✅ 已新增為「${TYPE_LABEL[type]}」`;
+    if(parsed.calendarEvent&&parsed.calendarEvent.start&&!isNaN(new Date(parsed.calendarEvent.start))){
+      if(state.gasUrl){
+        try{
+          const r=await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addCalendarEvent',title:parsed.calendarEvent.title||n.content,start:parsed.calendarEvent.start,end:parsed.calendarEvent.end})});
+          const d=await r.json();
+          msg+=d.ok?'，並已加入 Google 日曆':'（日曆建立失敗：'+(d.error||'未知錯誤')+'）';
+        }catch(e){msg+='（日曆建立失敗，請確認雲端後台網址）';}
+      }else{
+        msg+='（偵測到日期，但尚未設定雲端後台網址，無法加入 Google 日曆）';
+      }
+    }
+    alert(msg);
+  }catch(e){
+    alert('❌ AI 分析失敗：'+e.message+'\n可改用上方手動選類型後按「新增」。');
+  }finally{
+    btn.disabled=false;btn.textContent=origText;
+  }
+}
+function toggleNote(id){
+  const n=state.notes.find(x=>x.id===id);if(!n)return;
+  n.done=!n.done;save();renderNotes();renderOverview();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id,patch:{done:n.done?'true':''}})}).catch(()=>{});
+  }
+}
+function deleteNote(id){
+  state.notes=state.notes.filter(x=>x.id!==id);save();renderNotes();renderOverview();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'deleteNote',id})}).catch(()=>{});
+  }
+}
+function syncNotesToCloud(){
+  if(!state.gasUrl){alert('請先設定並儲存雲端後台網址');return;}
+  fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'syncAll',notes:state.notes})})
+    .then(r=>r.json()).then(d=>alert(d.ok?'✅ '+d.message:'❌ '+d.error)).catch(()=>alert('❌ 同步失敗'));
+}
+const TYPE_LABEL={note:'📌 瑣事',todo:'✅ 待辦',reminder:'⏰ 提醒'};
+function renderNotes(){
+  const list=document.getElementById('noteList');
+  let items=state.notes.filter(n=>noteFilter==='all'||n.type===noteFilter);
+  items=items.slice().sort((a,b)=>{
+    if(!!a.done!==!!b.done)return a.done?1:-1;
+    return new Date(b.createdAt)-new Date(a.createdAt);
+  });
+  if(!items.length){list.innerHTML='<div class="empty">還沒有紀錄，新增一筆看看 👆</div>';return;}
+  const now=new Date();
+  list.innerHTML=items.map(n=>{
+    const overdue=n.dueAt&&!n.done&&new Date(n.dueAt)<now;
+    const dueTxt=n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+    const checkable=n.type!=='note';
+    return `<div class="noteItem">
+      ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
+      <div class="noteBody">
+        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${TYPE_LABEL[n.type]}</span>${esc(n.content)}</div>
+        ${dueTxt?`<div class="noteMeta ${overdue?'overdue':''}">${overdue?'🔴 已逾期 · ':'⏰ '}${dueTxt}</div>`:''}
+      </div>
+      <button class="delBtn" onclick="deleteNote('${n.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// ── 雲端上下文（Gmail／日曆／其他系統）────
+async function refreshContext(){
+  if(!state.gasUrl){document.getElementById('ctxStatus').textContent='尚未設定雲端後台（設定 → 雲端後台）';return;}
+  document.getElementById('ctxStatus').textContent='更新中…';
+  try{
+    const r=await fetch(state.gasUrl+'?action=context');
+    const d=await r.json();
+    if(d.ok){
+      state.context=d.context;state.contextAt=new Date().toISOString();save();
+      // 用雲端筆記合併本機（雲端為主，保留本機尚未同步的新項目）
+      const cloudIds=new Set((d.context.notes||[]).map(n=>n.id));
+      const localOnly=state.notes.filter(n=>!cloudIds.has(n.id));
+      const cloudNotes=(d.context.notes||[]).map(n=>({...n,done:n.done==='true'}));
+      state.notes=[...cloudNotes,...localOnly];
+      if(d.context.standup)state.standup=d.context.standup;
+      save();
+      renderNotes();
+      showCtxStatus();
+      renderOverview();
+    }else{document.getElementById('ctxStatus').textContent='❌ '+(d.error||'讀取失敗');}
+  }catch(e){document.getElementById('ctxStatus').textContent='❌ 讀取失敗，請確認後台網址';}
+}
+function showCtxStatus(){
+  const t=state.contextAt?new Date(state.contextAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}):'';
+  const c=state.context;
+  document.getElementById('ctxStatus').textContent=c?`📡 資料更新於 ${t} · 📅${(c.calendar||[]).length}行程 · 📬${(c.gmail||[]).length}未讀信`:'尚未載入雲端資料';
+}
+
+function gcalDayUrl(d){
+  return `https://calendar.google.com/calendar/r/day/${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+}
+// ── 首頁主動總覽：今日行程／重要 Email／今日新聞 ──
+function renderHeroWeather(w){
+  const el=document.getElementById('heroWeatherMini');
+  if(!el)return;
+  el.innerHTML=w
+    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><span class="t">${w.temp}°</span><span class="d">${esc(w.desc||'')}</span>`
+    : `<a href="javascript:void(0)" onclick="useGpsLocation()" style="color:#c4b5fd;font-size:.72rem;">📍 定位天氣</a>`;
+}
+function renderHeroSchedule(events){
+  const el=document.getElementById('heroScheduleMini');
+  if(!el)return;
+  if(!events||!events.length){
+    el.innerHTML=`<a href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">今天沒有行程 ↗</a>`;
+    return;
+  }
+  const LIMIT=4;
+  const items=events.slice(0,LIMIT).map(ev=>{
+    const d=new Date(ev.start);
+    return `<a href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${esc(ev.title)}</a>`;
+  }).join('');
+  const more=events.length>LIMIT?`<a class="more" href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">+${events.length-LIMIT} 項 ↗</a>`:'';
+  el.innerHTML=items+more;
+}
+// 用真實本機／雲端資料組出小型儀表板（甜甜圈進度圈＋統計方塊），
+// 待辦完成率不需要雲端也能算；信件／新聞數量沒連雲端時顯示「—」。
+function buildDashStatsHtml(c){
+  const actionable=state.notes.filter(n=>n.type!=='note');
+  const doneCount=actionable.filter(n=>n.done).length;
+  const totalActionable=actionable.length;
+  const pct=totalActionable?Math.round(doneCount/totalActionable*100):0;
+  const pendingCount=totalActionable-doneCount;
+  const mailCount=c?(c.gmail||[]).length:null;
+  const news=c?(c.news||{}):{};
+  const newsCount=c?[...(news.domestic||[]),...(news.world||[]),...(news.education||[])].length:null;
+  const su=(c&&c.standup)||state.standup;
+  const standupOn=!!(su&&su.enabled);
+  return `<div class="dashStats">`+
+    `<div class="dashRing" style="background:conic-gradient(var(--pri) ${pct}%,var(--line) 0)"><div class="dashRingInner">${pct}<span>%</span></div></div>`+
+    `<div class="dashTiles">`+
+      `<div class="dashTile todo"><b>${pendingCount}</b><span>待辦中</span></div>`+
+      `<div class="dashTile mail"><b>${mailCount===null?'—':mailCount}</b><span>未讀信件</span></div>`+
+      `<div class="dashTile news"><b>${newsCount===null?'—':newsCount}</b><span>今日新聞</span></div>`+
+      `<div class="dashTile standup${standupOn?' on':''}"><b>${standupOn?'✅':'⭕'}</b><span>起立提醒</span></div>`+
+      buildSchoolTileHtml()+
+    `</div></div>`;
+}
+// 「校長助理」是同一個 origin（cyysongyy.github.io）底下的另一個 App，
+// 直接唯讀讀它存在 localStorage 的調課紀錄（不用網路請求），算出今日代課節數。
+// 使用者沒開過校長助理、localStorage 沒有這個 key 時就完全不顯示這格。
+function buildSchoolTileHtml(){
+  let raw;
+  try{raw=localStorage.getItem('pa_sub_records');}catch(e){return '';}
+  if(raw===null)return '';
+  let recs;
+  try{recs=JSON.parse(raw)||[];}catch(e){return '';}
+  const todayStr=new Date().toISOString().slice(0,10);
+  const todayCount=recs.filter(r=>r&&r.date===todayStr).length;
+  return `<div class="dashTile school"><b>${todayCount}</b><span>今日代課</span></div>`;
+}
+function renderOverview(){
+  const box=document.getElementById('overviewCard');
+  const c=state.context;
+  renderHeroWeather(c&&c.weather);
+  const todayStr=new Date().toDateString();
+  const todayEvents=c?(c.calendar||[]).filter(ev=>new Date(ev.start).toDateString()===todayStr):[];
+  renderHeroSchedule(todayEvents);
+  const dashHtml=buildDashStatsHtml(c);
+  if(!c){
+    box.style.display='block';
+    box.innerHTML=`<div class="section-title">☀️ 今日總覽</div>${dashHtml}<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
+    return;
+  }
+
+  const mails=c.gmail||[];
+  const mailHtml=mails.length
+    ? mails.map(m=>`<div class="ovMailItem"><span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span></div>`).join('')
+    : `<div class="ovItem ovEmpty">沒有未讀的重要信件</div>`;
+
+  const news=c.news||{};
+  const newsGroups=[['國內',news.domestic],['國際',news.world],['教育',news.education]];
+  const hasNews=newsGroups.some(([,list])=>list&&list.length);
+  const newsHtml=hasNews
+    ? newsGroups.filter(([,list])=>list&&list.length).map(([label,list])=>
+        `<div class="ovNewsGroup"><b>${label}</b>`+
+        list.map(n=>`<div class="ovItem">・<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a></div>`).join('')+
+        `</div>`
+      ).join('')
+    : `<div class="ovItem ovEmpty">暫無新聞資料</div>`;
+
+  const su=c.standup||state.standup;
+  const standupStatus=su&&su.enabled
+    ? `✅ 已啟用 · 每 ${su.intervalMin} 分鐘 · ${String(su.startHour).padStart(2,'0')}:00~${String(su.endHour).padStart(2,'0')}:00`
+    : '⭕ 尚未啟用';
+  const standupArrow=state.standupCollapsed?'▸':'▾';
+  const standupHtml=state.standupCollapsed
+    ? `<div class="ovItem ovSub">${standupStatus}</div>`
+    : `<div class="ovItem ovSub" style="margin-bottom:8px;">${standupStatus}</div>`+
+      `<div class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">`+
+      `<input type="checkbox" id="ovStandupEnabled" style="width:16px;height:16px;accent-color:var(--pri);" ${su&&su.enabled?'checked':''}>`+
+      `<label for="ovStandupEnabled" style="margin:0;font-size:.82rem;">啟用起立提醒</label></div>`+
+      `<div class="field" style="margin-bottom:8px;"><label style="display:block;font-size:.72rem;color:var(--tx2);margin-bottom:4px;">提醒間隔（分鐘）</label>`+
+      `<input type="number" id="ovStandupInterval" class="fi" min="15" max="480" step="15" value="${su?su.intervalMin:60}" style="margin-bottom:0;"></div>`+
+      `<div class="row2" style="margin-bottom:10px;">`+
+      `<select id="ovStandupStart" class="fi" style="margin-bottom:0;">${hourOptionsHtml(su?su.startHour:8)}</select>`+
+      `<select id="ovStandupEnd" class="fi" style="margin-bottom:0;">${hourOptionsHtml(su?su.endHour:18)}</select></div>`+
+      `<div class="row2" style="align-items:center;">`+
+      `<button class="btn" style="padding:7px 16px;font-size:.8rem;flex:0 0 auto;" onclick="saveStandupFromOverview()">儲存</button>`+
+      `<button class="btn ghost" style="padding:7px 16px;font-size:.8rem;flex:0 0 auto;" onclick="toggleStandupCollapse()">▲ 收起</button>`+
+      `</div>`;
+
+  const newsArrow=state.newsCollapsed?'▸':'▾';
+  box.innerHTML=
+    `<div class="section-title"><span class="ovLivePulse" title="資料即時更新"></span>☀️ 今日總覽</div>`+
+    dashHtml+
+    `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
+    `<div class="ovSection"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
+    `<div class="ovSection">`+
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">`+
+    `<div class="ovLabel ovLabelToggle" style="margin-bottom:0;" onclick="toggleStandupCollapse()">🧍 起立提醒 <span class="ovToggleIcon">${standupArrow}</span></div>`+
+    `<span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">`+
+    `<input type="number" id="ovCdMinInput" min="1" max="60" oninput="onCdInputChange(event)" value="5" style="width:38px;text-align:center;font-weight:800;color:var(--pri);border:1px solid var(--line);border-radius:8px;padding:3px 2px;background:var(--bg);font-size:.76rem;">`+
+    `<span id="ovCdDisplay" style="display:none;font-weight:800;color:var(--pri);font-size:.76rem;min-width:38px;text-align:center;">05:00</span>`+
+    `<button type="button" id="ovCdStartBtn" onclick="toggleCountdown()" title="開始/暫停快速倒數計時" style="border:none;background:var(--pri);color:#fff;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:.62rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">▶</button>`+
+    `<button type="button" onclick="resetCountdown()" title="重設倒數計時" style="border:none;background:none;color:var(--tx3);cursor:pointer;font-size:.8rem;padding:2px;flex-shrink:0;">⟲</button>`+
+    `</span></div>`+
+    `${standupHtml}</div>`;
+  box.style.display='block';
+  syncCountdownDom(); // 重繪後把倒數計時的即時狀態同步回畫面，不會重設正在跑的秒數
+}
+function toggleNewsCollapse(){
+  state.newsCollapsed=!state.newsCollapsed;
+  save();
+  renderOverview();
+}
+function toggleStandupCollapse(){
+  state.standupCollapsed=!state.standupCollapsed;
+  save();
+  renderOverview();
+}
+function hourOptionsHtml(selected){
+  const sel=Number(selected);
+  return Array.from({length:24},(_,h)=>`<option value="${h}"${h===sel?' selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('');
+}
+
+// ── AI 呼叫（Gemini / OpenAI / NVIDIA，自動備援）──
+const NV_ENDPOINT='https://integrate.api.nvidia.com/v1/chat/completions';
+// NVIDIA 模型目錄常會輪替／棄用，若又失效請至 build.nvidia.com/models 換一個目前可用的模型 id
+const NV_DEFAULT_MODEL='nvidia/llama-3.1-nemotron-70b-instruct';
+function aiOrder(){
+  const p=state.ai.provider;
+  const all=['gemini','openai','nvidia'].filter(id=>state.ai[id]);
+  if(p==='auto'||!p)return all;
+  return [p,...all.filter(x=>x!==p)].filter(id=>state.ai[id]);
+}
+async function callAI(prompt,image){
+  const order=aiOrder();
+  if(!order.length)throw new Error('請先在「設定」填入至少一組 AI API Key');
+  let lastErr;
+  for(const id of order){
+    try{return await callProvider(id,prompt,image);}catch(e){lastErr=e;}
+  }
+  throw lastErr||new Error('AI 呼叫失敗');
+}
+async function callProvider(id,prompt,image){
+  if(id==='gemini'){
+    const parts=[{text:prompt}];
+    if(image)parts.push({inline_data:{mime_type:image.mime||'image/jpeg',data:image.b64}});
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${state.ai.gemini}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:.6,maxOutputTokens:1024}})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error?.message||`Gemini ${r.status}`);
+    return d.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  }
+  const isNv=id==='nvidia';
+  const key=isNv?state.ai.nvidia:state.ai.openai;
+  const model=isNv?NV_DEFAULT_MODEL:'gpt-4o-mini';
+  const endpoint=isNv?NV_ENDPOINT:'https://api.openai.com/v1/chat/completions';
+  // NVIDIA 預設模型是純文字模型，附圖問答建議優先用 Gemini／OpenAI（gpt-4o-mini 支援看圖）
+  const content=image
+    ?[{type:'text',text:prompt},{type:'image_url',image_url:{url:`data:${image.mime||'image/jpeg'};base64,${image.b64}`}}]
+    :prompt;
+  const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body:JSON.stringify({model,messages:[{role:'user',content}],temperature:.6,max_tokens:1024})});
+  const d=await r.json();if(!r.ok)throw new Error(d.error?.message||d.detail||`${id} ${r.status}`);
+  return d.choices?.[0]?.message?.content||'';
+}
+
+// ── 圖片附件（讓 Ybot 看圖回答，不存進聊天紀錄避免 localStorage 塞爆，只用於當次問答）──
+let pendingImage=null;
+function handleChatImageSelect(e){
+  const f=e.target.files[0];
+  if(!f)return;
+  if(!f.type.startsWith('image/')){alert('請選擇圖片檔');e.target.value='';return;}
+  const r=new FileReader();
+  r.onload=ev=>{
+    pendingImage={dataUrl:ev.target.result,b64:ev.target.result.split(',')[1],mime:f.type||'image/jpeg'};
+    renderChatImagePreview();
+  };
+  r.onerror=()=>alert('圖片讀取失敗');
+  r.readAsDataURL(f);
+  e.target.value='';
+}
+function removeChatImage(){pendingImage=null;renderChatImagePreview();}
+function renderChatImagePreview(){
+  const box=document.getElementById('chatImagePreview');
+  if(!pendingImage){box.style.display='none';box.innerHTML='';return;}
+  box.innerHTML=`<div class="imgPreview"><img src="${pendingImage.dataUrl}"><span>已附加圖片，送出後 Ybot 會看圖回答</span><button class="rmImgBtn" onclick="removeChatImage()">✕</button></div>`;
+  box.style.display='block';
+}
+
+// ── 對話 ────────────────────────────────
+function renderChat(){
+  const box=document.getElementById('chatBox');
+  if(!state.chat.length){box.innerHTML='';return;}
+  box.innerHTML=state.chat.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('');
+  box.scrollTop=box.scrollHeight;
+}
+function quickAsk(text){document.getElementById('chatInput').value=text;sendChat();}
+// 校務管理系統（CK-SCHADMIN）是同一個 origin 下的另一個 App，直接唯讀讀取其
+// localStorage 快取（該 App 自己會把 Firebase 資料同步進 localStorage）。
+// 教職員資料依使用者指示全部帶入（含電話/地址/出生年月日等）；仍排除身分證
+// 字號與薪資兩項（查詢用途極低、外洩風險極高，即使個人使用也不划算），
+// 學生成績（cksch_grades）涉及未成年人資料，完全不讀取。
+function buildSchoolDbContext(){
+  const lines=[];
+  const read=k=>{try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}};
+  const events=read('ck_events');
+  if(Array.isArray(events)&&events.length){
+    const today=new Date();today.setHours(0,0,0,0);
+    const until=new Date(today.getTime()+14*86400000);
+    const upcoming=events.filter(e=>{const d=new Date(e.date);return d>=today&&d<=until;})
+      .sort((a,b)=>a.date.localeCompare(b.date));
+    if(upcoming.length)lines.push('校務行事曆（近14天）：'+upcoming.map(e=>`${e.name}(${e.date}${e.type?'·'+e.type:''})`).join('；'));
+  }
+  const adminTasks=read('ck_admin');
+  if(Array.isArray(adminTasks)){
+    const pending=adminTasks.filter(t=>t.status!=='完成');
+    if(pending.length)lines.push('校務行政業務（未完成）：'+pending.slice(0,30).map(t=>`${t.name}(負責人${t.owner||'—'}·${t.status}${t.due?'·期限'+t.due:''})`).join('；'));
+  }
+  const trainings=read('ck_training');
+  if(Array.isArray(trainings)&&trainings.length){
+    const recent=trainings.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,15);
+    if(recent.length)lines.push('教師研習記錄（近期）：'+recent.map(t=>`${t.teacher}·${t.name}(${t.hours}小時${t.date?'·'+t.date:''})`).join('；'));
+  }
+  const staffList=read('ck_staff');
+  if(Array.isArray(staffList)&&staffList.length){
+    lines.push('教職員名冊（共'+staffList.length+'位，不含身分證字號/薪資）：'+
+      staffList.slice(0,60).map(s=>{
+        const parts=[s.unit,s.title,s.rank,s.phone?'電話'+s.phone:'',s.mobile?'手機'+s.mobile:'',
+          s.birth?'出生'+s.birth:'',s.startDate?'到職'+s.startDate:'',s.addr?'地址'+s.addr:'',s.note].filter(Boolean);
+        return `${s.name}(${parts.join('·')})`;
+      }).join('；'));
+  }
+  return lines.join('\n');
+}
+function buildContextText(){
+  const lines=[];
+  const pendingTodos=state.notes.filter(n=>n.type==='todo'&&!n.done);
+  const pendingReminders=state.notes.filter(n=>n.type==='reminder'&&!n.done);
+  const notesOnly=state.notes.filter(n=>n.type==='note');
+  if(pendingTodos.length)lines.push('未完成待辦：'+pendingTodos.map(n=>n.content).join('；'));
+  if(pendingReminders.length)lines.push('提醒事項：'+pendingReminders.map(n=>`${n.content}（${n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW'):''}）`).join('；'));
+  if(notesOnly.length)lines.push('瑣事筆記：'+notesOnly.slice(0,50).map(n=>n.content).join('；'));
+  const knownLinks=state.links.filter(l=>l.name&&l.url);
+  if(knownLinks.length)lines.push('使用者自建的其他 App：'+knownLinks.map(l=>`${l.name}(${l.url})`).join('；'));
+  if(state.useSchoolDb){
+    const schoolCtx=buildSchoolDbContext();
+    if(schoolCtx)lines.push(schoolCtx);
+  }
+  const c=state.context;
+  if(c){
+    if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
+    if((c.calendar||[]).length)lines.push('未來行程：'+c.calendar.map(ev=>`${ev.title}(${new Date(ev.start).toLocaleString('zh-TW')})`).join('；'));
+    if((c.gmail||[]).length)lines.push('未讀重要信件：'+c.gmail.map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
+    if(c.news){
+      const n=c.news;
+      const newsFlat=[...(n.domestic||[]),...(n.world||[]),...(n.education||[])];
+      if(newsFlat.length)lines.push('今日新聞：'+newsFlat.map(x=>x.title).join('；'));
+    }
+    if(c.linked?.remediation)lines.push('考卷批改系統摘要：'+JSON.stringify(c.linked.remediation));
+    if(c.linked?.health)lines.push('健康預測系統摘要：'+JSON.stringify(c.linked.health));
+    if(c.linked?.other&&Object.keys(c.linked.other).length)lines.push('其他串聯 App 摘要：'+JSON.stringify(c.linked.other));
+  }
+  return lines.join('\n')||'（目前沒有額外資料，如需行程/信件請先在「設定」連接雲端後台）';
+}
+// ── 對話直接下指令執行（新增待辦/瑣事/提醒、建立日曆事件、標記完成、刪除）──
+// AI 判斷使用者是在下指令而非單純問答時，會在回覆文字後方附加一段
+// <<<ACTION>>>...<<<END>>> JSON，前端解析後才真的執行對應操作；
+// 顯示給使用者的訊息只保留自然語言部分，動作結果另外用一則系統訊息呈現。
+function parseChatActions(raw){
+  const m=raw.match(/<<<ACTION>>>([\s\S]*?)<<<END>>>/);
+  if(!m)return{text:raw.trim(),actions:[]};
+  const text=(raw.slice(0,m.index)+raw.slice(m.index+m[0].length)).trim();
+  let actions=[];
+  try{actions=JSON.parse(m[1].trim()).actions||[];}catch(e){/* 解析失敗就當作沒有動作，不影響正常回覆 */}
+  return{text,actions};
+}
+async function execChatActions(actions){
+  const log=[];
+  for(const a of actions){
+    try{
+      if(a.op==='add_note'){
+        const type=['note','todo','reminder'].includes(a.type)?a.type:'note';
+        const content=(a.content||'').trim();
+        if(!content)continue;
+        const dueAt=a.dueAt&&!isNaN(new Date(a.dueAt))?new Date(a.dueAt).toISOString():'';
+        const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+        state.notes.unshift(n);
+        if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+        log.push(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${new Date(dueAt).toLocaleString('zh-TW')}）`:''}`);
+      }else if(a.op==='add_calendar_event'&&a.start){
+        if(!state.gasUrl){log.push(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
+        const r=await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end})});
+        const d=await r.json();
+        log.push(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${new Date(a.start).toLocaleString('zh-TW')}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
+      }else if(a.op==='complete_note'&&a.match){
+        const matches=state.notes.filter(n=>!n.done&&n.content.toLowerCase().includes(String(a.match).toLowerCase()));
+        if(matches.length===1){
+          matches[0].done=true;
+          if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id:matches[0].id,patch:{done:'true'}})}).catch(()=>{});
+          log.push(`✅ 已標記完成：${matches[0].content}`);
+        }else if(!matches.length){
+          log.push(`⚠️ 找不到符合「${a.match}」的未完成項目`);
+        }else{
+          log.push(`⚠️ 「${a.match}」符合多筆項目，請到「待辦與筆記」手動勾選`);
+        }
+      }else if(a.op==='delete_note'&&a.match){
+        const matches=state.notes.filter(n=>n.content.toLowerCase().includes(String(a.match).toLowerCase()));
+        if(matches.length===1){
+          if(confirm(`要刪除「${matches[0].content}」嗎？`)){
+            state.notes=state.notes.filter(n=>n.id!==matches[0].id);
+            if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'deleteNote',id:matches[0].id})}).catch(()=>{});
+            log.push(`🗑️ 已刪除：${matches[0].content}`);
+          }else{
+            log.push(`↩️ 已取消刪除：${matches[0].content}`);
+          }
+        }else if(!matches.length){
+          log.push(`⚠️ 找不到符合「${a.match}」的項目`);
+        }else{
+          log.push(`⚠️ 「${a.match}」符合多筆項目，請到「待辦與筆記」手動刪除`);
+        }
+      }
+    }catch(e){log.push(`⚠️ 執行失敗：${e.message}`);}
+  }
+  if(log.length){save();renderNotes();renderOverview();}
+  return log;
+}
+async function sendChat(){
+  const input=document.getElementById('chatInput');
+  const text=input.value.trim();
+  if(!text&&!pendingImage)return;
+  const image=pendingImage;
+  pendingImage=null;renderChatImagePreview();
+  state.chat.push({role:'user',text:image?`📷 ${text||'（已附加一張圖片）'}`:text});
+  input.value='';renderChat();save();
+  const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;sendBtn.textContent='思考中…';
+  const history=state.chat.slice(-8).map(m=>`${m.role==='user'?'使用者':'Ybot'}：${m.text}`).join('\n');
+  const imgNote=image?'\n\n使用者這則訊息附加了一張圖片，請先仔細看圖片內容再回答（例如辨識文字、描述內容、回答關於圖片的問題；若圖片裡有多個待辦事項或行程，也可以一次全部整理成多個 add_note／add_calendar_event 動作）。':'';
+  const actionSpec=`\n\n如果使用者是在「下指令」要你做事（新增待辦/瑣事/提醒、把某件事加入行事曆、把某個待辦標記完成、刪除某個待辦或筆記），除了正常的自然語言回覆之外，請在回覆最後面另起一段附加動作指令，格式如下（單純問答、沒有要做事就完全不要附加這段）：
+<<<ACTION>>>
+{"actions":[
+  {"op":"add_note","type":"note|todo|reminder","content":"...","dueAt":"ISO時間或null"},
+  {"op":"add_calendar_event","title":"...","start":"ISO時間","end":"ISO時間"},
+  {"op":"complete_note","match":"用來找到該筆記的關鍵字"},
+  {"op":"delete_note","match":"用來找到該筆記的關鍵字"}
+]}
+<<<END>>>
+一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
+  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）：\n${buildContextText()}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  try{
+    const raw=await callAI(prompt,image);
+    const{text:replyText,actions}=parseChatActions(raw||'');
+    state.chat.push({role:'bot',text:replyText||'（沒有取得回覆，請確認 AI 設定）'});
+    save();renderChat();
+    if(actions.length){
+      const log=await execChatActions(actions);
+      if(log.length){state.chat.push({role:'sys',text:log.join('\n')});save();renderChat();}
+    }
+  }catch(e){
+    state.chat.push({role:'bot',text:'⚠️ '+e.message});
+    save();renderChat();
+  }
+  sendBtn.disabled=false;sendBtn.textContent='送出';
+}
+document.getElementById('chatInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}
+});
+
+// ── 右上角時鐘（西曆日期時間 + 農曆）──────
+const LUNAR_INFO=[0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
+0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
+0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
+0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
+0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
+0x06ca0,0x0b550,0x15355,0x04da0,0x0a5d0,0x14573,0x052d0,0x0a9a8,0x0e950,0x06aa0,
+0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
+0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b5a0,0x195a6,
+0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
+0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,
+0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
+0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
+0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
+0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
+0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0,
+0x14b63,0x09370,0x049f8,0x04970,0x064b0,0x168a6,0x0ea50,0x06b20,0x1a6c4,0x0aae0,
+0x0a2e0,0x0d2e3,0x0c960,0x0d557,0x0d4a0,0x0da50,0x05d55,0x056a0,0x0a6d0,0x055d4,
+0x052d0,0x0a9b8,0x0a950,0x0b4a0,0x0b6a6,0x0ad50,0x055a0,0x0aba4,0x0a5b0,0x052b0,
+0x0b273,0x06930,0x07337,0x06aa0,0x0ad50,0x14b55,0x04b60,0x0a570,0x054e4,0x0d160,
+0x0e968,0x0d520,0x0daa0,0x16aa6,0x056d0,0x04ae0,0x0a9d4,0x0a2d0,0x0d150,0x0f252,0x0d520];
+function lYearDays(y){let sum=348;for(let i=0x8000;i>0x8;i>>=1){sum+=(LUNAR_INFO[y-1900]&i)?1:0;}return sum+leapDays(y);}
+function leapMonth(y){return LUNAR_INFO[y-1900]&0xf;}
+function leapDays(y){return leapMonth(y)?((LUNAR_INFO[y-1900]&0x10000)?30:29):0;}
+function monthDays(y,m){return (LUNAR_INFO[y-1900]&(0x10000>>m))?30:29;}
+function solar2lunar(y,m,d){
+  if(y<1900||y>2100)return null;
+  const baseDate=new Date(1900,0,31);
+  const objDate=new Date(y,m-1,d);
+  let offset=Math.round((objDate-baseDate)/86400000);
+  let lYear=1900,temp=0;
+  for(;lYear<2101&&offset>0;lYear++){temp=lYearDays(lYear);offset-=temp;}
+  if(offset<0){offset+=temp;lYear--;}
+  let isLeap=false,lMonth=1,daysOfMonth=0;
+  const leap=leapMonth(lYear);
+  for(;lMonth<13&&offset>0;lMonth++){
+    if(leap>0&&lMonth===(leap+1)&&!isLeap){lMonth--;isLeap=true;daysOfMonth=leapDays(lYear);}
+    else{daysOfMonth=monthDays(lYear,lMonth);}
+    if(isLeap&&lMonth===(leap+1))isLeap=false;
+    offset-=daysOfMonth;
+  }
+  if(offset===0&&leap>0&&lMonth===leap+1){if(isLeap){isLeap=false;}else{isLeap=true;lMonth--;}}
+  if(offset<0){offset+=daysOfMonth;lMonth--;}
+  return {lYear,lMonth,lDay:offset+1,isLeap};
+}
+const CN_DAY=['初一','初二','初三','初四','初五','初六','初七','初八','初九','初十',
+  '十一','十二','十三','十四','十五','十六','十七','十八','十九','二十',
+  '廿一','廿二','廿三','廿四','廿五','廿六','廿七','廿八','廿九','三十'];
+const CN_MONTH=['正月','二月','三月','四月','五月','六月','七月','八月','九月','十月','冬月','臘月'];
+function updateClock(){
+  const now=new Date();
+  const dateStr=`${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const l=solar2lunar(now.getFullYear(),now.getMonth()+1,now.getDate());
+  const lunarStr=l?`農曆${l.isLeap?'閏':''}${CN_MONTH[l.lMonth-1]}${CN_DAY[l.lDay-1]}`:'';
+  document.getElementById('clockBox').innerHTML=
+    `<div class="clockTime">${dateStr}</div>`+(lunarStr?`<div class="clockLunar">${lunarStr}</div>`:'');
+}
+updateClock();
+setInterval(updateClock,30000);
+
+// ── 初始化 ──────────────────────────────
+renderChat();
+renderNotes();
+renderLinkChips();
+initCountdownUI();
+if(state.context)showCtxStatus();
+renderOverview();
+if(state.gasUrl)refreshContext();
+tryAutoLocate();
+// 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
+// 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
+setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
+</script>
+</body>
+</html>
