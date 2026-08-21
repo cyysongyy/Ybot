@@ -225,7 +225,9 @@ textarea.fi{resize:vertical;min-height:56px;}
   font-weight:800;font-size:.86rem;color:var(--pri);}
 .dashRingInner span{font-size:.62rem;margin-left:1px;}
 .dashTiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:1;min-width:0;}
-.dashTile{border-radius:10px;padding:7px 8px;text-align:center;}
+.dashTile{border-radius:10px;padding:7px 8px;text-align:center;cursor:pointer;transition:transform .12s,box-shadow .12s;}
+.dashTile:hover{transform:translateY(-1px);box-shadow:var(--shadow);}
+.dashTile:active{transform:translateY(0);}
 .dashTile b{display:block;font-size:.98rem;font-weight:800;line-height:1.3;}
 .dashTile span{font-size:.6rem;color:var(--tx2);}
 .dashTile.todo{background:rgba(109,40,217,.1);}
@@ -493,7 +495,8 @@ function defaults(){return{
     {id:'principal-assistant',name:'Principal Assistant',url:'https://cyysongyy.github.io/principal-assistant/',apiUrl:''},
     {id:'ck-schadmin',name:'校務管理系統',url:'https://cyysongyy.github.io/CK-SCHADMIN/',apiUrl:''},
     {id:'micro-politics',name:'Micro Politics',url:'https://cyysongyy.github.io/micro-politics/',apiUrl:''},
-    {id:'footdrop-rehab',name:'垂足復健 5 步驟',url:'https://cyysongyy.github.io/5-steps-rehab-for-footdrop/',apiUrl:''}
+    {id:'footdrop-rehab',name:'垂足復健 5 步驟',url:'https://cyysongyy.github.io/5-steps-rehab-for-footdrop/',apiUrl:''},
+    {id:'young-app-library',name:'Young App Library',url:'https://cyysongyy.github.io/Young-App-Library/',apiUrl:''}
   ],
   notes:[],chat:[],
   context:null,contextAt:null
@@ -1145,10 +1148,10 @@ function buildDashStatsHtml(c){
   return `<div class="dashStats">`+
     `<div class="dashRing" style="background:conic-gradient(var(--pri) ${pct}%,var(--line) 0)"><div class="dashRingInner">${pct}<span>%</span></div></div>`+
     `<div class="dashTiles">`+
-      `<div class="dashTile todo"><b>${pendingCount}</b><span>待辦中</span></div>`+
-      `<div class="dashTile mail"><b>${mailCount===null?'—':mailCount}</b><span>未讀信件</span></div>`+
-      `<div class="dashTile news"><b>${newsCount===null?'—':newsCount}</b><span>今日新聞</span></div>`+
-      `<div class="dashTile standup${standupOn?' on':''}"><b>${standupOn?'✅':'⭕'}</b><span>起立提醒</span></div>`+
+      `<div class="dashTile todo" onclick="jumpToTodos()"><b>${pendingCount}</b><span>待辦中</span></div>`+
+      `<div class="dashTile mail" onclick="jumpToMail()"><b>${mailCount===null?'—':mailCount}</b><span>未讀信件</span></div>`+
+      `<div class="dashTile news" onclick="jumpToNews()"><b>${newsCount===null?'—':newsCount}</b><span>今日新聞</span></div>`+
+      `<div class="dashTile standup${standupOn?' on':''}" onclick="jumpToStandup()"><b>${standupOn?'✅':'⭕'}</b><span>起立提醒</span></div>`+
       buildSchoolTileHtml()+
     `</div></div>`;
 }
@@ -1163,7 +1166,7 @@ function buildSchoolTileHtml(){
   try{recs=JSON.parse(raw)||[];}catch(e){return '';}
   const todayStr=new Date().toISOString().slice(0,10);
   const todayCount=recs.filter(r=>r&&r.date===todayStr).length;
-  return `<div class="dashTile school"><b>${todayCount}</b><span>今日代課</span></div>`;
+  return `<div class="dashTile school" onclick="window.open('https://cyysongyy.github.io/principal-assistant/','_blank')"><b>${todayCount}</b><span>今日代課</span></div>`;
 }
 function renderOverview(){
   const box=document.getElementById('overviewCard');
@@ -1226,8 +1229,8 @@ function renderOverview(){
     `<div class="section-title"><span class="ovLivePulse" title="資料即時更新"></span>☀️ 今日總覽</div>`+
     dashHtml+
     `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
-    `<div class="ovSection"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
-    `<div class="ovSection">`+
+    `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
+    `<div class="ovSection" id="ovSectionStandup">`+
     `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">`+
     `<div class="ovLabel ovLabelToggle" style="margin-bottom:0;" onclick="toggleStandupCollapse()">🧍 起立提醒 <span class="ovToggleIcon">${standupArrow}</span></div>`+
     `<span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">`+
@@ -1249,6 +1252,20 @@ function toggleStandupCollapse(){
   state.standupCollapsed=!state.standupCollapsed;
   save();
   renderOverview();
+}
+function scrollToOverviewSection(id){
+  const el=document.getElementById(id);
+  if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function jumpToTodos(){switchTab('notes');}
+function jumpToMail(){window.open('https://mail.google.com/mail/#inbox','_blank');}
+function jumpToNews(){
+  if(state.newsCollapsed){state.newsCollapsed=false;save();renderOverview();}
+  setTimeout(()=>scrollToOverviewSection('ovSectionNews'),50);
+}
+function jumpToStandup(){
+  if(state.standupCollapsed){state.standupCollapsed=false;save();renderOverview();}
+  setTimeout(()=>scrollToOverviewSection('ovSectionStandup'),50);
 }
 function hourOptionsHtml(selected){
   const sel=Number(selected);
@@ -1334,6 +1351,16 @@ function quickAsk(text){document.getElementById('chatInput').value=text;sendChat
 // 教職員資料依使用者指示全部帶入（含電話/地址/出生年月日等）；仍排除身分證
 // 字號與薪資兩項（查詢用途極低、外洩風險極高，即使個人使用也不划算），
 // 學生成績（cksch_grades）涉及未成年人資料，完全不讀取。
+// 教職員的 birth 欄位是民國年月日（6或7碼數字，例如「700101」），直接原封不動
+// 塞給 AI 很容易被誤解析或猜錯月份，這裡先轉成「8/10」這種好判斷的月/日格式，
+// 讓「幾月有誰生日」這類查詢能用真實資料正確回答，而不是憑印象亂猜。
+function parseRocBirthMonthDay(birth){
+  if(!birth||!/^\d{6,7}$/.test(birth))return null;
+  const mmdd=birth.slice(-4);
+  const mm=parseInt(mmdd.slice(0,2),10),dd=parseInt(mmdd.slice(2,4),10);
+  if(mm<1||mm>12||dd<1||dd>31)return null;
+  return `${mm}/${dd}`;
+}
 function buildSchoolDbContext(){
   const lines=[];
   const read=k=>{try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}};
@@ -1359,8 +1386,9 @@ function buildSchoolDbContext(){
   if(Array.isArray(staffList)&&staffList.length){
     lines.push('教職員名冊（共'+staffList.length+'位，不含身分證字號/薪資）：'+
       staffList.slice(0,60).map(s=>{
+        const md=parseRocBirthMonthDay(s.birth);
         const parts=[s.unit,s.title,s.rank,s.phone?'電話'+s.phone:'',s.mobile?'手機'+s.mobile:'',
-          s.birth?'出生'+s.birth:'',s.startDate?'到職'+s.startDate:'',s.addr?'地址'+s.addr:'',s.note].filter(Boolean);
+          md?'生日'+md:(s.birth?'出生'+s.birth:''),s.startDate?'到職'+s.startDate:'',s.addr?'地址'+s.addr:'',s.note].filter(Boolean);
         return `${s.name}(${parts.join('·')})`;
       }).join('；'));
   }
