@@ -16,6 +16,12 @@
  *    - 誰可以存取：所有人（Anyone）
  * 5. 複製部署網址，貼入 ybot.html「⚙️ 設定 → 雲端後台」→ 測試連線
  *
+ * AI 摘要（選填，供每日簡報/晚間提醒/本週回顧生成友善文字用）：
+ * 支援 Gemini／OpenAI／NVIDIA，可只設定一組，也可都設定（自動依優先順序備援）。
+ * 每個 provider 各自執行一次：
+ *   setAiConfig('gemini','你的KEY') / setAiConfig('openai','sk-...') / setAiConfig('nvidia','nvapi-...')
+ * 選填：想指定優先用哪個，執行一次 setAiPriority('nvidia')（預設 'auto'：依序 gemini→openai→nvidia）
+ *
  * 授權提醒：Gmail／日曆彙整需要額外授權 Gmail 與 Calendar 權限，
  * 重新部署後首次執行會跳出授權視窗，請同意（僅你本人帳號讀取，不外傳）。
  *
@@ -36,39 +42,79 @@ const NOTE_COLS = ['id', 'type', 'content', 'dueAt', 'done', 'createdAt', 'notif
 const NOTIFY_EMAIL = '';
 
 // ── AI 設定（選填，供每日簡報生成友善摘要用）────
-// 執行一次 setAiConfig('gemini','你的KEY') 或 setAiConfig('openai','sk-...')
+// 支援 Gemini／OpenAI／NVIDIA 三選一或都設定，設定多組時會依優先順序自動備援。
+// 每個 provider 各自執行一次 setAiConfig('gemini','你的KEY') / setAiConfig('openai','sk-...') / setAiConfig('nvidia','nvapi-...')
+// 選填：想指定優先用哪個 provider，執行一次 setAiPriority('nvidia')（不設定則為 'auto'：依序 gemini→openai→nvidia，跳過沒設 Key 的）
+const AI_PROVIDERS = ['gemini', 'openai', 'nvidia'];
 function setAiConfig(provider, key) {
+  if (AI_PROVIDERS.indexOf(provider) === -1) throw new Error('provider 必須是 gemini／openai／nvidia 其中之一');
   const props = PropertiesService.getScriptProperties();
-  props.setProperty('AI_PROVIDER', provider || 'gemini');
-  props.setProperty('AI_KEY', key || '');
-  return '✅ AI 設定完成：' + (provider || 'gemini');
+  props.setProperty('AI_KEY_' + provider.toUpperCase(), key || '');
+  return '✅ 已儲存 ' + provider + ' 的 AI Key';
+}
+function setAiPriority(provider) {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('AI_PRIORITY', (provider && AI_PROVIDERS.indexOf(provider) !== -1) ? provider : 'auto');
+  return '✅ AI 優先順序設定為：' + (props.getProperty('AI_PRIORITY'));
 }
 function getAiConfig() {
   const props = PropertiesService.getScriptProperties();
-  return { provider: props.getProperty('AI_PROVIDER') || 'gemini', key: props.getProperty('AI_KEY') || '' };
+  return {
+    priority: props.getProperty('AI_PRIORITY') || 'auto',
+    gemini: props.getProperty('AI_KEY_GEMINI') || '',
+    openai: props.getProperty('AI_KEY_OPENAI') || '',
+    nvidia: props.getProperty('AI_KEY_NVIDIA') || ''
+  };
 }
+function hasAnyAiKey(cfg) { return !!(cfg.gemini || cfg.openai || cfg.nvidia); }
+// 依優先順序排出要嘗試的 provider 清單，只列出有設 Key 的
+function aiOrder(cfg) {
+  const available = AI_PROVIDERS.filter(id => cfg[id]);
+  if (cfg.priority === 'auto' || !cfg.priority) return available;
+  return [cfg.priority].concat(available.filter(id => id !== cfg.priority)).filter(id => cfg[id]);
+}
+
+// NVIDIA 模型目錄常會輪替／棄用，若又失效請至 build.nvidia.com/models 換一個目前可用的模型 id
+// （跟前端 index.html 的 NV_DEFAULT_MODEL 保持同一個，方便一起更新）
+const NV_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const NV_DEFAULT_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct';
+
+// 依序嘗試設定好的 provider，第一個成功回傳文字的就用它；全部失敗則回傳空字串
+// （呼叫端本來就會把空字串當「沒有 AI 摘要」處理，不影響其他功能正常運作）
 function callAI(prompt) {
-  const { provider, key } = getAiConfig();
-  if (!key) return '';
-  try {
-    if (provider === 'openai') {
-      const res = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-        headers: { Authorization: 'Bearer ' + key },
-        payload: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.6 })
-      });
-      const d = JSON.parse(res.getContentText());
-      return d.choices && d.choices[0] ? d.choices[0].message.content : '';
-    } else {
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=' + key;
-      const res = UrlFetchApp.fetch(url, {
-        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-        payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-      const d = JSON.parse(res.getContentText());
-      return d.candidates && d.candidates[0] ? d.candidates[0].content.parts[0].text : '';
-    }
-  } catch (err) { return ''; }
+  const cfg = getAiConfig();
+  const order = aiOrder(cfg);
+  for (let i = 0; i < order.length; i++) {
+    try {
+      const text = callAiProvider(order[i], cfg[order[i]], prompt);
+      if (text) return text;
+    } catch (err) { /* 這個 provider 失敗就換下一個，不中斷 */ }
+  }
+  return '';
+}
+function callAiProvider(provider, key, prompt) {
+  if (provider === 'gemini') {
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=' + key;
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.6, maxOutputTokens: 1024 } })
+    });
+    const d = JSON.parse(res.getContentText());
+    if (res.getResponseCode() !== 200) throw new Error((d.error && d.error.message) || ('Gemini ' + res.getResponseCode()));
+    return (d.candidates && d.candidates[0] && d.candidates[0].content.parts[0].text) || '';
+  }
+  // OpenAI／NVIDIA 都是 OpenAI 相容的 chat/completions 介面
+  const isNv = provider === 'nvidia';
+  const endpoint = isNv ? NV_ENDPOINT : 'https://api.openai.com/v1/chat/completions';
+  const model = isNv ? NV_DEFAULT_MODEL : 'gpt-4o-mini';
+  const res = UrlFetchApp.fetch(endpoint, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + key },
+    payload: JSON.stringify({ model: model, messages: [{ role: 'user', content: prompt }], temperature: 0.6, max_tokens: 1024 })
+  });
+  const d = JSON.parse(res.getContentText());
+  if (res.getResponseCode() !== 200) throw new Error((d.error && d.error.message) || d.detail || (provider + ' ' + res.getResponseCode()));
+  return (d.choices && d.choices[0] && d.choices[0].message.content) || '';
 }
 
 // ── 初始化試算表 ────────────────────────────────
@@ -590,8 +636,8 @@ function fmtItemLine(p) {
 // AI 輔助分級 + 今日提醒文字（選填，需先設定 AI Key）。單一次呼叫回傳 JSON，
 // 只允許「升級」清單內既有項目，不允許新增清單外的項目，避免幻覺。
 function aiPrioritize(items, ctx) {
-  const { key } = getAiConfig();
-  if (!key || !items.length) return {};
+  const cfg = getAiConfig();
+  if (!hasAnyAiKey(cfg) || !items.length) return {};
   const prompt = `你是 Young 的個人行政幕僚 Ybot，個性溫暖直接。以下是他目前的待辦／提醒清單（JSON），每項已有初步等級（red=今天必須, orange=建議今天, green=可延後）：\n` +
     JSON.stringify(items.map(i => ({ id: i.id, content: i.content, dueAt: i.dueAt, level: i.level }))) + '\n\n' +
     `背景資訊（僅供你判斷是否要升級等級，不要新增清單外的項目、不要臆測不存在的細節）：\n` +
@@ -688,8 +734,7 @@ function weeklyReview() {
 }
 
 function aiWeeklyNarrative(addedThisWeek, decisionNotesThisWeek, ctx) {
-  const { key } = getAiConfig();
-  if (!key) return '';
+  if (!hasAnyAiKey(getAiConfig())) return '';
   const prompt = `你是 Young 的個人行政幕僚 Ybot，個性溫暖直接。以下是本週資料：\n` +
     `本週新增待辦/提醒/瑣事共 ${addedThisWeek.length} 筆\n` +
     `本週瑣事筆記：${JSON.stringify(decisionNotesThisWeek.map(n => n.content))}\n` +
