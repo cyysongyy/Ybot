@@ -280,7 +280,12 @@ a.ovMailItem:hover{text-decoration:underline;}
 <button class="theme-btn" id="themeBtn" style="position:fixed;top:16px;right:16px;z-index:9;" onclick="toggleTheme()">🌓</button>
 
 <div class="alarm-widget">
-  <button class="theme-btn" id="alarmBtn" onclick="startYbotAlarm()" title="定時提醒（透過 iPhone 捷徑啟動）">🔔</button>
+  <button class="theme-btn" id="alarmBtn" onclick="startYbotAlarm()" title="定時提醒（透過 iPhone 捷徑啟動）">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 5a2 2 0 0 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6"/>
+      <path d="M9 17v1a3 3 0 0 0 6 0v-1"/>
+    </svg>
+  </button>
   <div class="alarm-min-adjust">
     <button onclick="event.stopPropagation();adjAlarmMin(-5)" title="減少 5 分鐘">−</button>
     <span id="alarm-min-val">15</span>
