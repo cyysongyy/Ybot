@@ -39,7 +39,7 @@ body{font-family:'Microsoft JhengHei','Noto Sans TC',system-ui,sans-serif;backgr
 a{color:var(--pri);}
 button,input,textarea{font-family:inherit;}
 button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:8px;}
-.wrap{max-width:760px;margin:0 auto;padding:78px 14px 60px;transition:max-width .2s;}
+.wrap{max-width:760px;margin:0 auto;padding:16px 14px 60px;transition:max-width .2s;}
 @media(min-width:860px){.wrap{max-width:1080px;}}
 .hero{position:relative;overflow:hidden;border-radius:20px;padding:20px 20px 22px;margin-bottom:16px;
   background:radial-gradient(circle at 50% 30%,rgba(139,92,246,.30),transparent 60%),
@@ -98,16 +98,6 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   border-radius:50%;cursor:pointer;font-size:1.05rem;display:flex;align-items:center;justify-content:center;
   box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s;}
 .theme-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
-.alarm-widget{position:fixed;top:16px;left:16px;z-index:9;display:flex;flex-direction:column;align-items:center;gap:4px;}
-.alarm-min-adjust{display:flex;align-items:center;gap:2px;background:var(--card);border:1px solid var(--line);
-  border-radius:20px;padding:2px 3px;box-shadow:var(--shadow);}
-.alarm-min-adjust button{width:16px;height:16px;border-radius:50%;border:none;background:transparent;
-  color:var(--tx);font-size:11px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;
-  cursor:pointer;-webkit-tap-highlight-color:transparent;}
-.alarm-min-adjust span{font-size:10px;font-weight:700;color:var(--tx2);min-width:18px;text-align:center;}
-.alarm-hint-bubble{position:fixed;top:64px;left:16px;z-index:10;max-width:230px;
-  font-size:11px;line-height:1.6;text-align:left;background:var(--card);border:1px solid var(--pri);
-  color:var(--tx);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow-md);}
 .tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px;margin:16px 0;box-shadow:var(--shadow);}
 .tab{flex:1;text-align:center;padding:9px 6px;border-radius:10px;font-size:.86rem;font-weight:700;color:var(--tx2);cursor:pointer;user-select:none;
   transition:background-color .15s,color .15s,box-shadow .15s;}
@@ -278,24 +268,6 @@ a.ovMailItem:hover{text-decoration:underline;}
 </head>
 <body>
 <button class="theme-btn" id="themeBtn" style="position:fixed;top:16px;right:16px;z-index:9;" onclick="toggleTheme()">🌓</button>
-
-<div class="alarm-widget">
-  <button class="theme-btn" id="alarmBtn" onclick="startYbotAlarm()" title="定時提醒（透過 iPhone 捷徑啟動）">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M10 5a2 2 0 0 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6"/>
-      <path d="M9 17v1a3 3 0 0 0 6 0v-1"/>
-    </svg>
-  </button>
-  <div class="alarm-min-adjust">
-    <button onclick="event.stopPropagation();adjAlarmMin(-5)" title="減少 5 分鐘">−</button>
-    <span id="alarm-min-val">15</span>
-    <button onclick="event.stopPropagation();adjAlarmMin(5)" title="增加 5 分鐘">＋</button>
-  </div>
-</div>
-<div id="alarm-hint" class="alarm-hint-bubble" style="display:none">
-  <strong style="color:var(--pri)">首次使用需設定一次捷徑：</strong><br>
-  捷徑 App → ＋新增 → 搜尋「計時器」→「啟動計時器」→ 輸入來源選「<strong>捷徑輸入</strong>」→ 命名為「<strong>Ybot提醒</strong>」→ 儲存
-</div>
 
 <div class="wrap">
   <div class="tabs">
@@ -1614,29 +1586,6 @@ function updateClock(){
 }
 updateClock();
 setInterval(updateClock,30000);
-
-// ── 定時提醒（透過 iPhone 捷徑啟動計時，網頁本身無法在背景響鬧，改用
-// shortcuts:// URL scheme 呼叫 iOS「捷徑」App 啟動原生計時器，離開頁面／
-// 螢幕鎖定也會準時響。捷徑需使用者自己在「捷徑」App 建立一次，名稱要叫
-// 「Ybot提醒」、輸入來源設「捷徑輸入」、動作用「啟動計時器」）──
-let alarmMin=parseInt(localStorage.getItem('ybotAlarmMin')||'15');
-function syncAlarmMinDom(){
-  const el=document.getElementById('alarm-min-val');
-  if(el)el.textContent=alarmMin;
-  const btn=document.getElementById('alarmBtn');
-  if(btn)btn.title=`定時提醒（透過 iPhone 捷徑啟動，目前設定 ${alarmMin} 分鐘）`;
-}
-function adjAlarmMin(delta){
-  alarmMin=Math.max(5,Math.min(120,alarmMin+delta));
-  try{localStorage.setItem('ybotAlarmMin',alarmMin);}catch(e){}
-  syncAlarmMinDom();
-}
-function startYbotAlarm(){
-  const hint=document.getElementById('alarm-hint');
-  if(hint){hint.style.display='block';setTimeout(()=>hint.style.display='none',6000);}
-  window.location.href='shortcuts://run-shortcut?name='+encodeURIComponent('Ybot提醒')+'&input=text&text='+alarmMin;
-}
-syncAlarmMinDom();
 
 // ── 初始化 ──────────────────────────────
 renderChat();
