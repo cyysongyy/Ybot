@@ -590,7 +590,7 @@ function dailyBrief() {
 // 較遠期（3天以上）的行程不併入這裡，避免跟下面「📅 未來行程」整週清單重複列。
 function buildPriorities(ctx) {
   const now = new Date();
-  const actionable = ctx.notes.filter(n => n.type !== 'note' && n.done !== 'true');
+  const actionable = ctx.notes.filter(n => n.type !== 'note' && n.type !== 'idea' && n.done !== 'true');
   const todoItems = actionable.map(n => ({ id: n.id, type: n.type, content: n.content, dueAt: n.dueAt, level: ruleLevel(n, now) }));
   const ai = aiPrioritize(todoItems, ctx);
   (ai.upgrades || []).forEach(u => {

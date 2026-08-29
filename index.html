@@ -183,6 +183,7 @@ textarea.fi{resize:vertical;min-height:56px;}
 .typeTag.note{background:rgba(148,163,184,.18);color:var(--tx2);}
 .typeTag.todo{background:rgba(13,148,136,.14);color:#0d9488;}
 .typeTag.reminder{background:rgba(217,119,6,.14);color:var(--warn);}
+.typeTag.idea{background:rgba(109,40,217,.14);color:#7c3aed;}
 .delBtn{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;transition:color .15s;}
 .delBtn:hover{color:var(--bad);}
 .empty{text-align:center;color:var(--tx3);font-size:.84rem;padding:28px 0;}
@@ -339,6 +340,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <label><input type="radio" name="ntype" value="note" checked><span>📌 瑣事筆記</span></label>
         <label><input type="radio" name="ntype" value="todo"><span>✅ 待辦</span></label>
         <label><input type="radio" name="ntype" value="reminder"><span>⏰ 定時提醒</span></label>
+        <label><input type="radio" name="ntype" value="idea"><span>💡 想法與心法</span></label>
       </div>
       <textarea id="noteContent" class="fi" placeholder="寫下內容…"></textarea>
       <div class="row2" style="margin-bottom:10px;">
@@ -362,6 +364,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span class="chip" data-f="note" onclick="setFilter('note')">📌 瑣事</span>
         <span class="chip" data-f="todo" onclick="setFilter('todo')">✅ 待辦</span>
         <span class="chip" data-f="reminder" onclick="setFilter('reminder')">⏰ 提醒</span>
+        <span class="chip" data-f="idea" onclick="setFilter('idea')">💡 心法</span>
       </div>
       <div id="noteList"></div>
     </div>
@@ -1052,7 +1055,7 @@ function syncNotesToCloud(){
   fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'syncAll',notes:state.notes})})
     .then(r=>r.json()).then(d=>alert(d.ok?'✅ '+d.message:'❌ '+d.error)).catch(()=>alert('❌ 同步失敗'));
 }
-const TYPE_LABEL={note:'📌 瑣事',todo:'✅ 待辦',reminder:'⏰ 提醒'};
+const TYPE_LABEL={note:'📌 瑣事',todo:'✅ 待辦',reminder:'⏰ 提醒',idea:'💡 心法'};
 function renderNotes(){
   const list=document.getElementById('noteList');
   let items=state.notes.filter(n=>noteFilter==='all'||n.type===noteFilter);
@@ -1065,7 +1068,7 @@ function renderNotes(){
   list.innerHTML=items.map(n=>{
     const overdue=n.dueAt&&!n.done&&new Date(n.dueAt)<now;
     const dueTxt=n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
-    const checkable=n.type!=='note';
+    const checkable=n.type!=='note'&&n.type!=='idea';
     return `<div class="noteItem">
       ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
       <div class="noteBody">
@@ -1135,7 +1138,7 @@ function renderHeroSchedule(events){
 // 用真實本機／雲端資料組出小型儀表板（甜甜圈進度圈＋統計方塊），
 // 待辦完成率不需要雲端也能算；信件／新聞數量沒連雲端時顯示「—」。
 function buildDashStatsHtml(c){
-  const actionable=state.notes.filter(n=>n.type!=='note');
+  const actionable=state.notes.filter(n=>n.type!=='note'&&n.type!=='idea');
   const doneCount=actionable.filter(n=>n.done).length;
   const totalActionable=actionable.length;
   const pct=totalActionable?Math.round(doneCount/totalActionable*100):0;
