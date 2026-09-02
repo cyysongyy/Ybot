@@ -127,7 +127,11 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .msg{max-width:82%;padding:10px 13px;border-radius:14px;font-size:.88rem;line-height:1.6;white-space:pre-wrap;box-shadow:0 1px 2px rgba(15,23,42,.05);}
 .msg.bot{align-self:flex-start;background:var(--bub);color:var(--tx);border-bottom-left-radius:4px;}
 .msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;border-bottom-right-radius:4px;box-shadow:var(--shadow-pri);}
-.msg.sys{align-self:center;color:var(--tx3);font-size:.74rem;box-shadow:none;background:none;padding:4px 10px;}
+.msg.sys{align-self:center;color:var(--tx3);font-size:.74rem;box-shadow:none;background:none;padding:4px 10px;text-align:center;}
+.undoBtn{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:20px;border:1px solid var(--line);
+  background:var(--card);color:var(--tx2);font-size:.72rem;font-weight:700;cursor:pointer;vertical-align:baseline;
+  -webkit-tap-highlight-color:transparent;transition:border-color .15s,color .15s;}
+.undoBtn:hover{border-color:var(--pri);color:var(--pri);}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
 .chip{font-size:.76rem;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--tx2);cursor:pointer;
   transition:border-color .15s,color .15s,box-shadow .15s;}
@@ -515,6 +519,14 @@ load();
     if(!state.links.some(l=>l.id===def.id)){state.links.push(def);changed=true;}
   });
   if(changed)save();
+})();
+// 刪除是軟刪除（留著資料才能按「↩ 復原」），但不能無限累積。
+// 超過 30 天的已刪除項目在開啟時真的清掉——遠超過任何合理的反悔時間。
+(function pruneDeletedNotes(){
+  const cutoff=Date.now()-30*86400000;
+  const before=state.notes.length;
+  state.notes=state.notes.filter(n=>!(n.deleted&&n.deletedAt&&new Date(n.deletedAt).getTime()<cutoff));
+  if(state.notes.length!==before)save();
 })();
 
 // ── 與同一個 cyysongyy.github.io origin 底下的其他 App（例如校長助理）共用 AI Key ──
@@ -994,7 +1006,7 @@ async function addNoteAI(){
     const weekday=['日','一','二','三','四','五','六'][now.getDay()];
     const prompt=`你是待辦事項分類助手。現在時間是 ${now.toLocaleString('zh-TW')}（星期${weekday}）。
 請分析以下使用者輸入的內容，判斷：
-1. type：歸類為 "note"(瑣事筆記，無時間性)、"todo"(待辦事項，需要做但沒有明確時間)、"reminder"(需要在特定時間提醒) 三者之一
+1. type：歸類為 "note"(瑣事筆記，無時間性)、"todo"(待辦事項，需要做但沒有明確時間)、"reminder"(需要在特定時間提醒)、"idea"(想法與心法：心得、原則、靈感、提醒自己的觀念，不是要去做的事) 四者之一
 2. content：整理過的簡潔內容，保留原意
 3. dueAt：若 type 是 reminder，或內容有明確提到日期/時間，換算成 ISO 8601 本地時間字串（例如 2026-08-15T14:00:00），無法判斷則為 null
 4. calendarEvent：若內容牽涉「具體日期或時間的行程/約會/會議/活動」，給出 {"title":"事件標題","start":"ISO時間","end":"ISO時間，未提及長度則預設比start晚1小時"}；若只是單純提醒事項、無具體行程性質，則為 null
@@ -1002,12 +1014,12 @@ async function addNoteAI(){
 使用者輸入：「${content}」
 
 只回傳 JSON，不要有其他文字或說明，格式：
-{"type":"note|todo|reminder","content":"...","dueAt":"ISO字串或null","calendarEvent":{"title":"...","start":"...","end":"..."}或null}`;
+{"type":"note|todo|reminder|idea","content":"...","dueAt":"ISO字串或null","calendarEvent":{"title":"...","start":"...","end":"..."}或null}`;
     const raw=await callAI(prompt);
     const m=raw.match(/\{[\s\S]*\}/);
     if(!m)throw new Error('AI 回覆格式錯誤，請稍後再試');
     const parsed=JSON.parse(m[0]);
-    const type=['note','todo','reminder'].includes(parsed.type)?parsed.type:'note';
+    const type=NOTE_TYPES.includes(parsed.type)?parsed.type:'note';
     const dueAt=parsed.dueAt&&!isNaN(new Date(parsed.dueAt))?new Date(parsed.dueAt).toISOString():'';
     const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content:parsed.content||content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
     state.notes.unshift(n);save();
@@ -1043,21 +1055,63 @@ function toggleNote(id){
     fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id,patch:{done:n.done?'true':''}})}).catch(()=>{});
   }
 }
+// 軟刪除：本機只標記 deleted（保留資料供復原），雲端仍照舊真刪。
+// 復原時會用 restoreNote() 把本機那筆放回來，並重新 addNote 推回雲端。
 function deleteNote(id){
-  state.notes=state.notes.filter(x=>x.id!==id);save();renderNotes();renderOverview();
+  const n=state.notes.find(x=>x.id===id);if(!n||n.deleted)return;
+  n.deleted=true;n.deletedAt=new Date().toISOString();save();renderNotes();renderOverview();
   if(state.gasUrl){
     fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'deleteNote',id})}).catch(()=>{});
   }
 }
+function restoreNote(id){
+  const n=state.notes.find(x=>x.id===id);if(!n)return;
+  delete n.deleted;delete n.deletedAt;save();renderNotes();renderOverview();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+  }
+}
+// 修改既有筆記的欄位。只開放 content／dueAt／type 三個欄位，
+// 避免 AI 動到 id／createdAt／done 這些有其他邏輯在依賴的欄位。
+const EDITABLE_NOTE_FIELDS=['content','dueAt','type'];
+function updateNoteFields(id,patch){
+  const n=state.notes.find(x=>x.id===id&&!x.deleted);if(!n)return null;
+  const before={};const applied={};
+  for(const k of EDITABLE_NOTE_FIELDS){
+    if(!(k in patch))continue;
+    let v=patch[k];
+    if(k==='type'){if(!NOTE_TYPES.includes(v))continue;}
+    if(k==='dueAt')v=v&&!isNaN(new Date(v))?new Date(v).toISOString():'';
+    if(k==='content'){v=String(v??'').trim();if(!v)continue;}
+    if(v===n[k])continue;
+    before[k]=n[k];applied[k]=v;n[k]=v;
+  }
+  if(!Object.keys(applied).length)return null;
+  save();renderNotes();renderOverview();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id,patch:applied})}).catch(()=>{});
+  }
+  return{before,applied};
+}
 function syncNotesToCloud(){
   if(!state.gasUrl){alert('請先設定並儲存雲端後台網址');return;}
-  fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'syncAll',notes:state.notes})})
+  // 只送還在的項目：後台 syncAll 是照 id upsert，把軟刪除的一起送過去
+  // 會讓已刪除的項目在雲端復活。
+  fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'syncAll',notes:liveNotes()})})
     .then(r=>r.json()).then(d=>alert(d.ok?'✅ '+d.message:'❌ '+d.error)).catch(()=>alert('❌ 同步失敗'));
 }
 const TYPE_LABEL={note:'📌 瑣事',todo:'✅ 待辦',reminder:'⏰ 提醒',idea:'💡 心法'};
+// 單一事實來源：新增類型時只要動 TYPE_LABEL，AI 分類、動作執行、畫面都會跟著支援，
+// 不會像先前加「心法」時漏改好幾處寫死的 ['note','todo','reminder']。
+const NOTE_TYPES=Object.keys(TYPE_LABEL);
+// 只有待辦與提醒有「完成」的概念；瑣事與心法不顯示勾選框、也不能被標記完成。
+const CHECKABLE_TYPES=['todo','reminder'];
+// 刪除一律走軟刪除（標記 deleted），資料留著才能「↩ 復原」；
+// 所有要呈現或餵給 AI 的地方都必須經過這個過濾。
+function liveNotes(){return state.notes.filter(n=>!n.deleted);}
 function renderNotes(){
   const list=document.getElementById('noteList');
-  let items=state.notes.filter(n=>noteFilter==='all'||n.type===noteFilter);
+  let items=liveNotes().filter(n=>noteFilter==='all'||n.type===noteFilter);
   items=items.slice().sort((a,b)=>{
     if(!!a.done!==!!b.done)return a.done?1:-1;
     return new Date(b.createdAt)-new Date(a.createdAt);
@@ -1067,7 +1121,7 @@ function renderNotes(){
   list.innerHTML=items.map(n=>{
     const overdue=n.dueAt&&!n.done&&new Date(n.dueAt)<now;
     const dueTxt=n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
-    const checkable=n.type!=='note'&&n.type!=='idea';
+    const checkable=CHECKABLE_TYPES.includes(n.type);
     return `<div class="noteItem">
       ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
       <div class="noteBody">
@@ -1092,7 +1146,10 @@ async function refreshContext(){
       // 用雲端筆記合併本機（雲端為主，保留本機尚未同步的新項目）
       const cloudIds=new Set((d.context.notes||[]).map(n=>n.id));
       const localOnly=state.notes.filter(n=>!cloudIds.has(n.id));
-      const cloudNotes=(d.context.notes||[]).map(n=>({...n,done:n.done==='true'}));
+      // 本機的軟刪除標記要蓋過雲端：刪除送到後台是 fire-and-forget，萬一那次請求失敗，
+      // 雲端仍留著該列，合併時就會把已刪除的項目又冒出來。
+      const deletedIds=new Set(state.notes.filter(n=>n.deleted).map(n=>n.id));
+      const cloudNotes=(d.context.notes||[]).map(n=>({...n,done:n.done==='true',...(deletedIds.has(n.id)?{deleted:true}:{})}));
       state.notes=[...cloudNotes,...localOnly];
       if(d.context.standup)state.standup=d.context.standup;
       save();
@@ -1137,7 +1194,7 @@ function renderHeroSchedule(events){
 // 用真實本機／雲端資料組出小型儀表板（甜甜圈進度圈＋統計方塊），
 // 待辦完成率不需要雲端也能算；信件／新聞數量沒連雲端時顯示「—」。
 function buildDashStatsHtml(c){
-  const actionable=state.notes.filter(n=>n.type!=='note'&&n.type!=='idea');
+  const actionable=liveNotes().filter(n=>CHECKABLE_TYPES.includes(n.type));
   const doneCount=actionable.filter(n=>n.done).length;
   const totalActionable=actionable.length;
   const pct=totalActionable?Math.round(doneCount/totalActionable*100):0;
@@ -1344,8 +1401,37 @@ function renderChatImagePreview(){
 function renderChat(){
   const box=document.getElementById('chatBox');
   if(!state.chat.length){box.innerHTML='';return;}
-  box.innerHTML=state.chat.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('');
+  // 動作訊息會帶 undo，多渲染一顆「↩ 復原」；因為動作是自動執行不先問，
+  // 這顆按鈕就是使用者發現 AI 做錯時的救命索。
+  box.innerHTML=state.chat.map((m,i)=>{
+    const undoBtn=m.undo?`<button class="undoBtn" onclick="undoChatAction(${i})">↩ 復原</button>`:'';
+    return `<div class="msg ${m.role}">${esc(m.text)}${undoBtn}</div>`;
+  }).join('');
   box.scrollTop=box.scrollHeight;
+}
+// 把某一則動作訊息記錄的動作反向做回去。復原後拿掉 undo 欄位，避免重複按。
+function undoChatAction(i){
+  const m=state.chat[i];
+  if(!m||!m.undo)return;
+  const u=m.undo;
+  if(u.op==='add_note'){
+    deleteNote(u.id);
+  }else if(u.op==='delete_note'){
+    restoreNote(u.id);
+  }else if(u.op==='complete_note'){
+    const n=state.notes.find(x=>x.id===u.id);
+    if(n){
+      n.done=false;
+      if(state.gasUrl){
+        fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id:u.id,patch:{done:''}})}).catch(()=>{});
+      }
+    }
+  }else if(u.op==='update_note'){
+    updateNoteFields(u.id,u.before||{});
+  }
+  delete m.undo;
+  m.text='↩️ 已復原 · '+m.text;
+  save();renderNotes();renderOverview();renderChat();
 }
 function quickAsk(text){document.getElementById('chatInput').value=text;sendChat();}
 // 校務管理系統（CK-SCHADMIN）是同一個 origin 下的另一個 App，直接唯讀讀取其
@@ -1398,12 +1484,18 @@ function buildSchoolDbContext(){
 }
 function buildContextText(){
   const lines=[];
-  const pendingTodos=state.notes.filter(n=>n.type==='todo'&&!n.done);
-  const pendingReminders=state.notes.filter(n=>n.type==='reminder'&&!n.done);
-  const notesOnly=state.notes.filter(n=>n.type==='note');
-  if(pendingTodos.length)lines.push('未完成待辦：'+pendingTodos.map(n=>n.content).join('；'));
-  if(pendingReminders.length)lines.push('提醒事項：'+pendingReminders.map(n=>`${n.content}（${n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW'):''}）`).join('；'));
-  if(notesOnly.length)lines.push('瑣事筆記：'+notesOnly.slice(0,50).map(n=>n.content).join('；'));
+  const notes=liveNotes();
+  // 每筆前面帶上 [id]，AI 要操作某筆時可以直接指名 id，不必再用關鍵字猜；
+  // 先前只給內容，遇到相似的項目比對到多筆就只能放棄。
+  const fmt=n=>`[${n.id}]${n.content}`;
+  const pendingTodos=notes.filter(n=>n.type==='todo'&&!n.done);
+  const pendingReminders=notes.filter(n=>n.type==='reminder'&&!n.done);
+  const notesOnly=notes.filter(n=>n.type==='note');
+  const ideas=notes.filter(n=>n.type==='idea');
+  if(pendingTodos.length)lines.push('未完成待辦：'+pendingTodos.map(fmt).join('；'));
+  if(pendingReminders.length)lines.push('提醒事項：'+pendingReminders.map(n=>`${fmt(n)}（${n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW'):''}）`).join('；'));
+  if(notesOnly.length)lines.push('瑣事筆記：'+notesOnly.slice(0,50).map(fmt).join('；'));
+  if(ideas.length)lines.push('想法與心法：'+ideas.slice(0,50).map(fmt).join('；'));
   const knownLinks=state.links.filter(l=>l.name&&l.url);
   if(knownLinks.length)lines.push('使用者自建的其他 App：'+knownLinks.map(l=>`${l.name}(${l.url})`).join('；'));
   if(state.useSchoolDb){
@@ -1431,59 +1523,91 @@ function buildContextText(){
 // <<<ACTION>>>...<<<END>>> JSON，前端解析後才真的執行對應操作；
 // 顯示給使用者的訊息只保留自然語言部分，動作結果另外用一則系統訊息呈現。
 function parseChatActions(raw){
-  const m=raw.match(/<<<ACTION>>>([\s\S]*?)<<<END>>>/);
-  if(!m)return{text:raw.trim(),actions:[]};
+  // 結尾 sentinel 允許缺席（模型很常漏），缺了就吃到字串結尾。
+  const m=raw.match(/<<<ACTION>>>([\s\S]*?)(?:<<<END>>>|$)/);
+  if(!m)return{text:raw.trim(),actions:[],parseError:false};
   const text=(raw.slice(0,m.index)+raw.slice(m.index+m[0].length)).trim();
-  let actions=[];
-  try{actions=JSON.parse(m[1].trim()).actions||[];}catch(e){/* 解析失敗就當作沒有動作，不影響正常回覆 */}
-  return{text,actions};
+  // 模型也很常把 JSON 再包一層 ``` 圍籬，先剝掉。
+  const body=m[1].trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+  const tryParse=s=>{try{return JSON.parse(s);}catch(e){return null;}};
+  let parsed=tryParse(body);
+  // 前後還黏著雜訊時，退一步只取最外層的大括號（沿用 addNoteAI 既有的防禦寫法）。
+  if(!parsed){
+    const brace=body.match(/\{[\s\S]*\}/);
+    if(brace)parsed=tryParse(brace[0]);
+  }
+  // 真的解不出來時要讓使用者知道。以前這裡是靜默吞掉，結果 AI 說「已經幫你加好了」
+  // 但實際上什麼都沒發生，使用者完全不會察覺。
+  if(!parsed)return{text,actions:[],parseError:true};
+  const actions=Array.isArray(parsed)?parsed:(Array.isArray(parsed.actions)?parsed.actions:[]);
+  return{text,actions,parseError:false};
 }
+// 找出動作要操作的是哪一筆：優先用 AI 指名的 id（context 已經把 id 餵給它了），
+// 沒給 id 才回退到舊的關鍵字比對。比對到多筆時把候選連同 id 一起回報，
+// 讓 AI 下一輪能直接改用 id 指定，而不是叫使用者自己去點。
+function resolveNote(a,undoneOnly){
+  const pool=liveNotes().filter(n=>undoneOnly?!n.done:true);
+  if(a.id){
+    const byId=pool.find(n=>n.id===a.id);
+    return byId?{note:byId}:{error:`找不到 id 為 ${a.id} 的項目`};
+  }
+  const key=String(a.match||'').trim().toLowerCase();
+  if(!key)return{error:'沒有指定要操作哪一筆（請給 id 或 match）'};
+  const matches=pool.filter(n=>String(n.content||'').toLowerCase().includes(key));
+  if(!matches.length)return{error:`找不到符合「${a.match}」的項目`};
+  if(matches.length>1)return{error:`「${a.match}」符合多筆：${matches.map(n=>`[${n.id}]${n.content}`).join('、')}；請改用 id 指定`};
+  return{note:matches[0]};
+}
+// 回傳 [{text, undo?}]：text 顯示給使用者，undo 存在時該則訊息會長出「↩ 復原」按鈕。
 async function execChatActions(actions){
   const log=[];
+  const add=(text,undo)=>log.push(undo?{text,undo}:{text});
   for(const a of actions){
     try{
       if(a.op==='add_note'){
-        const type=['note','todo','reminder'].includes(a.type)?a.type:'note';
+        const type=NOTE_TYPES.includes(a.type)?a.type:'note';
         const content=(a.content||'').trim();
         if(!content)continue;
         const dueAt=a.dueAt&&!isNaN(new Date(a.dueAt))?new Date(a.dueAt).toISOString():'';
         const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
         state.notes.unshift(n);
         if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
-        log.push(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${new Date(dueAt).toLocaleString('zh-TW')}）`:''}`);
+        add(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${new Date(dueAt).toLocaleString('zh-TW')}）`:''}`,{op:'add_note',id:n.id});
       }else if(a.op==='add_calendar_event'&&a.start){
-        if(!state.gasUrl){log.push(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
+        if(!state.gasUrl){add(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
         const r=await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end})});
         const d=await r.json();
-        log.push(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${new Date(a.start).toLocaleString('zh-TW')}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
-      }else if(a.op==='complete_note'&&a.match){
-        const matches=state.notes.filter(n=>!n.done&&n.content.toLowerCase().includes(String(a.match).toLowerCase()));
-        if(matches.length===1){
-          matches[0].done=true;
-          if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id:matches[0].id,patch:{done:'true'}})}).catch(()=>{});
-          log.push(`✅ 已標記完成：${matches[0].content}`);
-        }else if(!matches.length){
-          log.push(`⚠️ 找不到符合「${a.match}」的未完成項目`);
-        }else{
-          log.push(`⚠️ 「${a.match}」符合多筆項目，請到「待辦與筆記」手動勾選`);
+        // 日曆是雲端資料，這裡沒有反向刪除的動作，所以不給復原按鈕。
+        add(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${new Date(a.start).toLocaleString('zh-TW')}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
+      }else if(a.op==='complete_note'){
+        const r=resolveNote(a,true);
+        if(!r.note){add('⚠️ '+r.error);continue;}
+        if(!CHECKABLE_TYPES.includes(r.note.type)){
+          add(`⚠️ 「${r.note.content}」是${TYPE_LABEL[r.note.type]}，沒有完成與否的狀態`);continue;
         }
-      }else if(a.op==='delete_note'&&a.match){
-        const matches=state.notes.filter(n=>n.content.toLowerCase().includes(String(a.match).toLowerCase()));
-        if(matches.length===1){
-          if(confirm(`要刪除「${matches[0].content}」嗎？`)){
-            state.notes=state.notes.filter(n=>n.id!==matches[0].id);
-            if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'deleteNote',id:matches[0].id})}).catch(()=>{});
-            log.push(`🗑️ 已刪除：${matches[0].content}`);
-          }else{
-            log.push(`↩️ 已取消刪除：${matches[0].content}`);
-          }
-        }else if(!matches.length){
-          log.push(`⚠️ 找不到符合「${a.match}」的項目`);
-        }else{
-          log.push(`⚠️ 「${a.match}」符合多筆項目，請到「待辦與筆記」手動刪除`);
-        }
+        r.note.done=true;
+        if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id:r.note.id,patch:{done:'true'}})}).catch(()=>{});
+        add(`✅ 已標記完成：${r.note.content}`,{op:'complete_note',id:r.note.id});
+      }else if(a.op==='delete_note'){
+        const r=resolveNote(a);
+        if(!r.note){add('⚠️ '+r.error);continue;}
+        const label=r.note.content,id=r.note.id;
+        deleteNote(id);
+        add(`🗑️ 已刪除：${label}`,{op:'delete_note',id});
+      }else if(a.op==='update_note'){
+        const r=resolveNote(a);
+        if(!r.note){add('⚠️ '+r.error);continue;}
+        const label=r.note.content;
+        const patch={};
+        for(const k of EDITABLE_NOTE_FIELDS)if(k in a)patch[k]=a[k];
+        const res=updateNoteFields(r.note.id,patch);
+        if(!res){add(`⚠️ 「${label}」沒有可套用的變更`);continue;}
+        add(`✏️ 已更新：${label}（${Object.keys(res.applied).join('、')}）`,{op:'update_note',id:r.note.id,before:res.before});
+      }else{
+        // 以前不認得的 op 會被默默略過，使用者只看到 AI 說「好了」卻什麼都沒發生。
+        add(`⚠️ 不支援的動作：${a.op||'(未指定)'}`);
       }
-    }catch(e){log.push(`⚠️ 執行失敗：${e.message}`);}
+    }catch(e){add(`⚠️ 執行失敗：${e.message}`);}
   }
   if(log.length){save();renderNotes();renderOverview();}
   return log;
@@ -1499,31 +1623,46 @@ async function sendChat(){
   const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;sendBtn.textContent='思考中…';
   const history=state.chat.slice(-8).map(m=>`${m.role==='user'?'使用者':'Ybot'}：${m.text}`).join('\n');
   const imgNote=image?'\n\n使用者這則訊息附加了一張圖片，請先仔細看圖片內容再回答（例如辨識文字、描述內容、回答關於圖片的問題；若圖片裡有多個待辦事項或行程，也可以一次全部整理成多個 add_note／add_calendar_event 動作）。':'';
-  const actionSpec=`\n\n如果使用者是在「下指令」要你做事（新增待辦/瑣事/提醒、把某件事加入行事曆、把某個待辦標記完成、刪除某個待辦或筆記），除了正常的自然語言回覆之外，請在回覆最後面另起一段附加動作指令，格式如下（單純問答、沒有要做事就完全不要附加這段）：
+  const actionSpec=`\n\n如果使用者是在「下指令」要你做事（新增待辦/瑣事/提醒/心法、把某件事加入行事曆、把某個待辦標記完成、修改某筆內容或時間、刪除某個待辦或筆記），除了正常的自然語言回覆之外，請在回覆最後面另起一段附加動作指令，格式如下（單純問答、沒有要做事就完全不要附加這段）：
 <<<ACTION>>>
 {"actions":[
-  {"op":"add_note","type":"note|todo|reminder","content":"...","dueAt":"ISO時間或null"},
+  {"op":"add_note","type":"note|todo|reminder|idea","content":"...","dueAt":"ISO時間或null"},
   {"op":"add_calendar_event","title":"...","start":"ISO時間","end":"ISO時間"},
-  {"op":"complete_note","match":"用來找到該筆記的關鍵字"},
-  {"op":"delete_note","match":"用來找到該筆記的關鍵字"}
+  {"op":"complete_note","id":"要標記完成的項目 id"},
+  {"op":"update_note","id":"要修改的項目 id","content":"新內容（不改就不要放這個欄位）","dueAt":"新時間","type":"新類型"},
+  {"op":"delete_note","id":"要刪除的項目 id"}
 ]}
 <<<END>>>
+重要規則：
+- 上面「個人資料」裡每筆待辦/筆記前面的 [n17xxxxx] 就是該筆的 id。要操作既有項目時**一律用 id 指定**，這樣才不會找錯。
+- 真的沒有 id 可用時，才改放 "match":"關鍵字" 讓系統自己找；但關鍵字比對到多筆就會失敗。
+- add_note 的 type：note=瑣事筆記、todo=待辦、reminder=特定時間要提醒、idea=想法與心法（心得/原則/靈感，不是要去做的事）。
+- complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
+- update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
   const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）：\n${buildContextText()}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image);
-    const{text:replyText,actions}=parseChatActions(raw||'');
+    const{text:replyText,actions,parseError}=parseChatActions(raw||'');
     state.chat.push({role:'bot',text:replyText||'（沒有取得回覆，請確認 AI 設定）'});
     save();renderChat();
+    if(parseError){
+      state.chat.push({role:'sys',text:'⚠️ AI 想執行動作，但指令格式有誤，這次沒有真的執行。可以再說一次。'});
+      save();renderChat();
+    }
     if(actions.length){
+      // 一個動作一則訊息，這樣每則才能各自帶自己的「↩ 復原」按鈕。
       const log=await execChatActions(actions);
-      if(log.length){state.chat.push({role:'sys',text:log.join('\n')});save();renderChat();}
+      for(const entry of log)state.chat.push({role:'sys',text:entry.text,...(entry.undo?{undo:entry.undo}:{})});
+      if(log.length){save();renderChat();}
     }
   }catch(e){
     state.chat.push({role:'bot',text:'⚠️ '+e.message});
     save();renderChat();
+  }finally{
+    // 放在 finally，動作執行那段丟錯時送出鍵才不會永遠卡在「思考中…」。
+    sendBtn.disabled=false;sendBtn.textContent='送出';
   }
-  sendBtn.disabled=false;sendBtn.textContent='送出';
 }
 document.getElementById('chatInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}
