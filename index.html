@@ -62,6 +62,8 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroScheduleMini a{color:#e2e8f0;text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
 .heroScheduleMini a:hover{color:#c4b5fd;}
 .heroScheduleMini .more{color:#a78bfa;font-size:.78rem;}
+.heroScheduleMini .dayTag{display:inline-block;font-size:.66rem;font-weight:700;color:#c4b5fd;
+  border:1px solid rgba(196,181,253,.45);border-radius:4px;padding:0 3px;margin-right:4px;vertical-align:1px;}
 .heroSub{font-size:.86rem;color:#e2e8f0;margin-top:14px;font-weight:600;}
 
 /* 全息投影風格 Logo：外圈軌道＋粒子點＋發光核心＋投影光束與底座光暈，取代文字 Logo，置於左上角 */
@@ -1119,17 +1121,25 @@ function renderHeroWeather(w){
     ? `<span class="icon">${esc(w.icon||'🌡️')}</span><span class="t">${w.temp}°</span><span class="d">${esc(w.desc||'')}</span>`
     : `<a href="javascript:void(0)" onclick="useGpsLocation()" style="color:#c4b5fd;font-size:.72rem;">📍 定位天氣</a>`;
 }
+// 明天的日期字串。用 setDate 而不是加 86400000 毫秒，跨月、跨年、跨日光節約時間才會對。
+function tomorrowDateStr(){
+  const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+1);
+  return d.toDateString();
+}
 function renderHeroSchedule(events){
   const el=document.getElementById('heroScheduleMini');
   if(!el)return;
   if(!events||!events.length){
-    el.innerHTML=`<a href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">今天沒有行程 ↗</a>`;
+    el.innerHTML=`<a href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">今明兩天沒有行程 ↗</a>`;
     return;
   }
   const LIMIT=4;
+  const tomorrow=tomorrowDateStr();
   const items=events.slice(0,LIMIT).map(ev=>{
     const d=new Date(ev.start);
-    return `<a href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${esc(ev.title)}</a>`;
+    // 明天的行程掛一個「明」標籤，兩天的行程排在一起才分得出來是哪一天的。
+    const tag=d.toDateString()===tomorrow?'<span class="dayTag">明</span>':'';
+    return `<a href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${tag}${esc(ev.title)}</a>`;
   }).join('');
   const more=events.length>LIMIT?`<a class="more" href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">+${events.length-LIMIT} 項 ↗</a>`:'';
   el.innerHTML=items+more;
@@ -1175,8 +1185,12 @@ function renderOverview(){
   const c=state.context;
   renderHeroWeather(c&&c.weather);
   const todayStr=new Date().toDateString();
-  const todayEvents=c?(c.calendar||[]).filter(ev=>new Date(ev.start).toDateString()===todayStr):[];
-  renderHeroSchedule(todayEvents);
+  const tomorrowStr=tomorrowDateStr();
+  // 今天＋明天一起顯示：晚上看的時候才知道明天一早有什麼要準備。
+  const twoDayEvents=c?(c.calendar||[])
+    .filter(ev=>{const s=new Date(ev.start).toDateString();return s===todayStr||s===tomorrowStr;})
+    .sort((a,b)=>new Date(a.start)-new Date(b.start)):[];
+  renderHeroSchedule(twoDayEvents);
   const dashHtml=buildDashStatsHtml(c);
   if(!c){
     box.style.display='block';
