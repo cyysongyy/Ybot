@@ -1183,6 +1183,14 @@ function tomorrowDateStr(){
   const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+1);
   return d.toDateString();
 }
+// Google 內建的節日日曆（「台灣的節日」／「Holidays in Taiwan」之類）會塞進一堆
+// 軍人節、教師節這種全天事件，把真正的行程從首頁有限的版面擠掉。
+// 只在首頁行程列表濾掉它們，餵給 AI 的資料仍是完整日曆，問「今天什麼節日」照樣答得出來。
+// 同時要求 allDay 才濾，避免誤殺行事曆名稱剛好含「節」的真實行程。
+const HOLIDAY_CAL_RE=/節日|節慶|假日|holiday/i;
+function isHolidayEvent(ev){
+  return !!(ev&&ev.allDay&&ev.calendar&&HOLIDAY_CAL_RE.test(ev.calendar));
+}
 function renderHeroSchedule(events){
   const el=document.getElementById('heroScheduleMini');
   if(!el)return;
@@ -1245,7 +1253,10 @@ function renderOverview(){
   const tomorrowStr=tomorrowDateStr();
   // 今天＋明天一起顯示：晚上看的時候才知道明天一早有什麼要準備。
   const twoDayEvents=c?(c.calendar||[])
-    .filter(ev=>{const s=new Date(ev.start).toDateString();return s===todayStr||s===tomorrowStr;})
+    .filter(ev=>{
+      if(isHolidayEvent(ev))return false;
+      const s=new Date(ev.start).toDateString();return s===todayStr||s===tomorrowStr;
+    })
     .sort((a,b)=>new Date(a.start)-new Date(b.start)):[];
   renderHeroSchedule(twoDayEvents);
   const dashHtml=buildDashStatsHtml(c);
