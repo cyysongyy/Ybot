@@ -483,7 +483,9 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="hint" style="margin-top:8px;">
         讀取同網域下你其他 App 存在本機的資料，不需後台也不需授權：<br>
         ・<b>課表</b>（<a href="https://cyysongyy.github.io/principal-assistant/" target="_blank" rel="noopener">校長助理</a>，沒有才用 <a href="https://cyysongyy.github.io/115classschedule/" target="_blank" rel="noopener">115 課表</a>）→ 可問「今天第幾節誰有空可以代課」「明天三甲第二節是誰的課」。<br>
-        ・<b>代課紀錄</b>（校長助理）→ 可問「今天有誰要代課」「這個月誰代最多」。<br>
+        ・<b>工作記錄</b>（校長助理）→ 致詞稿、公文簽呈、家長溝通、校安處理等累積的記錄。會給最近 40 筆的標題索引，並自動挑出跟你這次提問相關的內容一起帶入，可問「上次運動會致詞怎麼寫的」「之前處理過類似的家長申訴嗎」。<br>
+        ・<b>代課紀錄／行政減課</b>（校長助理）→ 可問「今天有誰要代課」「這個月誰代最多」。<br>
+        ・<b>今明手動記事</b>（校長助理「今日」分頁自己加的項目）。<br>
         ・<b>內在重建練習</b>（<a href="https://cyysongyy.github.io/zen-strength-reflection/" target="_blank" rel="noopener">鬆弛感</a>）→ <b>只提供次數與最近一次距今幾天，內容完全不外流</b>。<br>
         課表讀不到本機資料時，會自動從同網域的 App 網頁抓內建課表，所以<b>不用先開過那些 App</b>；代課紀錄與練習次數則仍需在同一瀏覽器開過對應的 App。
       </div>
@@ -1624,13 +1626,19 @@ function describeAppsData(){
     'pa-embedded':'校長助理（線上讀取內建課表）','115-embedded':'115 課表（線上讀取內建課表）'};
   const tt=readTimetable();
   const subs=readLS('pa_sub_records');
+  const recs=readLS('pa_rec_v2');
+  const adm=readLS('pa_admin_config');
   const zen=readLS('zsb_sessions');
+  const n=v=>Array.isArray(v)?v.length:0;
   const rows=[
     tt?`✅ 課表：${tt.teachers.length} 位老師、${tt.slots.length} 節 · 來源：${SRC[tt.source]||tt.source}`
       :'⏳ 課表：尚未讀到（稍等幾秒後重開設定頁，或確認網路）',
-    Array.isArray(subs)&&subs.length?`✅ 代課紀錄：${subs.length} 筆`
+    n(recs)?`✅ 工作記錄：${recs.length} 筆（致詞稿／公文／家長溝通等，可依提問搜尋）`
+      :'➖ 工作記錄：沒有資料（需在同一瀏覽器開過校長助理並產生過記錄）',
+    n(subs)?`✅ 代課紀錄：${subs.length} 筆`
       :'➖ 代課紀錄：沒有資料（需在同一瀏覽器開過校長助理的調課記錄）',
-    Array.isArray(zen)&&zen.length?`✅ 內在重建練習：${zen.length} 次（只送次數與時間）`
+    n(adm)?`✅ 行政減課：${adm.length} 筆`:'➖ 行政減課：沒有資料',
+    n(zen)?`✅ 內在重建練習：${zen.length} 次（只送次數與時間）`
       :'➖ 內在重建練習：沒有資料'
   ];
   return '<b>目前讀到的資料</b><br>'+rows.join('<br>');
@@ -1649,7 +1657,54 @@ function timetableDayLines(tt,day,label){
   }
   return out.length?[`${label}課表：`,...out].join('\n'):'';
 }
-function buildMyAppsContext(){
+// 校長助理累積的工作記錄（致詞稿、公文、家長溝通、校安處理…最多 200 筆）。
+// 全文一起塞會爆掉，所以分兩層：先給最近 40 筆的標題索引讓 AI 知道有什麼可以找，
+// 再挑出跟這次提問關鍵字相關的 3 筆帶內文。比對方式沿用校長助理自己
+// relatedContext() 的做法（標籤優先、再比標題關鍵字），行為才一致。
+const PA_REC_TYPE={speech:'致詞稿',parent:'家長溝通',meet:'會議',staff:'教師與人事',
+  crisis:'校安與危機',plan:'計畫與文案',doc:'公文與簽呈',abot:'App／系統開發',free:'自由諮詢'};
+function paRecDate(ts){const d=new Date(ts);return isNaN(d)?'':d.toLocaleDateString('zh-TW');}
+// 中文沒有空白可以斷詞，照校長助理原本用空白 split 的做法，只有整句剛好是標題子字串
+// 時才比得中（「運動會致詞要怎麼寫」就配不到「115學年度運動會致詞」）。
+// 改成取 2~3 字的 n-gram 去比，才抓得到部分重疊。
+function paQueryTerms(q){
+  const clean=String(q||'').replace(/[\s，。、！？：；「」『』（）()［］\[\]…～~,.!?:;'"]/g,'');
+  const terms=new Set();
+  for(let n=2;n<=3;n++)for(let i=0;i+n<=clean.length;i++)terms.add(clean.slice(i,i+n));
+  return [...terms];
+}
+// 門檻：標題命中一個 n-gram 就 3 分，所以要 6 分等於至少兩段標題重疊，
+// 避免「學校」「今天」這種常見詞就把不相關的記錄拉進來。
+const PA_REC_MIN_SCORE=6;
+function buildRecordsContext(question){
+  const recs=readLS('pa_rec_v2');
+  if(!Array.isArray(recs)||!recs.length)return '';
+  const label=t=>PA_REC_TYPE[t]||t||'其他';
+  const out=[];
+  const idx=recs.slice(0,40).map(r=>`[${paRecDate(r.ts)}][${label(r.type)}]${r.title||''}${r.tag?' #'+r.tag:''}`).join('；');
+  out.push(`校長助理工作記錄（共 ${recs.length} 筆，以下為最近 40 筆標題索引）：${idx}`);
+  const terms=paQueryTerms(question);
+  if(terms.length){
+    const scored=recs.map(r=>{
+      const head=`${r.title||''} ${r.tag||''}`;
+      const body=String(r.full||r.preview||'');
+      let score=0;
+      for(const t of terms){
+        if(head.includes(t))score+=3;   // 命中標題或標籤，權重高
+        else if(body.includes(t))score+=1;
+      }
+      return{r,score};
+    }).filter(x=>x.score>=PA_REC_MIN_SCORE).sort((a,b)=>b.score-a.score).slice(0,3);
+    if(scored.length){
+      out.push('與這次提問相關的記錄內文（節錄）：\n'+scored.map(({r})=>
+        `──[${paRecDate(r.ts)}][${label(r.type)}]${r.title||''}\n${String(r.full||r.preview||'').slice(0,800)}`
+      ).join('\n'));
+    }
+  }
+  return out.join('\n');
+}
+function paYmd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function buildMyAppsContext(question){
   const lines=[];
   const now=new Date();
   const tomorrow=new Date(now);tomorrow.setDate(tomorrow.getDate()+1);
@@ -1671,7 +1726,9 @@ function buildMyAppsContext(){
   }
   const subs=readLS('pa_sub_records');
   if(Array.isArray(subs)&&subs.length){
-    const todayStr=now.toISOString().slice(0,10);
+    // 用本地日期，不能用 toISOString()——那是 UTC，台灣時間半夜 0~8 點會算成前一天，
+    // 「今日代課」就會顯示昨天的。
+    const todayStr=paYmd(now);
     const today=subs.filter(r=>r&&r.date===todayStr);
     if(today.length){
       lines.push('今日代課：'+today.map(r=>`第${r.period}節 ${r.class||''} ${r.origTeacher||''}→${r.subTeacher||''}${r.reason?`（${r.reason}）`:''}`).join('；'));
@@ -1679,6 +1736,22 @@ function buildMyAppsContext(){
     const recent=subs.slice().filter(r=>r&&r.date).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
     if(recent.length)lines.push('近期代課紀錄：'+recent.map(r=>`${r.date} 第${r.period}節 ${r.origTeacher||''}→${r.subTeacher||''}`).join('；'));
   }
+  // 行政減課設定：算代課鐘點費、判斷誰還有餘裕接課都會用到。
+  const adm=readLS('pa_admin_config');
+  if(Array.isArray(adm)&&adm.length){
+    const rows=adm.filter(a=>a&&(a.title||a.name))
+      .map(a=>`${a.title||''}${a.name?'('+a.name+')':''}減${a.reduce||0}節${a.extraRate?'·鐘點'+a.extraRate:''}`);
+    if(rows.length)lines.push('行政減課設定：'+rows.join('；'));
+  }
+  // 校長助理「今日」分頁裡手動加的行程（跟 Google 日曆分開存）。
+  [['今天',now],['明天',tomorrow]].forEach(([lab,d])=>{
+    const items=readLS('pa_today_'+paYmd(d));
+    if(Array.isArray(items)&&items.length){
+      lines.push(`${lab}手動記事（校長助理）：`+items.map(i=>`${i&&i.time?i.time+' ':''}${(i&&i.name)||''}`.trim()).filter(Boolean).join('；'));
+    }
+  });
+  const recCtx=buildRecordsContext(question);
+  if(recCtx)lines.push(recCtx);
   // 「鬆弛感・內在重建」存的是很私密的情緒／家庭省思內容，只帶次數與距今天數，
   // 完全不把任何內文送給第三方 AI；這樣既能提醒使用者好一陣子沒練習，
   // 又不會把個人的心理紀錄外流。
@@ -1692,7 +1765,7 @@ function buildMyAppsContext(){
   }
   return lines.join('\n');
 }
-function buildContextText(){
+function buildContextText(question){
   const lines=[];
   const notes=liveNotes();
   // 每筆前面帶上 [id]，AI 要操作某筆時可以直接指名 id，不必再用關鍵字猜；
@@ -1713,7 +1786,7 @@ function buildContextText(){
     if(schoolCtx)lines.push(schoolCtx);
   }
   if(state.useAppsData){
-    const appsCtx=buildMyAppsContext();
+    const appsCtx=buildMyAppsContext(question);
     if(appsCtx)lines.push(appsCtx);
   }
   const c=state.context;
@@ -1854,7 +1927,7 @@ async function sendChat(){
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
-  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText()}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
