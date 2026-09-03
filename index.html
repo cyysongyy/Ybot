@@ -482,7 +482,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       </label>
       <div class="hint" style="margin-top:8px;">
         讀取同網域下你其他 App 存在本機的資料，不需後台也不需授權：<br>
-        ・<b>課表</b>（<a href="https://cyysongyy.github.io/principal-assistant/" target="_blank" rel="noopener">校長助理</a>，沒有才用 <a href="https://cyysongyy.github.io/115classschedule/" target="_blank" rel="noopener">115 課表</a>）→ 可問「今天第幾節誰有空可以代課」「明天三甲第二節是誰的課」。<br>
+        ・<b>課表</b>（以 <a href="https://cyysongyy.github.io/115classschedule/" target="_blank" rel="noopener">115 課表系統</a>為準；抓不到才退回校長助理的備援，該備援內容已知不正確，屆時 AI 會主動提醒你去確認）→ 可問「今天第幾節誰有空可以代課」「明天三甲第二節是誰的課」。<br>
         ・<b>工作記錄</b>（校長助理）→ 致詞稿、公文簽呈、家長溝通、校安處理等累積的記錄。會給最近 40 筆的標題索引，並自動挑出跟你這次提問相關的內容一起帶入，可問「上次運動會致詞怎麼寫的」「之前處理過類似的家長申訴嗎」。<br>
         ・<b>代課紀錄／行政減課</b>（校長助理）→ 可問「今天有誰要代課」「這個月誰代最多」。<br>
         ・<b>今明手動記事</b>（校長助理「今日」分頁自己加的項目）。<br>
@@ -1572,14 +1572,17 @@ function timetableFromLegacy(obj,source){
   const teachers=Object.keys(obj);
   return teachers.length?{source,slots,teachers,maxPeriod}:null;
 }
+// 優先序：115 課表 App 才是正確的來源（使用者自己維護的那一份）。
+// 校長助理裡那份內建課表已知不正確，只當最後的備援，而且會在 context 裡標明
+// 來源，免得 AI 拿到舊資料還講得斬釘截鐵。
 function readTimetable(){
+  const legacy=timetableFromLegacy(readLS('school_schedule_data'),'legacy');
+  if(legacy)return legacy;
   const pa=readLS('pa_schedule');
   if(pa&&Array.isArray(pa.rows)&&pa.rows.length){
     const tt=timetableFromPaRows(pa.rows,'pa');
     if(tt)return tt;
   }
-  const legacy=timetableFromLegacy(readLS('school_schedule_data'),'legacy');
-  if(legacy)return legacy;
   // 最後才用線上抓回來的快取（見 refreshTimetableCache）。
   const cached=readLS(TIMETABLE_CACHE_KEY);
   if(cached&&Array.isArray(cached.slots)&&Array.isArray(cached.teachers)&&cached.teachers.length)return cached;
@@ -1590,15 +1593,18 @@ function readTimetable(){
 // 所以只讀 localStorage 會在使用者什麼都還沒做時撈到空的——這正是第一版沒作用的原因。
 // 同網域可以直接 fetch 那些 App 的網頁，把內嵌的課表抽出來存成快取，
 // 使用者完全不用先開過任何 App。
-const TIMETABLE_CACHE_KEY='ybot_timetable_cache_v1';
+// v2：優先來源改成 115 課表後，舊快取裡存的是校長助理那份不正確的資料，
+// 升版號等於一次性失效，讓它重抓正確的來源。
+const TIMETABLE_CACHE_KEY='ybot_timetable_cache_v2';
 const TIMETABLE_SOURCES=[
-  // 校長助理的內建課表資料最完整（老師全名＋班級＋科目），優先用。
-  {url:'https://cyysongyy.github.io/principal-assistant/',source:'pa-embedded',
-   re:/var preloaded=(\{[\s\S]*?\});/,
-   build:o=>o&&Array.isArray(o.rows)?timetableFromPaRows(o.rows,'pa-embedded'):null},
+  // 115 課表 App 是正確的來源，放第一個。校長助理那份雖然欄位比較完整
+  //（老師全名＋班級＋科目），但內容已知不正確，只當抓不到時的備援。
   {url:'https://cyysongyy.github.io/115classschedule/',source:'115-embedded',
    re:/const defaultSchedule\s*=\s*(\{[\s\S]*?\n\s*\});/,
-   build:o=>timetableFromLegacy(o,'115-embedded')}
+   build:o=>timetableFromLegacy(o,'115-embedded')},
+  {url:'https://cyysongyy.github.io/principal-assistant/',source:'pa-embedded',
+   re:/var preloaded=(\{[\s\S]*?\});/,
+   build:o=>o&&Array.isArray(o.rows)?timetableFromPaRows(o.rows,'pa-embedded'):null}
 ];
 async function refreshTimetableCache(force){
   // 本機已經有真實課表（使用者開過／編輯過那些 App）就不用抓，那份比較新。
@@ -1622,8 +1628,8 @@ async function refreshTimetableCache(force){
 }
 // 設定頁直接顯示「現在到底讀到什麼」，讓使用者不用猜為什麼沒作用。
 function describeAppsData(){
-  const SRC={pa:'校長助理（本機資料）',legacy:'115 課表（本機資料）',
-    'pa-embedded':'校長助理（線上讀取內建課表）','115-embedded':'115 課表（線上讀取內建課表）'};
+  const SRC={legacy:'115 課表（本機資料）✅正確來源','115-embedded':'115 課表（線上讀取）✅正確來源',
+    pa:'⚠️校長助理（備援，可能不正確）','pa-embedded':'⚠️校長助理內建（備援，可能不正確）'};
   const tt=readTimetable();
   const subs=readLS('pa_sub_records');
   const recs=readLS('pa_rec_v2');
@@ -1710,9 +1716,12 @@ function buildMyAppsContext(question){
   const tomorrow=new Date(now);tomorrow.setDate(tomorrow.getDate()+1);
   const tt=readTimetable();
   if(tt){
-    // 整週都給。原本只給今明兩天是怕佔太多 context，但實測整週課表也才 3,254 字
-    // （約 600 個 token 的差距），對三家模型都是零頭；而調代課本來就常要提前
-    // 幾天安排，只給兩天等於把最需要規劃的情境擋掉。
+    // 標明來源：115 課表才是正確的那份；萬一只剩校長助理的備援可用，要講明可能不準，
+    // 免得 AI 拿舊資料回答得斬釘截鐵。
+    const is115=tt.source==='legacy'||tt.source==='115-embedded';
+    lines.push(is115
+      ? '課表來源：115 課表系統（正確版本）。課程代碼的第一個字是年級，例如「二數」＝二年級數學、「五自」＝五年級自然、「一國」＝一年級國語。'
+      : '⚠️ 課表來源：校長助理的內建課表（備援，內容可能不是最新、不一定正確）。回答時要提醒使用者去 115 課表系統確認。');
     const todayIdx=schoolDayIndex(now),tomorrowIdx=schoolDayIndex(tomorrow);
     for(let d=1;d<=5;d++){
       const tag=d===todayIdx?'（今天）':d===tomorrowIdx?'（明天）':'';
