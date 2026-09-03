@@ -475,6 +475,21 @@ a.ovMailItem:hover{text-decoration:underline;}
     </div>
 
     <div class="card">
+      <div class="section-title">🧩 我的其他 App 資料</div>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;">
+        <input type="checkbox" id="useAppsData" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useAppsData=this.checked;save();">
+        對話時附上課表／代課／練習紀錄給 AI 參考
+      </label>
+      <div class="hint" style="margin-top:8px;">
+        讀取同網域下你其他 App 存在本機的資料，不需後台也不需授權：<br>
+        ・<b>課表</b>（<a href="https://cyysongyy.github.io/principal-assistant/" target="_blank" rel="noopener">校長助理</a>，沒有才用 <a href="https://cyysongyy.github.io/115classschedule/" target="_blank" rel="noopener">115 課表</a>）→ 可問「今天第幾節誰有空可以代課」「明天三甲第二節是誰的課」。<br>
+        ・<b>代課紀錄</b>（校長助理）→ 可問「今天有誰要代課」「這個月誰代最多」。<br>
+        ・<b>內在重建練習</b>（<a href="https://cyysongyy.github.io/zen-strength-reflection/" target="_blank" rel="noopener">鬆弛感</a>）→ <b>只提供次數與最近一次距今幾天，內容完全不外流</b>。<br>
+        這些 App 要在<b>同一個瀏覽器</b>開過才有本機快取；你用 iPhone Chrome 的話，全部都在 Chrome 開就會共用。
+      </div>
+    </div>
+
+    <div class="card">
       <div class="section-title">🔗 我的其他 App</div>
       <div class="hint" style="margin-bottom:10px;">你在 GitHub 上的其他自建 App，可在對話中快速開啟、也讓 Ybot 知道它們存在。若該 App 有自己的 Apps Script 後台網址，填入「後台網址」欄位，Ybot 每日簡報與對話會一併嘗試帶入其摘要（讀不到會自動略過）。</div>
       <div id="linkList"></div>
@@ -495,7 +510,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,standupCollapsed:true,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,
+  useSchoolDb:false,useAppsData:false,
   gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -603,6 +618,7 @@ function fillSettings(){
   document.getElementById('remUrl').value=state.remUrl;
   document.getElementById('hltUrl').value=state.hltUrl;
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
+  document.getElementById('useAppsData').checked=!!state.useAppsData;
   populateHourSelects();
   document.getElementById('standupEnabled').checked=!!state.standup.enabled;
   document.getElementById('standupInterval').value=state.standup.intervalMin;
@@ -1507,6 +1523,101 @@ function buildSchoolDbContext(){
   }
   return lines.join('\n');
 }
+// ── 讀取同一個 cyysongyy.github.io 網域底下、使用者自己其他 App 的資料 ──
+// localStorage 以網域為單位共用、不分路徑，所以這裡不用任何網路請求、不用後台、
+// 不用授權，直接唯讀撈其他 App 已經存在本機的快取。前提是那些 App 要在
+// 同一個瀏覽器開過（使用者是 iPhone Chrome，所有 App 都在 Chrome 開就同一份）。
+const PA_DAY_NAMES=['','一','二','三','四','五'];
+// 星期幾（1=一 … 5=五）；週末回傳 0，課表相關內容就整段略過。
+function schoolDayIndex(d){const n=d.getDay();return n>=1&&n<=5?n:0;}
+function readLS(k){try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}}
+// 課表有兩個來源，優先用校長助理的（有班級與科目，資訊比較完整），
+// 沒有才退回 115 課表 App 的格式（只有課程代碼，例如「二數」）。
+function readTimetable(){
+  const pa=readLS('pa_schedule');
+  if(pa&&Array.isArray(pa.rows)&&pa.rows.length){
+    const slots=pa.rows.map(r=>({day:Number(r.day),period:Number(r.period),teacher:r.teacher,label:[r.class,r.subject].filter(Boolean).join('')}));
+    return{
+      source:'pa',slots,
+      teachers:[...new Set(slots.map(s=>s.teacher).filter(Boolean))],
+      maxPeriod:Math.max(...slots.map(s=>s.period).filter(n=>!isNaN(n)),1)
+    };
+  }
+  const legacy=readLS('school_schedule_data');
+  if(legacy&&typeof legacy==='object'){
+    const slots=[];
+    let maxPeriod=1;
+    Object.keys(legacy).forEach(teacher=>{
+      const byDay=legacy[teacher]||{};
+      PA_DAY_NAMES.forEach((cn,day)=>{
+        if(!day)return;
+        const arr=byDay[cn];
+        if(!Array.isArray(arr))return;
+        maxPeriod=Math.max(maxPeriod,arr.length);
+        arr.forEach((cell,i)=>{
+          if(!cell||cell==='空')return;
+          slots.push({day,period:i+1,teacher,label:cell});
+        });
+      });
+    });
+    // 老師名單一定要取自物件的 key，不能從 slots 推——整天都沒課的老師
+    // 一個 slot 都不會產生，用 slots 推就會把他漏掉，而他正是最有空可以代課的人。
+    const teachers=Object.keys(legacy);
+    if(teachers.length)return{source:'legacy',slots,teachers,maxPeriod};
+  }
+  return null;
+}
+// 把某一天的課表壓成「第N節｜有課：…｜空堂：…」——「誰現在有空可以代課」
+// 是校長每天真的會遇到的問題，空堂名單要直接給，AI 才不用自己推。
+function timetableDayLines(tt,day,label){
+  const teachers=tt.teachers||[];
+  if(!teachers.length)return '';
+  const out=[];
+  for(let p=1;p<=tt.maxPeriod;p++){
+    const busy=tt.slots.filter(s=>s.day===day&&s.period===p);
+    const busyNames=new Set(busy.map(s=>s.teacher));
+    const free=teachers.filter(t=>!busyNames.has(t));
+    out.push(`第${p}節｜有課：${busy.length?busy.map(s=>`${s.teacher}(${s.label})`).join('、'):'無'}｜空堂：${free.length?free.join('、'):'無'}`);
+  }
+  return out.length?[`${label}課表：`,...out].join('\n'):'';
+}
+function buildMyAppsContext(){
+  const lines=[];
+  const now=new Date();
+  const tomorrow=new Date(now);tomorrow.setDate(tomorrow.getDate()+1);
+  const tt=readTimetable();
+  if(tt){
+    const todayIdx=schoolDayIndex(now),tomorrowIdx=schoolDayIndex(tomorrow);
+    if(todayIdx){const s=timetableDayLines(tt,todayIdx,`今天（星期${PA_DAY_NAMES[todayIdx]}）`);if(s)lines.push(s);}
+    if(tomorrowIdx){const s=timetableDayLines(tt,tomorrowIdx,`明天（星期${PA_DAY_NAMES[tomorrowIdx]}）`);if(s)lines.push(s);}
+    const totals={};
+    tt.slots.forEach(s=>{if(s.teacher)totals[s.teacher]=(totals[s.teacher]||0)+1;});
+    const totalStr=Object.keys(totals).map(t=>`${t}${totals[t]}節`).join('、');
+    if(totalStr)lines.push('每週授課節數：'+totalStr);
+  }
+  const subs=readLS('pa_sub_records');
+  if(Array.isArray(subs)&&subs.length){
+    const todayStr=now.toISOString().slice(0,10);
+    const today=subs.filter(r=>r&&r.date===todayStr);
+    if(today.length){
+      lines.push('今日代課：'+today.map(r=>`第${r.period}節 ${r.class||''} ${r.origTeacher||''}→${r.subTeacher||''}${r.reason?`（${r.reason}）`:''}`).join('；'));
+    }
+    const recent=subs.slice().filter(r=>r&&r.date).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+    if(recent.length)lines.push('近期代課紀錄：'+recent.map(r=>`${r.date} 第${r.period}節 ${r.origTeacher||''}→${r.subTeacher||''}`).join('；'));
+  }
+  // 「鬆弛感・內在重建」存的是很私密的情緒／家庭省思內容，只帶次數與距今天數，
+  // 完全不把任何內文送給第三方 AI；這樣既能提醒使用者好一陣子沒練習，
+  // 又不會把個人的心理紀錄外流。
+  const zen=readLS('zsb_sessions');
+  if(Array.isArray(zen)&&zen.length){
+    const times=zen.map(s=>new Date(s&&(s.updatedAt||s.createdAt)).getTime()).filter(t=>!isNaN(t));
+    if(times.length){
+      const days=Math.floor((now.getTime()-Math.max(...times))/86400000);
+      lines.push(`內在重建練習（鬆弛感 App）：累積 ${zen.length} 次，最近一次是 ${days} 天前（僅提供次數與時間，內容不外流）`);
+    }
+  }
+  return lines.join('\n');
+}
 function buildContextText(){
   const lines=[];
   const notes=liveNotes();
@@ -1526,6 +1637,10 @@ function buildContextText(){
   if(state.useSchoolDb){
     const schoolCtx=buildSchoolDbContext();
     if(schoolCtx)lines.push(schoolCtx);
+  }
+  if(state.useAppsData){
+    const appsCtx=buildMyAppsContext();
+    if(appsCtx)lines.push(appsCtx);
   }
   const c=state.context;
   if(c){
