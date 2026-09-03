@@ -477,7 +477,7 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="card">
       <div class="section-title">🧩 我的其他 App 資料</div>
       <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;">
-        <input type="checkbox" id="useAppsData" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useAppsData=this.checked;save();">
+        <input type="checkbox" id="useAppsData" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useAppsData=this.checked;save();onAppsDataToggle();">
         對話時附上課表／代課／練習紀錄給 AI 參考
       </label>
       <div class="hint" style="margin-top:8px;">
@@ -485,8 +485,9 @@ a.ovMailItem:hover{text-decoration:underline;}
         ・<b>課表</b>（<a href="https://cyysongyy.github.io/principal-assistant/" target="_blank" rel="noopener">校長助理</a>，沒有才用 <a href="https://cyysongyy.github.io/115classschedule/" target="_blank" rel="noopener">115 課表</a>）→ 可問「今天第幾節誰有空可以代課」「明天三甲第二節是誰的課」。<br>
         ・<b>代課紀錄</b>（校長助理）→ 可問「今天有誰要代課」「這個月誰代最多」。<br>
         ・<b>內在重建練習</b>（<a href="https://cyysongyy.github.io/zen-strength-reflection/" target="_blank" rel="noopener">鬆弛感</a>）→ <b>只提供次數與最近一次距今幾天，內容完全不外流</b>。<br>
-        這些 App 要在<b>同一個瀏覽器</b>開過才有本機快取；你用 iPhone Chrome 的話，全部都在 Chrome 開就會共用。
+        課表讀不到本機資料時，會自動從同網域的 App 網頁抓內建課表，所以<b>不用先開過那些 App</b>；代課紀錄與練習次數則仍需在同一瀏覽器開過對應的 App。
       </div>
+      <div class="hint" id="appsDataStatus" style="margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:8px;"></div>
     </div>
 
     <div class="card">
@@ -619,6 +620,7 @@ function fillSettings(){
   document.getElementById('hltUrl').value=state.hltUrl;
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
+  renderAppsDataStatus();
   populateHourSelects();
   document.getElementById('standupEnabled').checked=!!state.standup.enabled;
   document.getElementById('standupInterval').value=state.standup.intervalMin;
@@ -1533,39 +1535,102 @@ function schoolDayIndex(d){const n=d.getDay();return n>=1&&n<=5?n:0;}
 function readLS(k){try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}}
 // 課表有兩個來源，優先用校長助理的（有班級與科目，資訊比較完整），
 // 沒有才退回 115 課表 App 的格式（只有課程代碼，例如「二數」）。
+function timetableFromPaRows(rows,source){
+  const slots=rows.map(r=>({day:Number(r.day),period:Number(r.period),teacher:r.teacher,label:[r.class,r.subject].filter(Boolean).join('')}))
+    .filter(s=>s.teacher&&!isNaN(s.day)&&!isNaN(s.period));
+  if(!slots.length)return null;
+  return{
+    source,slots,
+    teachers:[...new Set(slots.map(s=>s.teacher))],
+    maxPeriod:Math.max(...slots.map(s=>s.period),1)
+  };
+}
+function timetableFromLegacy(obj,source){
+  if(!obj||typeof obj!=='object')return null;
+  const slots=[];
+  let maxPeriod=1;
+  Object.keys(obj).forEach(teacher=>{
+    const byDay=obj[teacher]||{};
+    PA_DAY_NAMES.forEach((cn,day)=>{
+      if(!day)return;
+      const arr=byDay[cn];
+      if(!Array.isArray(arr))return;
+      maxPeriod=Math.max(maxPeriod,arr.length);
+      arr.forEach((cell,i)=>{
+        if(!cell||cell==='空')return;
+        slots.push({day,period:i+1,teacher,label:cell});
+      });
+    });
+  });
+  // 老師名單一定要取自物件的 key，不能從 slots 推——整天都沒課的老師
+  // 一個 slot 都不會產生，用 slots 推就會把他漏掉，而他正是最有空可以代課的人。
+  const teachers=Object.keys(obj);
+  return teachers.length?{source,slots,teachers,maxPeriod}:null;
+}
 function readTimetable(){
   const pa=readLS('pa_schedule');
   if(pa&&Array.isArray(pa.rows)&&pa.rows.length){
-    const slots=pa.rows.map(r=>({day:Number(r.day),period:Number(r.period),teacher:r.teacher,label:[r.class,r.subject].filter(Boolean).join('')}));
-    return{
-      source:'pa',slots,
-      teachers:[...new Set(slots.map(s=>s.teacher).filter(Boolean))],
-      maxPeriod:Math.max(...slots.map(s=>s.period).filter(n=>!isNaN(n)),1)
-    };
+    const tt=timetableFromPaRows(pa.rows,'pa');
+    if(tt)return tt;
   }
-  const legacy=readLS('school_schedule_data');
-  if(legacy&&typeof legacy==='object'){
-    const slots=[];
-    let maxPeriod=1;
-    Object.keys(legacy).forEach(teacher=>{
-      const byDay=legacy[teacher]||{};
-      PA_DAY_NAMES.forEach((cn,day)=>{
-        if(!day)return;
-        const arr=byDay[cn];
-        if(!Array.isArray(arr))return;
-        maxPeriod=Math.max(maxPeriod,arr.length);
-        arr.forEach((cell,i)=>{
-          if(!cell||cell==='空')return;
-          slots.push({day,period:i+1,teacher,label:cell});
-        });
-      });
-    });
-    // 老師名單一定要取自物件的 key，不能從 slots 推——整天都沒課的老師
-    // 一個 slot 都不會產生，用 slots 推就會把他漏掉，而他正是最有空可以代課的人。
-    const teachers=Object.keys(legacy);
-    if(teachers.length)return{source:'legacy',slots,teachers,maxPeriod};
-  }
+  const legacy=timetableFromLegacy(readLS('school_schedule_data'),'legacy');
+  if(legacy)return legacy;
+  // 最後才用線上抓回來的快取（見 refreshTimetableCache）。
+  const cached=readLS(TIMETABLE_CACHE_KEY);
+  if(cached&&Array.isArray(cached.slots)&&Array.isArray(cached.teachers)&&cached.teachers.length)return cached;
   return null;
+}
+// 這兩個 App 的「真實」課表其實寫死在它們自己的原始碼裡，不是一開始就在 localStorage：
+// 115 課表要編輯並儲存過才會寫入；校長助理要打開過「功課表」區塊才會把內建課表寫進去。
+// 所以只讀 localStorage 會在使用者什麼都還沒做時撈到空的——這正是第一版沒作用的原因。
+// 同網域可以直接 fetch 那些 App 的網頁，把內嵌的課表抽出來存成快取，
+// 使用者完全不用先開過任何 App。
+const TIMETABLE_CACHE_KEY='ybot_timetable_cache_v1';
+const TIMETABLE_SOURCES=[
+  // 校長助理的內建課表資料最完整（老師全名＋班級＋科目），優先用。
+  {url:'https://cyysongyy.github.io/principal-assistant/',source:'pa-embedded',
+   re:/var preloaded=(\{[\s\S]*?\});/,
+   build:o=>o&&Array.isArray(o.rows)?timetableFromPaRows(o.rows,'pa-embedded'):null},
+  {url:'https://cyysongyy.github.io/115classschedule/',source:'115-embedded',
+   re:/const defaultSchedule\s*=\s*(\{[\s\S]*?\n\s*\});/,
+   build:o=>timetableFromLegacy(o,'115-embedded')}
+];
+async function refreshTimetableCache(force){
+  // 本機已經有真實課表（使用者開過／編輯過那些 App）就不用抓，那份比較新。
+  if(readLS('pa_schedule')||readLS('school_schedule_data'))return false;
+  const cached=readLS(TIMETABLE_CACHE_KEY);
+  if(!force&&cached&&cached.fetchedAt&&Date.now()-new Date(cached.fetchedAt).getTime()<7*86400000)return false;
+  for(const src of TIMETABLE_SOURCES){
+    try{
+      const r=await fetch(src.url,{cache:'no-cache'});
+      if(!r.ok)continue;
+      const m=(await r.text()).match(src.re);
+      if(!m)continue;
+      const tt=src.build(JSON.parse(m[1]));
+      if(!tt)continue;
+      tt.fetchedAt=new Date().toISOString();
+      localStorage.setItem(TIMETABLE_CACHE_KEY,JSON.stringify(tt));
+      return true;
+    }catch(e){/* 某個來源抓不到就換下一個，全部失敗就維持沒有課表 */}
+  }
+  return false;
+}
+// 設定頁直接顯示「現在到底讀到什麼」，讓使用者不用猜為什麼沒作用。
+function describeAppsData(){
+  const SRC={pa:'校長助理（本機資料）',legacy:'115 課表（本機資料）',
+    'pa-embedded':'校長助理（線上讀取內建課表）','115-embedded':'115 課表（線上讀取內建課表）'};
+  const tt=readTimetable();
+  const subs=readLS('pa_sub_records');
+  const zen=readLS('zsb_sessions');
+  const rows=[
+    tt?`✅ 課表：${tt.teachers.length} 位老師、${tt.slots.length} 節 · 來源：${SRC[tt.source]||tt.source}`
+      :'⏳ 課表：尚未讀到（稍等幾秒後重開設定頁，或確認網路）',
+    Array.isArray(subs)&&subs.length?`✅ 代課紀錄：${subs.length} 筆`
+      :'➖ 代課紀錄：沒有資料（需在同一瀏覽器開過校長助理的調課記錄）',
+    Array.isArray(zen)&&zen.length?`✅ 內在重建練習：${zen.length} 次（只送次數與時間）`
+      :'➖ 內在重建練習：沒有資料'
+  ];
+  return '<b>目前讀到的資料</b><br>'+rows.join('<br>');
 }
 // 把某一天的課表壓成「第N節｜有課：…｜空堂：…」——「誰現在有空可以代課」
 // 是校長每天真的會遇到的問題，空堂名單要直接給，AI 才不用自己推。
@@ -1868,6 +1933,16 @@ function updateClock(){
 updateClock();
 setInterval(updateClock,30000);
 
+function renderAppsDataStatus(){
+  const el=document.getElementById('appsDataStatus');
+  if(el)el.innerHTML=describeAppsData();
+}
+// 打開開關時立刻去抓課表，抓到再把狀態更新一次，使用者才看得到有沒有成功。
+function onAppsDataToggle(){
+  if(!state.useAppsData)return;
+  refreshTimetableCache().then(()=>renderAppsDataStatus());
+}
+
 // ── 初始化 ──────────────────────────────
 renderChat();
 renderNotes();
@@ -1877,6 +1952,8 @@ if(state.context)showCtxStatus();
 renderOverview();
 if(state.gasUrl)refreshContext();
 tryAutoLocate();
+// 課表快取在背景補齊，抓完就寫進 localStorage，下一次對話就讀得到。
+if(state.useAppsData)refreshTimetableCache();
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
