@@ -1655,9 +1655,15 @@ function buildMyAppsContext(){
   const tomorrow=new Date(now);tomorrow.setDate(tomorrow.getDate()+1);
   const tt=readTimetable();
   if(tt){
+    // 整週都給。原本只給今明兩天是怕佔太多 context，但實測整週課表也才 3,254 字
+    // （約 600 個 token 的差距），對三家模型都是零頭；而調代課本來就常要提前
+    // 幾天安排，只給兩天等於把最需要規劃的情境擋掉。
     const todayIdx=schoolDayIndex(now),tomorrowIdx=schoolDayIndex(tomorrow);
-    if(todayIdx){const s=timetableDayLines(tt,todayIdx,`今天（星期${PA_DAY_NAMES[todayIdx]}）`);if(s)lines.push(s);}
-    if(tomorrowIdx){const s=timetableDayLines(tt,tomorrowIdx,`明天（星期${PA_DAY_NAMES[tomorrowIdx]}）`);if(s)lines.push(s);}
+    for(let d=1;d<=5;d++){
+      const tag=d===todayIdx?'（今天）':d===tomorrowIdx?'（明天）':'';
+      const s=timetableDayLines(tt,d,`星期${PA_DAY_NAMES[d]}${tag}`);
+      if(s)lines.push(s);
+    }
     const totals={};
     tt.slots.forEach(s=>{if(s.teacher)totals[s.teacher]=(totals[s.teacher]||0)+1;});
     const totalStr=Object.keys(totals).map(t=>`${t}${totals[t]}節`).join('、');
