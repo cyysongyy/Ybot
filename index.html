@@ -488,6 +488,9 @@ a.ovMailItem:hover{text-decoration:underline;}
         課表讀不到本機資料時，會自動從同網域的 App 網頁抓內建課表，所以<b>不用先開過那些 App</b>；代課紀錄與練習次數則仍需在同一瀏覽器開過對應的 App。
       </div>
       <div class="hint" id="appsDataStatus" style="margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:8px;"></div>
+      <button class="btn ghost" style="margin-top:8px;padding:7px 14px;font-size:.8rem;" onclick="toggleContextPeek()">🔍 檢視這次會送給 AI 的資料</button>
+      <pre id="contextPeek" style="display:none;margin-top:8px;padding:10px;background:var(--bg);border:1px solid var(--line);
+        border-radius:8px;font-size:.68rem;line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow:auto;"></pre>
     </div>
 
     <div class="card">
@@ -1845,7 +1848,7 @@ async function sendChat(){
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
-  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）：\n${buildContextText()}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText()}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
@@ -1933,9 +1936,28 @@ function updateClock(){
 updateClock();
 setInterval(updateClock,30000);
 
+// 直接把「這一刻會送給 AI 的那段資料」原封不動攤開。
+// 之前遇到「診斷說讀得到、AI 卻說沒有」，光靠猜沒辦法確定是開關沒生效、
+// 多個分頁的狀態互相覆蓋、還是 AI 拿到了卻不用——把實際內容秀出來就一翻兩瞪眼。
+function toggleContextPeek(){
+  const el=document.getElementById('contextPeek');
+  if(!el)return;
+  if(el.style.display!=='none'){el.style.display='none';return;}
+  let body;
+  try{
+    const ctx=buildContextText();
+    body=`【開關】我的其他 App 資料 = ${state.useAppsData?'開啟':'關閉'}\n`+
+      `【課表】${ctx.includes('課表：')?'有帶入 ✅':'沒有帶入 ❌'}\n`+
+      `【總長度】${ctx.length} 字\n────────────────\n${ctx}`;
+  }catch(e){body='組不出資料：'+e.message;}
+  el.textContent=body;
+  el.style.display='block';
+}
 function renderAppsDataStatus(){
   const el=document.getElementById('appsDataStatus');
   if(el)el.innerHTML=describeAppsData();
+  const peek=document.getElementById('contextPeek');
+  if(peek)peek.style.display='none';
 }
 // 打開開關時立刻去抓課表，抓到再把狀態更新一次，使用者才看得到有沒有成功。
 function onAppsDataToggle(){
