@@ -1057,14 +1057,21 @@ async function quickRecStart(auto){
         qrSet('error','⚠️ 沒有聽到聲音','沒有收到任何聲音，點一下麥克風再錄一次。','🎙️','');
         return;
       }
-      qrSet('transcribing','⏳ 轉文字中','講完了，正在把語音轉成文字…','⏳','busy');
       const mime=qrRecorder.mimeType||REC_MIME||'audio/mp4';
+      const blob=new Blob(qrChunks,{type:mime});
+      // 離線就別白跑一趟 API，直接排隊。
+      if(!navigator.onLine){await qrQueueOffline(blob,mime);return;}
+      qrSet('transcribing','⏳ 轉文字中','講完了，正在把語音轉成文字…','⏳','busy');
       try{
-        const text=(await transcribeAudio(new Blob(qrChunks,{type:mime}),mime)||'').trim();
+        const text=(await transcribeAudio(blob,mime)||'').trim();
         if(!text){qrSet('error','⚠️ 沒有聽到內容','沒有辨識到文字，再按一次錄音鍵重錄。','🎙️','');return;}
         qrSaveNote(text);
+        qrFlushQueue();  // 網路顯然是通的，順手把之前排隊的也處理掉
       }catch(err){
-        qrSet('error','❌ 轉文字失敗',err.message+'（再按一次可重錄）','🎙️','');
+        // 轉文字失敗就把音檔存起來等下次，而不是叫使用者重錄——講過的話再講一次
+        // 最惱人，而且 navigator.onLine 常常騙人（連到沒有外網的 wifi 也算 online），
+        // 所以不管失敗原因是什麼都先收好，反正回線上會自動重試。
+        await qrQueueOffline(blob,mime,err.message);
       }
     };
     qrRecorder.start();
@@ -1139,6 +1146,110 @@ function qrUndo(){
   qrSet('idle','↩️ 已復原','那則筆記已刪除。點一下可以重新錄音。','🎙️','');
   qrShowText('');
 }
+// ── 離線錄音佇列 ──────────────────────────
+// 沒網路（或轉文字失敗）時，音檔先收進 IndexedDB，並馬上在筆記列表放一則佔位，
+// 讓使用者看得到「有東西在排隊」，不會以為錄丟了。回到線上自動轉文字、回填。
+//
+// 為什麼用 IndexedDB 而不是 localStorage：localStorage 只能存字串，音檔要轉
+// base64 會膨脹約 33%，而且整個 localStorage 只有 5MB 上限——那大概只夠放兩三
+// 分鐘語音，而且會跟筆記搶空間。IndexedDB 可以直接存 Blob。
+const QDB='ybot-audio',QSTORE='pending';
+let qrFlushing=false;
+function qrOpenDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(QDB,1);
+    r.onupgradeneeded=()=>{
+      const d=r.result;
+      if(!d.objectStoreNames.contains(QSTORE))d.createObjectStore(QSTORE,{keyPath:'id'});
+    };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error||new Error('IndexedDB 打不開'));
+  });
+}
+function qrAudioPut(rec){
+  return qrOpenDB().then(d=>new Promise((res,rej)=>{
+    const tx=d.transaction(QSTORE,'readwrite');
+    tx.objectStore(QSTORE).put(rec);
+    tx.oncomplete=()=>res(true);
+    tx.onerror=()=>rej(tx.error);
+  }));
+}
+function qrAudioAll(){
+  return qrOpenDB().then(d=>new Promise((res,rej)=>{
+    const tx=d.transaction(QSTORE,'readonly');
+    const r=tx.objectStore(QSTORE).getAll();
+    r.onsuccess=()=>res(r.result||[]);
+    tx.onerror=()=>rej(tx.error);
+  }));
+}
+function qrAudioDel(id){
+  return qrOpenDB().then(d=>new Promise((res,rej)=>{
+    const tx=d.transaction(QSTORE,'readwrite');
+    tx.objectStore(QSTORE).delete(id);
+    tx.oncomplete=()=>res(true);
+    tx.onerror=()=>rej(tx.error);
+  }));
+}
+function qrStamp(d){
+  const p=n=>String(n).padStart(2,'0');
+  return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// 佔位筆記刻意不同步到雲端：那時候本來就沒網路，而且內容還不是最終的文字。
+// 等轉好了再一次把完整內容送上去（qrFlushQueue 裡的 addNote）。
+async function qrQueueOffline(blob,mime,why){
+  const now=new Date();
+  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:'note',
+    content:`🎙️ 錄音待轉文字（${qrStamp(now)}）`,dueAt:'',done:false,
+    createdAt:now.toISOString(),notifiedAt:'',pendingAudio:true};
+  try{
+    await qrAudioPut({id:n.id,blob,mime,createdAt:Date.now()});
+  }catch(err){
+    // 音檔真的存不進去（無痕模式、空間滿了）。這時候不能假裝存好了，
+    // 得誠實告訴使用者這一段沒留住。
+    qrSet('error','❌ 這段沒能存下來',
+      (why?why+'，':'')+'而且音檔也存不進瀏覽器（'+(err.message||'空間不足或無痕模式')+'）。再錄一次看看。','🎙️','');
+    return;
+  }
+  state.notes.unshift(n);save();renderNotes();renderOverview();
+  qrSavedId=n.id;
+  qrSet('done','📦 已收好，等有網路再轉文字',
+    '錄音已經存在手機裡，連上網路就會自動轉成文字填進這則筆記。','🎙️','');
+  qrShowText(n.content);
+}
+// 回到線上時把排隊的音檔一個一個轉掉。任何一筆失敗就整批停下來等下一次——
+// 多半是網路還沒真的通，繼續打只是白費 API 額度。
+async function qrFlushQueue(){
+  if(qrFlushing)return;
+  let items;
+  try{items=await qrAudioAll();}catch(err){return;}
+  if(!items.length)return;
+  qrFlushing=true;
+  try{
+    items.sort((a,b)=>a.createdAt-b.createdAt);  // 照錄音順序處理
+    for(const it of items){
+      const n=state.notes.find(x=>x.id===it.id&&!x.deleted);
+      if(!n){await qrAudioDel(it.id);continue;}  // 使用者已經把那則刪了，音檔跟著清掉
+      let text;
+      try{text=(await transcribeAudio(it.blob,it.mime)||'').trim();}
+      catch(err){break;}
+      if(text){
+        n.content=text;
+        if(state.gasUrl){
+          const {pendingAudio,...clean}=n;
+          fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+            body:JSON.stringify({action:'addNote',note:clean})}).catch(()=>{});
+        }
+      }else{
+        // 轉得出來但是空的：再重試幾次結果也一樣，就別一直佔著空間。
+        n.content=`🎙️ 這段錄音沒有辨識到文字（${qrStamp(new Date(it.createdAt))}）`;
+      }
+      delete n.pendingAudio;
+      save();renderNotes();renderOverview();
+      await qrAudioDel(it.id);
+    }
+  }finally{qrFlushing=false;}
+}
+
 async function transcribeAudio(blob,mime){
   // 語音轉文字這件事上 Gemini 優先，就算使用者的偏好是 OpenAI 也一樣：
   // Whisper 對中文固定吐簡體，而且 API 沒有指定繁體的參數，只能用 prompt 偏向、
@@ -2269,6 +2380,9 @@ tryAutoLocate();
 if(state.useAppsData)refreshTimetableCache();
 maybeStartQuickRec();
 registerSW();
+// 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。
+qrFlushQueue();
+window.addEventListener('online',()=>qrFlushQueue());
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
