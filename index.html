@@ -2197,6 +2197,16 @@ function onAppsDataToggle(){
   refreshTimetableCache().then(()=>renderAppsDataStatus());
 }
 
+// ── 離線支援 ────────────────────────────
+// 註冊 service worker，讓 App 沒網路也打得開（錄音和筆記本來就不需要網路，
+// 卡住的一直是「頁面本身跟 GitHub Pages 拿不到」）。細節在 sw.js。
+// 註冊失敗不影響任何現有功能，所以靜默處理——不支援的瀏覽器照舊上線用。
+function registerSW(){
+  if(!('serviceWorker'in navigator))return;
+  // 相對路徑很重要：scope 會是 /Ybot/，不會去管隔壁那幾個 App。
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+
 // ── 初始化 ──────────────────────────────
 renderChat();
 renderNotes();
@@ -2209,6 +2219,7 @@ tryAutoLocate();
 // 課表快取在背景補齊，抓完就寫進 localStorage，下一次對話就讀得到。
 if(state.useAppsData)refreshTimetableCache();
 maybeStartQuickRec();
+registerSW();
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
