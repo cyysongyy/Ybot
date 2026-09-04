@@ -988,9 +988,9 @@ async function toggleRecording(){
   }catch(err){status.textContent='❌ 無法取得麥克風權限';}
 }
 // ── 快速錄音（給 iPhone 實體鍵用捷徑開 ?rec=1 進來）──
-// 流程刻意壓到最短：進來就開始錄 → 再按一次停止 → 轉文字 → 直接存成筆記。
+// 流程刻意壓到最短：進來就開始錄 → 講完停頓一下自動收掉 → 轉文字 → 直接存成筆記。
 // 存好才顯示結果，中間不需要使用者去找任何按鈕。
-let qrRecorder=null,qrChunks=[],qrState='idle',qrSavedId=null;
+let qrRecorder=null,qrChunks=[],qrState='idle',qrSavedId=null,qrNoSpeech=false;
 // 參數不要叫 state——那會把全域的 state（整個 App 的資料）遮蔽掉。
 function qrSet(next,title,hint,micText,micClass){
   qrState=next;
@@ -1046,11 +1046,17 @@ async function quickRecStart(auto){
   }
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    qrChunks=[];
+    qrChunks=[];qrNoSpeech=false;  // 每次重錄都要歸零，否則上一輪的狀態會影響這一輪
     qrRecorder=REC_MIME?new MediaRecorder(stream,{mimeType:REC_MIME}):new MediaRecorder(stream);
     qrRecorder.ondataavailable=e=>{if(e.data&&e.data.size)qrChunks.push(e.data);};
     qrRecorder.onstop=async()=>{
       stream.getTracks().forEach(t=>t.stop());
+      // 全程都沒偵測到聲音就不用送去轉文字了，白花一次 API 呼叫。
+      if(qrNoSpeech){
+        qrNoSpeech=false;
+        qrSet('error','⚠️ 沒有聽到聲音','沒有收到任何聲音，點一下麥克風再錄一次。','🎙️','');
+        return;
+      }
       qrSet('transcribing','⏳ 轉文字中','講完了，正在把語音轉成文字…','⏳','busy');
       const mime=qrRecorder.mimeType||REC_MIME||'audio/mp4';
       try{
@@ -1062,7 +1068,8 @@ async function quickRecStart(auto){
       }
     };
     qrRecorder.start();
-    qrSet('recording','🔴 錄音中','講完後再按一次紅色按鈕停止。','⏹','rec');
+    qrSet('recording','🔴 錄音中','講完停頓一下就會自動結束，不用按停止。','⏹','rec');
+    qrWatchSilence(stream);
   }catch(err){
     // 自動開始被瀏覽器擋掉是預期內的（iOS 需要使用者手勢），這時只要點一下就好。
     qrSet('idle','🎙️ 快速錄音',
@@ -1071,6 +1078,48 @@ async function quickRecStart(auto){
 }
 function quickRecStop(){
   if(qrRecorder&&qrState==='recording'){try{qrRecorder.stop();}catch(e){}}
+}
+// ── 靜音自動結束 ──
+// 「講完還要按一次停止」是這個流程最後一個多餘動作，改成聽到你講完就自己收掉。
+// 判斷邏輯抽成純函式，真實音訊在測試環境重現不了，但這段邏輯測得起來。
+const QR_SILENCE_MS=2000;    // 開始講話後，停頓這麼久就當作講完
+const QR_NO_SPEECH_MS=8000;  // 從頭到尾都沒聲音就別一直錄
+const QR_MAX_MS=90000;       // 最長上限，避免忘記關一直錄下去
+function qrSilenceVerdict(s){
+  if(s.now-s.startedAt>=QR_MAX_MS)return 'max';
+  if(!s.heard)return (s.now-s.startedAt>=QR_NO_SPEECH_MS)?'nospeech':'wait';
+  return (s.now-s.lastLoudAt>=QR_SILENCE_MS)?'done':'wait';
+}
+function qrWatchSilence(stream){
+  let ctx,analyser,buf;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return;
+    ctx=new AC();
+    analyser=ctx.createAnalyser();
+    analyser.fftSize=512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    buf=new Uint8Array(analyser.fftSize);
+  }catch(e){return;}  // 不支援就算了，使用者仍然可以手動按停止
+  const startedAt=Date.now();
+  let heard=false,lastLoudAt=startedAt,ambient=0,samples=0,threshold=0;
+  const timer=setInterval(()=>{
+    if(qrState!=='recording'){clearInterval(timer);try{ctx.close();}catch(e){}return;}
+    analyser.getByteTimeDomainData(buf);
+    let sum=0;
+    for(let i=0;i<buf.length;i++){const v=(buf[i]-128)/128;sum+=v*v;}
+    const rms=Math.sqrt(sum/buf.length);
+    const now=Date.now();
+    // 前 400ms 先量環境音：吵的地方門檻自動拉高，安靜的地方才不會反應太鈍。
+    if(now-startedAt<400){ambient=(ambient*samples+rms)/(samples+1);samples++;return;}
+    if(!threshold)threshold=Math.max(0.02,ambient*2.5);
+    if(rms>threshold){heard=true;lastLoudAt=now;}
+    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt});
+    if(verdict==='wait')return;
+    clearInterval(timer);try{ctx.close();}catch(e){}
+    if(verdict==='nospeech')qrNoSpeech=true;
+    quickRecStop();
+  },120);
 }
 // 轉好的文字直接存成瑣事筆記——快速錄音的重點是「先不要弄丟」，
 // 分類之後可以再叫 Ybot 改。存完附一個復原，講錯了可以馬上收回。
