@@ -1095,7 +1095,7 @@ async function quickRecStart(auto){
     qrRecorder.start();
     // 錄音中也要看得出是哪一種，不然誤觸鬆弛練習會不知道自己在錄什麼。
     qrSet('recording',qrMode==='relax'?'🌿 鬆弛練習中':'🔴 錄音中',
-      qrMode==='relax'?'說完停頓一下就會自動結束，接著幫你換個看法。':'講完停頓一下就會自動結束，不用按停止。','⏹','rec');
+      qrMode==='relax'?'慢慢講，中間想一下沒關係；真的講完停久一點才會結束。':'講完停頓一下就會自動結束；中間想一下不會被切掉。','⏹','rec');
     qrWatchSilence(stream);
   }catch(err){
     // 自動開始被瀏覽器擋掉是預期內的（iOS 需要使用者手勢），這時只要點一下就好。
@@ -1109,13 +1109,36 @@ function quickRecStop(){
 // ── 靜音自動結束 ──
 // 「講完還要按一次停止」是這個流程最後一個多餘動作，改成聽到你講完就自己收掉。
 // 判斷邏輯抽成純函式，真實音訊在測試環境重現不了，但這段邏輯測得起來。
-const QR_SILENCE_MS=2000;    // 開始講話後，停頓這麼久就當作講完
-const QR_NO_SPEECH_MS=8000;  // 從頭到尾都沒聲音就別一直錄
-const QR_MAX_MS=90000;       // 最長上限，避免忘記關一直錄下去
+// 停頓多久算講完。原本 2 秒太短——想下一句話要怎麼講的自然停頓就超過了，
+// 結果話還沒講完就被切掉。鬆弛練習是邊想邊講，停頓更長，所以給它更寬。
+const QR_SILENCE_MS=3200;
+const QR_SILENCE_MS_RELAX=4800;
+const QR_MIN_MS=2000;        // 最短錄音長度，剛開口不可能就結束
+const QR_NO_SPEECH_MS=10000; // 真的完全沒聲音才放棄
+const QR_MAX_MS=180000;      // 最長上限，避免忘記關一直錄下去
+// 音量低到這個程度不可能是人聲。這是「絕對」標準，跟會浮動的門檻無關——
+// 只有它說沒聲音才敢丟掉錄音，寧可白花一次 API 也不要把講過的話弄不見。
+const QR_DEAD_PEAK=0.02;
+function qrSilenceMs(){return qrMode==='relax'?QR_SILENCE_MS_RELAX:QR_SILENCE_MS;}
+// 噪音基準與門檻抽成純函式，因為之前那版的 bug 就藏在這段裡、而且從外面看不出來：
+// 原本拿開頭 400ms 的平均當環境音，但捷徑一進來就開始錄，使用者那時常常已經在
+// 講話了，於是把說話聲當成環境音，門檻被拉到高得離譜，整段都被判成安靜。
+function qrNoiseFloor(floor,rms){
+  if(floor===null||floor===undefined||rms<floor)return rms;  // 變安靜就立刻跟上
+  return floor+(rms-floor)*0.0005;                            // 變吵只能極慢地跟
+}
+// 上下限都夾住：太低會被氣流雜訊誤觸，太高會對人聲失聰。
+function qrThreshold(floor){return Math.min(0.06,Math.max(0.015,floor*3));}
 function qrSilenceVerdict(s){
+  const quiet=s.silenceMs||QR_SILENCE_MS;
   if(s.now-s.startedAt>=QR_MAX_MS)return 'max';
-  if(!s.heard)return (s.now-s.startedAt>=QR_NO_SPEECH_MS)?'nospeech':'wait';
-  return (s.now-s.lastLoudAt>=QR_SILENCE_MS)?'done':'wait';
+  if(s.now-s.startedAt<QR_MIN_MS)return 'wait';
+  if(!s.heard){
+    // 沒偵測到人聲有兩種可能：真的沒講話，或門檻抓歪了。後者不能把錄音丟掉，
+    // 所以要音量峰值也真的低到不像人聲，才判定沒聲音。
+    return (s.now-s.startedAt>=QR_NO_SPEECH_MS&&(s.peak||0)<QR_DEAD_PEAK)?'nospeech':'wait';
+  }
+  return (s.now-s.lastLoudAt>=quiet)?'done':'wait';
 }
 function qrWatchSilence(stream){
   let ctx,analyser,buf;
@@ -1129,7 +1152,8 @@ function qrWatchSilence(stream){
     buf=new Uint8Array(analyser.fftSize);
   }catch(e){return;}  // 不支援就算了，使用者仍然可以手動按停止
   const startedAt=Date.now();
-  let heard=false,lastLoudAt=startedAt,ambient=0,samples=0,threshold=0;
+  const quiet=qrSilenceMs();
+  let heard=false,lastLoudAt=startedAt,floor=null,peak=0;
   const timer=setInterval(()=>{
     if(qrState!=='recording'){clearInterval(timer);try{ctx.close();}catch(e){}return;}
     analyser.getByteTimeDomainData(buf);
@@ -1137,11 +1161,15 @@ function qrWatchSilence(stream){
     for(let i=0;i<buf.length;i++){const v=(buf[i]-128)/128;sum+=v*v;}
     const rms=Math.sqrt(sum/buf.length);
     const now=Date.now();
-    // 前 400ms 先量環境音：吵的地方門檻自動拉高，安靜的地方才不會反應太鈍。
-    if(now-startedAt<400){ambient=(ambient*samples+rms)/(samples+1);samples++;return;}
-    if(!threshold)threshold=Math.max(0.02,ambient*2.5);
+    if(rms>peak)peak=rms;
+    // 噪音基準取「一路觀察到的最小值」，不是開頭那段的平均。
+    // 之前是拿前 400ms 的平均當環境音，但捷徑一進來就開始錄，使用者很可能
+    // 那時候已經在講話了——於是把說話聲當成環境音，門檻被拉到高得離譜，
+    // 整段話都被判成安靜，話還沒講完就被切掉。
+    floor=qrNoiseFloor(floor,rms);
+    const threshold=qrThreshold(floor);
     if(rms>threshold){heard=true;lastLoudAt=now;}
-    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt});
+    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt,peak,silenceMs:quiet});
     if(verdict==='wait')return;
     clearInterval(timer);try{ctx.close();}catch(e){}
     if(verdict==='nospeech')qrNoSpeech=true;
