@@ -34,8 +34,14 @@ const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
 const BRIEF_SHEET = '每日簡報存檔';
+// 問答資料庫：前端每問一次就存一筆，這裡是雲端備份。
+// localStorage 會被「清除瀏覽器資料」清掉，也可能被 iOS 在空間吃緊時回收，
+// 累積幾個月的問答只放本機太脆弱。
+const QA_SHEET = '問答資料庫';
 
 const NOTE_COLS = ['id', 'type', 'content', 'dueAt', 'done', 'createdAt', 'notifiedAt'];
+// kind: chat（對話問答）／ relax（鬆弛練習）
+const QA_COLS = ['id', 'q', 'a', 'kind', 'at'];
 // type: note（瑣事筆記）／ todo（待辦）／ reminder（有時間點的提醒，到點會主動寄信）
 
 // 通知信箱（留空則自動用試算表擁有者信箱）
@@ -122,7 +128,8 @@ function setupSheets() {
   const note = ensureSheet(NOTE_SHEET, NOTE_COLS);
   const kv = ensureSheet(KV_SHEET, ['key', 'value']);
   const brief = ensureSheet(BRIEF_SHEET, ['generatedAt', 'summary']);
-  return { note, kv, brief };
+  const qa = ensureSheet(QA_SHEET, QA_COLS);
+  return { note, kv, brief, qa };
 }
 function ensureSheet(name, cols) {
   let sh = SS.getSheetByName(name);
@@ -148,6 +155,10 @@ function doGet(e) {
   }
   if (action === 'context') {
     return jsonResp({ ok: true, context: buildContext() });
+  }
+  if (action === 'qa') {
+    const { qa } = setupSheets();
+    return jsonResp({ ok: true, qa: sheetToObjects(qa, QA_COLS) });
   }
   return jsonResp({ ok: false, error: 'Unknown action: ' + action });
 }
@@ -188,6 +199,34 @@ function doPost(e) {
       });
     });
     return jsonResp({ ok: true, message: `同步完成：${(body.notes || []).length} 筆` });
+  }
+  if (action === 'addQa') {
+    const { qa } = setupSheets();
+    const r = body.qa || {};
+    if (!r.id) return jsonResp({ ok: false, error: '缺少 id' });
+    // 用 upsert 而不是 append：離線補送或重試時同一筆才不會變成兩列。
+    upsertRow(qa, QA_COLS, r.id, {
+      id: r.id, q: r.q || '', a: r.a || '', kind: r.kind || 'chat',
+      at: r.at || new Date().toISOString()
+    });
+    return jsonResp({ ok: true, message: '已存入問答庫', id: r.id });
+  }
+  if (action === 'syncQa') {
+    const { qa } = setupSheets();
+    const list = body.qa || [];
+    list.forEach(r => {
+      if (!r.id) return;
+      upsertRow(qa, QA_COLS, r.id, {
+        id: r.id, q: r.q || '', a: r.a || '', kind: r.kind || 'chat',
+        at: r.at || new Date().toISOString()
+      });
+    });
+    return jsonResp({ ok: true, message: `問答庫同步完成：${list.length} 筆` });
+  }
+  if (action === 'deleteQa') {
+    const { qa } = setupSheets();
+    deleteRow(qa, body.id);
+    return jsonResp({ ok: true, message: '已刪除' });
   }
   if (action === 'saveLinkedBackends') {
     writeKv({ remediationBackendUrl: body.remediationBackendUrl || '', healthBackendUrl: body.healthBackendUrl || '' });

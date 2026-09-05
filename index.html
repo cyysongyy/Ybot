@@ -421,6 +421,10 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="section-title">📚 我的問答資料庫</div>
       <div class="hint" id="qaSummary" style="margin-top:0;"></div>
       <input id="qaSearch" class="fi" placeholder="搜尋問過的問題或答案…" oninput="renderQaList()" style="margin:8px 0;">
+      <div class="row2" style="margin-bottom:6px;align-items:center;">
+        <button class="btn ghost" onclick="qaSync()" style="flex:0 0 auto;padding:7px 14px;font-size:.8rem;">☁️ 與雲端同步</button>
+        <span id="qaSyncStatus" class="hint" style="margin:0;align-self:center;"></span>
+      </div>
       <div id="qaList"></div>
     </div>
     <div class="card">
@@ -2261,12 +2265,60 @@ function qaAdd(q,a,kind){
   state.qa.unshift(rec);
   if(state.qa.length>QA_MAX)state.qa.length=QA_MAX;
   save();
+  // 順手備份到雲端。跟筆記一樣是 fire-and-forget：後台掛了或還沒更新版本，
+  // 本機這筆照樣存著，之後按「與雲端同步」還是補得回去。
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'addQa',qa:rec})}).catch(()=>{});
+  }
   return rec;
 }
 function qaDelete(id){
   if(!Array.isArray(state.qa))return;
   state.qa=state.qa.filter(x=>x.id!==id);
   save();renderQaList();
+  // 雲端也要刪掉，不然下次同步又被拉回來。
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'deleteQa',id})}).catch(()=>{});
+  }
+}
+// 雙向同步：先把雲端有、本機沒有的補進來，再把本機有、雲端沒有的送上去。
+// 問答一旦寫下就不會再改內容，所以用 id 做聯集就夠了，不需要處理衝突。
+async function qaSync(){
+  const st=document.getElementById('qaSyncStatus');
+  const say=t=>{if(st)st.textContent=t;};
+  if(!state.gasUrl){say('⚠️ 還沒設定雲端後台網址，請先到下面「雲端後台」填好。');return;}
+  say('同步中…');
+  try{
+    const r=await fetch(state.gasUrl+'?action=qa');
+    const d=await r.json();
+    // 舊版後台不認得這個 action，會回 ok:false。要講清楚是後台要更新，
+    // 不要讓使用者以為是同步壞掉。
+    if(!d||!d.ok){
+      say('⚠️ 後台還不支援問答庫，請先把最新的 ybot-backend.gs 貼到 Apps Script 並重新部署。');
+      return;
+    }
+    const remote=Array.isArray(d.qa)?d.qa.filter(x=>x&&x.id):[];
+    if(!Array.isArray(state.qa))state.qa=[];
+    const localIds=new Set(state.qa.map(x=>x.id));
+    const pulled=remote.filter(x=>!localIds.has(x.id));
+    if(pulled.length){
+      state.qa=state.qa.concat(pulled)
+        .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
+      if(state.qa.length>QA_MAX)state.qa.length=QA_MAX;
+    }
+    const remoteIds=new Set(remote.map(x=>x.id));
+    const toPush=state.qa.filter(x=>!remoteIds.has(x.id));
+    if(toPush.length){
+      await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+        body:JSON.stringify({action:'syncQa',qa:toPush})});
+    }
+    save();renderQaList();
+    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。`);
+  }catch(err){
+    say('⚠️ 同步失敗：'+(err.message||'連不上後台')+'（本機資料沒有動）');
+  }
 }
 // 用問題和答案一起比對：有時候你記得的是當時的答案，不是當初怎麼問的。
 function qaSearch(query,limit){
