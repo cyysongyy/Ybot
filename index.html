@@ -135,7 +135,7 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .qrOverlay{position:fixed;inset:0;z-index:50;background:rgba(15,23,42,.72);
   display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px);}
 .qrBox{background:var(--card);border-radius:22px;padding:28px 22px;width:100%;max-width:340px;
-  text-align:center;box-shadow:var(--shadow-md);}
+  text-align:center;box-shadow:var(--shadow-md);max-height:92vh;overflow-y:auto;}
 .qrTitle{font-size:1.05rem;font-weight:800;color:var(--tx);margin-bottom:18px;}
 .qrMic{width:116px;height:116px;border-radius:50%;border:none;cursor:pointer;font-size:2.8rem;
   display:flex;align-items:center;justify-content:center;margin:0 auto;
@@ -147,9 +147,9 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 @keyframes qrPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55);}50%{box-shadow:0 0 0 16px rgba(220,38,38,0);}}
 .qrHint{font-size:.84rem;color:var(--tx2);margin-top:16px;line-height:1.6;min-height:2.6em;}
 .qrText{font-size:.9rem;color:var(--tx);background:var(--bg);border-radius:12px;padding:12px;
-  margin-top:14px;text-align:left;line-height:1.6;max-height:46vh;overflow:auto;white-space:pre-wrap;}
+  margin-top:14px;text-align:left;line-height:1.6;white-space:pre-wrap;}
 /* 有結果之後，麥克風的任務只剩「點一下停止朗讀」，縮小把版面讓給內容。 */
-.qrMic.small{width:64px;height:64px;font-size:1.6rem;}
+.qrMic.small{width:52px;height:52px;font-size:1.3rem;}
 .qrActions{display:flex;gap:8px;justify-content:center;margin-top:18px;}
 .undoBtn{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:20px;border:1px solid var(--line);
   background:var(--card);color:var(--tx2);font-size:.72rem;font-weight:700;cursor:pointer;vertical-align:baseline;
@@ -1249,26 +1249,37 @@ const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」�
 3. 撕掉標籤、關掉情緒電台：區分「情緒」和「我這個人」。別人貼的標籤往往反映的是他自己的需求。用短暫行動（走動、運動）換掉頻道。
 4. 反脆弱：像乒乓球而不是玻璃杯，從逆境反彈。擁抱不確定性，允許自己犯錯，定期按暫停鍵整理思緒。
 
-以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，剛好四段、每段開頭用指定的標題加冒號，
-每段一到兩句，全部合起來不超過 180 字。只給情緒安慰是不夠的，後面三段一定要給出具體做法：
+以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，寫成四個短段落，段落之間空一行。
+只給情緒安慰是不夠的，後面三段一定要給出具體做法。四段依序是：
 
-接住：先同理他此刻的感受，說出來就好，不要評價也不要急著給建議。
-心理劇本重設：指出他心裡那句自動浮現的劇本（通常是「這代表我不夠好」這一類），
+第一段：先同理他此刻的感受，說出來就好，不要評價也不要急著給建議。
+第二段：指出他心裡那句自動浮現的劇本（通常是「這代表我不夠好」這一類），
   換成「這是一次可以提升的挑戰」的版本。要具體貼著他講的事，不要套公式。
-不帶敵意的堅決：給他一句「可以直接說出口」的話——把界線或立場講清楚，語氣穩、不指責、
-  不討好、不解釋過頭。直接寫出那句話本身。
-反脆弱：這件事能讓他長出什麼，或一個 30 秒內做得到的暫停動作，讓他反彈而不是碎掉。
+第三段：給他一句「可以直接說出口」的話——把界線或立場講清楚，語氣穩、不指責、
+  不討好、不解釋過頭。直接寫出那句話本身，讓他可以照著講。
+第四段：這件事能讓他長出什麼，或一個 30 秒內做得到的暫停動作，讓他反彈而不是碎掉。
 
-這段文字會被直接念出來，所以要像講話一樣順，不要條列符號、不要括號、不要 emoji、
-不要標題以外的任何符號。不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
+非常重要：不要寫出任何標題或標籤。不可以出現「接住」「心理劇本重設」「不帶敵意的堅決」
+「反脆弱」「第一段」這類字眼，也不要在段落開頭加冒號。直接講內容就好，像一個人在跟他
+講話那樣自然接下去。
+
+這段文字會被直接念出來，所以要像講話一樣順：不要條列符號、不要編號、不要括號、
+不要 emoji。不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
+每段兩到三句，讓他聽得完也記得住。
 
 他說：`;
 // 練習的產出存成「💡 心法」——筆記頁本來就有心法篩選，等於練習紀錄免費就有了，
 // 不必為它多做一個頁面。
+// prompt 已經要求不要標籤，但模型偶爾還是會加。真的冒出來就在這裡剝掉——
+// 不只是難看，那幾個字也會被一起念出來。
+const RELAX_LABELS=/^\s*(接住|心理劇本重設|心理劇本|不帶敵意的堅決|反脆弱|第[一二三四]段)\s*[：:]\s*/;
+function stripRelaxLabels(txt){
+  return String(txt||'').split('\n').map(l=>l.replace(RELAX_LABELS,'')).join('\n').trim();
+}
 function qrSaveRelax(text){
   qrSet('transcribing','🌿 想一下…','正在幫你換一個看法…','🌿','busy');
   callAI(RELAX_GUIDE+text).then(reply=>{
-    const body=(reply||'').trim();
+    const body=stripRelaxLabels(reply);
     if(!body)throw new Error('AI 沒有回覆內容');
     saveRelaxNote(body,text);
   }).catch(err=>{
@@ -1285,7 +1296,7 @@ function saveRelaxNote(body,original){
     fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
   }
   qrSavedId=n.id;
-  qrSet('done','🌿 練習完成','已存成心法；點麥克風可以停止朗讀。','🔈','small');
+  qrSet('done','🌿 練習完成','已存成心法。點喇叭可以停止朗讀。','🔈','small');
   qrShowText(body);
   renderSpeakBtn();
   const b=document.getElementById('qrSpeakBtn');
@@ -1402,7 +1413,7 @@ async function qrFlushQueue(){
         if(it.mode==='relax'){
           // 離線那次沒辦法換個看法，現在補上。AI 再失敗就先留下原話，不要弄丟。
           let body='';
-          try{body=(await callAI(RELAX_GUIDE+text)||'').trim();}catch(e){}
+          try{body=stripRelaxLabels(await callAI(RELAX_GUIDE+text));}catch(e){}
           n.content=(body||'（這次沒能換個看法）')+'\n\n🎙️ 我說的：'+text;
         }else{
           n.content=text;
