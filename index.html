@@ -199,7 +199,7 @@ textarea.fi{resize:vertical;min-height:56px;}
 .noteItem:last-child{border-bottom:none;}
 .noteItem input[type=checkbox]{margin-top:3px;width:17px;height:17px;accent-color:var(--pri);flex-shrink:0;}
 .noteBody{flex:1;}
-.noteContent{font-size:.88rem;line-height:1.5;}
+.noteContent{font-size:.88rem;line-height:1.5;white-space:pre-wrap;}
 .noteContent.done{text-decoration:line-through;color:var(--tx3);}
 .noteMeta{font-size:.72rem;color:var(--tx3);margin-top:3px;}
 .noteMeta.overdue{color:var(--bad);font-weight:700;}
@@ -369,6 +369,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <textarea id="noteContent" class="fi" placeholder="寫下內容…"></textarea>
       <div class="row2" style="margin-bottom:10px;">
         <button class="btn ghost" id="voiceBtn" onclick="toggleRecording()" style="flex:0 0 auto;display:none;">🎙️ 錄音</button>
+        <button class="btn ghost" id="relaxBtn" onclick="openRelaxPractice()" style="flex:0 0 auto;display:none;" title="說出讓你緊繃的事，換一個看法">🌿 鬆弛</button>
         <span id="voiceStatus" class="hint" style="margin:0;align-self:center;"></span>
       </div>
       <div class="field" id="dueField" style="display:none;">
@@ -957,7 +958,10 @@ let mediaRecorder=null,recChunks=[],recording=false;
 function initVoiceButton(){
   const btn=document.getElementById('voiceBtn');
   if(!btn)return;
-  btn.style.display=(navigator.mediaDevices&&window.MediaRecorder)?'inline-flex':'none';
+  const ok=(navigator.mediaDevices&&window.MediaRecorder)?'inline-flex':'none';
+  btn.style.display=ok;
+  const rb=document.getElementById('relaxBtn');
+  if(rb)rb.style.display=ok;
 }
 async function toggleRecording(){
   const btn=document.getElementById('voiceBtn');
@@ -990,7 +994,7 @@ async function toggleRecording(){
 // ── 快速錄音（給 iPhone 實體鍵用捷徑開 ?rec=1 進來）──
 // 流程刻意壓到最短：進來就開始錄 → 講完停頓一下自動收掉 → 轉文字 → 直接存成筆記。
 // 存好才顯示結果，中間不需要使用者去找任何按鈕。
-let qrRecorder=null,qrChunks=[],qrState='idle',qrSavedId=null,qrNoSpeech=false;
+let qrRecorder=null,qrChunks=[],qrState='idle',qrSavedId=null,qrNoSpeech=false,qrMode='note';
 // 參數不要叫 state——那會把全域的 state（整個 App 的資料）遮蔽掉。
 function qrSet(next,title,hint,micText,micClass){
   qrState=next;
@@ -1011,20 +1015,34 @@ function openQuickRec(){
   const o=document.getElementById('quickRec');
   if(o)o.style.display='flex';
   qrShowText('');
-  qrSet('idle','🎙️ 快速錄音','點一下開始錄音','🎙️','');
+  if(qrMode==='relax')qrSet('idle','🌿 鬆弛練習','說出讓你緊繃的那件事，點一下開始。','🎙️','');
+  else qrSet('idle','🎙️ 快速錄音','點一下開始錄音','🎙️','');
+}
+// App 裡那顆小小的「🌿 鬆弛」走的是同一個浮層、同一套錄音流程。
+function openRelaxPractice(){
+  qrMode='relax';
+  openQuickRec();
+  quickRecStart(false);
 }
 function closeQuickRec(){
   if(qrState==='recording'&&qrRecorder){try{qrRecorder.stop();}catch(e){}}
   const o=document.getElementById('quickRec');
   if(o)o.style.display='none';
   qrSavedId=null;
+  qrMode='note';
 }
 // 網址帶 ?rec=1 就直接進錄音模式。iOS 通常要有使用者手勢才准開麥克風，
 // 所以這裡「試著」自動開始，被擋下來就退回大按鈕讓使用者點一下——
 // 不管哪一種，使用者最多只需要一個動作。
 function maybeStartQuickRec(){
   let want=false;
-  try{want=new URLSearchParams(location.search).get('rec')==='1'||location.hash==='#rec';}catch(e){}
+  try{
+    const q=new URLSearchParams(location.search);
+    // 鬆弛練習跟快速錄音共用同一套錄音流程（靜音自動結束、離線佇列都免費繼承），
+    // 差別只在錄完之後怎麼處理。用第二個網址參數就不必在畫面上多一顆按鈕。
+    if(q.get('relax')==='1'||location.hash==='#relax'){qrMode='relax';want=true;}
+    else if(q.get('rec')==='1'||location.hash==='#rec'){qrMode='note';want=true;}
+  }catch(e){}
   if(!want)return;
   // 把參數清掉，之後重新整理才不會又跳出錄音介面。
   try{history.replaceState(null,'',location.pathname);}catch(e){}
@@ -1075,7 +1093,9 @@ async function quickRecStart(auto){
       }
     };
     qrRecorder.start();
-    qrSet('recording','🔴 錄音中','講完停頓一下就會自動結束，不用按停止。','⏹','rec');
+    // 錄音中也要看得出是哪一種，不然誤觸鬆弛練習會不知道自己在錄什麼。
+    qrSet('recording',qrMode==='relax'?'🌿 鬆弛練習中':'🔴 錄音中',
+      qrMode==='relax'?'說完停頓一下就會自動結束，接著幫你換個看法。':'講完停頓一下就會自動結束，不用按停止。','⏹','rec');
     qrWatchSilence(stream);
   }catch(err){
     // 自動開始被瀏覽器擋掉是預期內的（iOS 需要使用者手勢），這時只要點一下就好。
@@ -1130,7 +1150,54 @@ function qrWatchSilence(stream){
 }
 // 轉好的文字直接存成瑣事筆記——快速錄音的重點是「先不要弄丟」，
 // 分類之後可以再叫 Ybot 改。存完附一個復原，講錯了可以馬上收回。
+// ── 鬆弛感練習 ──────────────────────────
+// 四個支柱直接來自使用者給的那張圖，寫死在這裡而不是丟給 AI 自由發揮，
+// 練習才會每次都對齊同一套框架，而不是每次得到不同風格的心靈雞湯。
+const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」的教練。
+鬆弛感不是躺平，也不是強迫式休息，而是面對壓力時仍然善待自己、不慌張的內在穩定。
+
+四個支柱：
+1. 內在喜悅的穩定力量：面對挑戰時依然善待自己、不慌張。
+2. 優化心理劇本：接受失敗是常態，拒絕習得性無助。把困難看成提升的挑戰，不是對個人能力的否定。
+3. 撕掉標籤、關掉情緒電台：區分「情緒」和「我這個人」。別人貼的標籤往往反映的是他自己的需求。用短暫行動（走動、運動）換掉頻道。
+4. 反脆弱：像乒乓球而不是玻璃杯，從逆境反彈。擁抱不確定性，允許自己犯錯，定期按暫停鍵整理思緒。
+
+以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，總共不超過 120 字，剛好三行、格式如下：
+卡點：一句話說出他真正卡住的地方
+換個看法：用最貼近的那個支柱重新框架，要具體針對他講的事
+現在可以做：一個 30 秒內做得到的小動作
+
+不要條列符號，不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
+
+他說：`;
+// 練習的產出存成「💡 心法」——筆記頁本來就有心法篩選，等於練習紀錄免費就有了，
+// 不必為它多做一個頁面。
+function qrSaveRelax(text){
+  qrSet('transcribing','🌿 想一下…','正在幫你換一個看法…','🌿','busy');
+  callAI(RELAX_GUIDE+text).then(reply=>{
+    const body=(reply||'').trim();
+    if(!body)throw new Error('AI 沒有回覆內容');
+    saveRelaxNote(body,text);
+  }).catch(err=>{
+    // AI 掛了也不能把他講的話弄丟，先存成心法，之後可以自己再看或叫 Ybot 重看一次。
+    saveRelaxNote('（這次沒能換個看法：'+(err.message||'AI 呼叫失敗')+'）',text);
+  });
+}
+function saveRelaxNote(body,original){
+  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:'idea',
+    content:body+'\n\n🎙️ 我說的：'+original,
+    dueAt:'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+  state.notes.unshift(n);save();renderNotes();renderOverview();
+  if(state.gasUrl){
+    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+  }
+  qrSavedId=n.id;
+  qrSet('done','🌿 練習完成','已存成心法，之後在筆記頁篩「💡 心法」就看得到。','🎙️','');
+  qrShowText(body);
+}
+
 function qrSaveNote(text){
+  if(qrMode==='relax'){qrSaveRelax(text);return;}
   const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:'note',content:text,
     dueAt:'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
   state.notes.unshift(n);save();renderNotes();renderOverview();
@@ -1198,11 +1265,12 @@ function qrStamp(d){
 // 等轉好了再一次把完整內容送上去（qrFlushQueue 裡的 addNote）。
 async function qrQueueOffline(blob,mime,why){
   const now=new Date();
-  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:'note',
-    content:`🎙️ 錄音待轉文字（${qrStamp(now)}）`,dueAt:'',done:false,
+  const relax=qrMode==='relax';
+  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:relax?'idea':'note',
+    content:(relax?'🌿 鬆弛練習待處理（':'🎙️ 錄音待轉文字（')+qrStamp(now)+'）',dueAt:'',done:false,
     createdAt:now.toISOString(),notifiedAt:'',pendingAudio:true};
   try{
-    await qrAudioPut({id:n.id,blob,mime,createdAt:Date.now()});
+    await qrAudioPut({id:n.id,blob,mime,createdAt:Date.now(),mode:qrMode});
   }catch(err){
     // 音檔真的存不進去（無痕模式、空間滿了）。這時候不能假裝存好了，
     // 得誠實告訴使用者這一段沒留住。
@@ -1233,7 +1301,14 @@ async function qrFlushQueue(){
       try{text=(await transcribeAudio(it.blob,it.mime)||'').trim();}
       catch(err){break;}
       if(text){
-        n.content=text;
+        if(it.mode==='relax'){
+          // 離線那次沒辦法換個看法，現在補上。AI 再失敗就先留下原話，不要弄丟。
+          let body='';
+          try{body=(await callAI(RELAX_GUIDE+text)||'').trim();}catch(e){}
+          n.content=(body||'（這次沒能換個看法）')+'\n\n🎙️ 我說的：'+text;
+        }else{
+          n.content=text;
+        }
         if(state.gasUrl){
           const {pendingAudio,...clean}=n;
           fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
