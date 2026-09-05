@@ -422,7 +422,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="hint" id="qaSummary" style="margin-top:0;"></div>
       <input id="qaSearch" class="fi" placeholder="搜尋問過的問題或答案…" oninput="renderQaList()" style="margin:8px 0;">
       <div class="row2" style="margin-bottom:6px;align-items:center;">
-        <button class="btn ghost" onclick="qaSync()" style="flex:0 0 auto;padding:7px 14px;font-size:.8rem;">☁️ 與雲端同步</button>
+        <button class="btn ghost" onclick="qaSync()" style="flex:0 0 auto;padding:7px 14px;font-size:.8rem;">☁️ 立即同步</button>
         <span id="qaSyncStatus" class="hint" style="margin:0;align-self:center;"></span>
       </div>
       <div id="qaList"></div>
@@ -575,7 +575,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,standupCollapsed:true,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],
+  useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],qaSyncedAt:'',
   gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -2285,10 +2285,14 @@ function qaDelete(id){
 }
 // 雙向同步：先把雲端有、本機沒有的補進來，再把本機有、雲端沒有的送上去。
 // 問答一旦寫下就不會再改內容，所以用 id 做聯集就夠了，不需要處理衝突。
-async function qaSync(){
+let qaSyncing=false;
+async function qaSync(opts){
+  const silent=!!(opts&&opts.silent);
   const st=document.getElementById('qaSyncStatus');
-  const say=t=>{if(st)st.textContent=t;};
+  const say=t=>{if(st&&!silent)st.textContent=t;};
   if(!state.gasUrl){say('⚠️ 還沒設定雲端後台網址，請先到下面「雲端後台」填好。');return;}
+  if(qaSyncing)return;          // 背景同步和手動按可能同時發生，只跑一次
+  qaSyncing=true;
   say('同步中…');
   try{
     const r=await fetch(state.gasUrl+'?action=qa');
@@ -2314,11 +2318,27 @@ async function qaSync(){
       await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
         body:JSON.stringify({action:'syncQa',qa:toPush})});
     }
+    state.qaSyncedAt=new Date().toISOString();
     save();renderQaList();
     say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。`);
   }catch(err){
     say('⚠️ 同步失敗：'+(err.message||'連不上後台')+'（本機資料沒有動）');
+  }finally{
+    qaSyncing=false;
   }
+}
+// 自動同步：使用者不該需要記得按按鈕。
+// 每次問答本來就會即時送一筆上去（qaAdd 裡的 addQa），這裡負責兩件補強：
+//   1. 把雲端有、這台裝置沒有的拉回來——換手機或清過快取之後，
+//      問答庫才會是完整的，召回舊答案才有東西可以召。
+//   2. 把之前送失敗（離線、後台還沒更新）的補送上去。
+// 整份 QA 拉回來有流量成本，所以隔一段時間才做一次；手動按則一律立即執行。
+const QA_AUTOSYNC_MIN_GAP_MS=30*60000;
+function qaAutoSync(){
+  if(!state.gasUrl)return;
+  const last=state.qaSyncedAt?new Date(state.qaSyncedAt).getTime():0;
+  if(Date.now()-last<QA_AUTOSYNC_MIN_GAP_MS)return;
+  qaSync({silent:true});
 }
 // 用問題和答案一起比對：有時候你記得的是當時的答案，不是當初怎麼問的。
 function qaSearch(query,limit){
@@ -2706,9 +2726,13 @@ function renderQaList(){
   const q=(document.getElementById('qaSearch')||{}).value||'';
   // 有輸入就用同一套 n-gram 比對；沒輸入就顯示最近的幾則。
   const hits=q.trim()?qaSearch(q,50):all.slice(0,20);
+  const cloud=state.gasUrl
+    ?(state.qaSyncedAt?`已存到雲端，上次對齊 ${new Date(state.qaSyncedAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}。`
+                      :'已設定雲端後台，開 App 時會自動對齊。')
+    :'目前只存在這台裝置——設定雲端後台後才會自動備份。';
   sum.textContent=all.length
-    ?`累積 ${all.length} 則問答${q.trim()?`，符合 ${hits.length} 則`:'，以下是最近 20 則'}。問到相似的事情時，Ybot 會自動把當時的答案帶回來參考。`
-    :'還沒有紀錄。你在對話裡問過的問題和鬆弛練習都會自動存進來。';
+    ?`累積 ${all.length} 則問答${q.trim()?`，符合 ${hits.length} 則`:'，以下是最近 20 則'}。問到相似的事情時會自動當成背景依據。${cloud}`
+    :`還沒有紀錄。你在對話裡問過的問題和鬆弛練習都會自動存進來。${cloud}`;
   box.innerHTML=hits.map(r=>`<details class="qaItem">
     <summary><span class="qaWhen">${new Date(r.at).toLocaleDateString('zh-TW')}${r.kind==='relax'?' 🌿':''}</span><span>${esc(r.q)}</span></summary>
     <div class="qaA">${esc(r.a)}</div>
@@ -2767,7 +2791,8 @@ maybeStartQuickRec();
 registerSW();
 // 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。
 qrFlushQueue();
-window.addEventListener('online',()=>qrFlushQueue());
+qaAutoSync();   // 問答庫在背景跟雲端對齊，不必手動按
+window.addEventListener('online',()=>{qrFlushQueue();qaAutoSync();});
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
