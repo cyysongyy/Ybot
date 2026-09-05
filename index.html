@@ -1261,6 +1261,8 @@ function renderSpeakBtn(){
 // 練習才會每次都對齊同一套框架，而不是每次得到不同風格的心靈雞湯。
 // 四段完整講完需要空間；思考型模型還會先吃掉一部分額度，所以給得比一般對話寬。
 const RELAX_MAX_TOKENS=4096;
+// 談心的回覆要有人味，句型不能每次都一樣，所以溫度給得比查資料高。
+const RELAX_TEMPERATURE=0.9;
 // 這四個綱要是把使用者自己的「鬆弛感・內在重建」App（zen-strength-reflection）
 // 的八個階段濃縮而成，原始架構出自范俊娟《鬆弛感》。寫死在這裡而不是去線上抓：
 // 那是方法論、不是會變的資料，而且抓不到時整個回答品質會掉，不值得冒這個險。
@@ -1295,30 +1297,30 @@ const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」�
 
 ${ZEN_OUTLINE}
 
-以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，寫成四個段落，段落之間空一行。
-四段缺一不可，每一段都要寫完整、不要只寫半句就跳下一段。整體大約 300 到 400 字。
-只給情緒安慰是不夠的，後面三段一定要給出他真的能照做的具體做法。四段依序是：
+以下是他剛剛講出來的事。請用繁體中文、台灣用語，像一個懂他的朋友在跟他講話那樣回覆。
 
-第一段（綱要一，大約 60 字）：先同理他此刻的感受，把刺激、情緒、想法分開，具體說出
-  他卡在什麼位置、為什麼會累。不要評價，也不要急著給建議。
+語氣最重要：這是對話，不是報告，也不是表單。你可以順著他的話接下去、可以停頓、
+可以用「我猜」「你大概」「說真的」這種口語，也可以先重述一下你聽到什麼、確認有沒有
+聽懂。不要每次都用同一個句型開場，不要每段長度一樣，不要條列，不要編號，
+不要小標題。長短自然就好，大約 250 到 400 字。
 
-第二段（綱要二，大約 100 字）：指出他心裡那句囚徒劇本（通常是「我怎麼做都沒用」或
-  「這代表我不夠好」這一類），把它講出來，再改寫成行者的版本。需要的話點出他此刻缺的
-  是母親角色的接納還是父親角色的界線。要具體貼著他講的事，不要套公式。
+四件事都要談到，但要像講話一樣自然地帶進去，不要一段講一件、更不要照順序點名：
+・接住他此刻的感受，把刺激、情緒、想法分開，讓他知道你聽懂他卡在哪。
+・點出他心裡那句囚徒劇本（「我怎麼做都沒用」「這代表我不夠好」這一類），
+  改寫成行者的版本。需要的話點出他缺的是接納還是界線。
+・如果有人給他貼標籤，先點破那反映的是對方的需求；然後給他實際說得出口的話——
+  立場清楚但不製造對立。那幾句話要直接寫出來，讓他可以照著講。
+・這件事能磨練或提升他什麼，加上一個 30 秒內做得到的動作或一句要練習的界限。
 
-第三段（綱要三，大約 120 字）：如果有人給他貼標籤，先點破那標籤反映的是對方的需求；
-  然後給他實際可以說出口的話——立場清楚但不製造對立，語氣穩、不指責、不討好、
-  不解釋過頭。直接把那幾句話寫出來讓他可以照著講，並說明什麼時機、對誰講。
+最後一定要用一句話把球丟回給他：問一個具體的、跟他這件事直接有關的問題，
+讓他可以接著回答（例如問他對方當時實際說了什麼、或他最在意的是哪一段）。
+不要問「你覺得呢」「還有什麼想聊的嗎」這種空泛的問句。
 
-第四段（綱要四，大約 80 字）：這件事能磨練或提升他什麼、幫他對焦到什麼，以及一個
-  30 秒內做得到的暫停動作或一句要練習的界限，讓他反彈而不是碎掉。
+不要寫出任何標題或標籤。不可以出現「接住」「心理劇本重設」「不帶敵意的堅決」
+「反脆弱」「第一段」這類字眼，也不要在段落開頭加冒號或編號。
 
-非常重要：不要寫出任何標題或標籤。不可以出現「接住」「心理劇本重設」「不帶敵意的堅決」
-「反脆弱」「第一段」這類字眼，也不要在段落開頭加冒號或編號。直接講內容就好，
-像一個人在跟他講話那樣自然接下去。
-
-這段文字會被直接念出來，所以要像講話一樣順：不要條列符號、不要編號、不要括號、
-不要 emoji。不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
+這段文字會被直接念出來，所以要像講話一樣順：不要條列符號、不要括號、不要 emoji。
+不要客套話，不要說「作為一個AI」之類的話。
 
 他說：`;
 // 練習的產出存成「💡 心法」——筆記頁本來就有心法篩選，等於練習紀錄免費就有了，
@@ -1331,7 +1333,7 @@ function stripRelaxLabels(txt){
 }
 function qrSaveRelax(text){
   qrSet('transcribing','🌿 想一下…','正在幫你換一個看法…','🌿','busy');
-  callAI(RELAX_GUIDE+text,null,{maxTokens:RELAX_MAX_TOKENS}).then(reply=>{
+  callAI(RELAX_GUIDE+text,null,{maxTokens:RELAX_MAX_TOKENS,temperature:RELAX_TEMPERATURE}).then(reply=>{
     const body=stripRelaxLabels(reply);
     if(!body)throw new Error('AI 沒有回覆內容');
     saveRelaxNote(body,text);
@@ -1471,7 +1473,7 @@ async function qrFlushQueue(){
         let body='';
         if(it.mode==='relax'){
           // 離線那次沒辦法換個看法，現在補上。AI 再失敗就先留下原話，不要弄丟。
-          try{body=stripRelaxLabels(await callAI(RELAX_GUIDE+text,null,{maxTokens:RELAX_MAX_TOKENS}));}catch(e){}
+          try{body=stripRelaxLabels(await callAI(RELAX_GUIDE+text,null,{maxTokens:RELAX_MAX_TOKENS,temperature:RELAX_TEMPERATURE}));}catch(e){}
           n.content=(body||'（這次沒能換個看法）')+'\n\n🎙️ 我說的：'+text;
         }else{
           n.content=text;
@@ -1951,12 +1953,15 @@ async function callAI(prompt,image,opts){
 }
 async function callProvider(id,prompt,image,opts){
   const maxTokens=(opts&&opts.maxTokens)||AI_MAX_TOKENS;
+  // 溫度也會影響「機械感」：0.6 每次都用差不多的句型開場。
+  // 談心的回覆給高一點，查資料的問答維持穩定。
+  const temp=(opts&&opts.temperature)!=null?opts.temperature:0.6;
   if(id==='gemini'){
     const parts=[{text:prompt}];
     if(image)parts.push({inline_data:{mime_type:image.mime||'image/jpeg',data:image.b64}});
     const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${state.ai.gemini}`,
       {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:.6,maxOutputTokens:maxTokens}})});
+       body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:temp,maxOutputTokens:maxTokens}})});
     const d=await r.json();if(!r.ok)throw new Error(d.error?.message||`Gemini ${r.status}`);
     const cand=d.candidates?.[0];
     // 回應可能有多個 part（例如思考與答案分開），只取 parts[0] 會漏掉後面的內容。
@@ -1974,7 +1979,7 @@ async function callProvider(id,prompt,image,opts){
     ?[{type:'text',text:prompt},{type:'image_url',image_url:{url:`data:${image.mime||'image/jpeg'};base64,${image.b64}`}}]
     :prompt;
   const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body:JSON.stringify({model,messages:[{role:'user',content}],temperature:.6,max_tokens:maxTokens})});
+    body:JSON.stringify({model,messages:[{role:'user',content}],temperature:temp,max_tokens:maxTokens})});
   const d=await r.json();if(!r.ok)throw new Error(d.error?.message||d.detail||`${id} ${r.status}`);
   return d.choices?.[0]?.message?.content||'';
 }
@@ -2548,7 +2553,7 @@ async function sendChat(){
 一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
   // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
   // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。
-  const zenNote=looksLikeStressQuestion(text)?`\n\n這個問題聽起來跟壓力、情緒或人際有關。回答時請依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，直接把想法講出來：\n${ZEN_OUTLINE}`:'';
+  const zenNote=looksLikeStressQuestion(text)?`\n\n這個問題聽起來跟壓力、情緒或人際有關。請像一個懂他的朋友在跟他講話那樣回答，不要像報告或表單：可以順著他的話接下去、可以先確認你聽懂了什麼，句型不要每次都一樣。內容依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，也不要一段講一項，自然地帶進去就好。給建議時要具體到他可以直接照做，需要他說話時就把那幾句話寫出來。最後用一句跟他這件事直接有關的具體問題把球丟回給他，不要問「你覺得呢」這種空泛的問句。\n${ZEN_OUTLINE}`:'';
   const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${zenNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image);
