@@ -570,6 +570,39 @@ a.ovMailItem:hover{text-decoration:underline;}
 </div>
 
 <script>
+// ── 時間一律台北 ─────────────────────────
+// 之前所有時間都跟著裝置時區走。人在台灣時看起來沒事，但出國、或裝置時區設錯，
+// 顯示的時間、「今天是哪一天」、星期幾就全都會歪掉——課表、代課、提醒都靠這些。
+// 統一在這裡處理，其他地方一律用這幾個函式，不要再直接呼叫 toLocaleString。
+const TZ='Asia/Taipei';
+// 回傳一個「本地欄位等於台北牆上時間」的 Date，供 getHours／getDay／日期加減使用。
+function tpeNow(d){
+  const base=d?new Date(d):new Date();
+  if(isNaN(base))return base;
+  return new Date(base.toLocaleString('en-US',{timeZone:TZ}));
+}
+function fmtDateTime(d,opts){
+  const x=new Date(d);
+  if(isNaN(x))return '';
+  return x.toLocaleString('zh-TW',Object.assign({timeZone:TZ},opts||{}));
+}
+function fmtDate(d,opts){
+  const x=new Date(d);
+  if(isNaN(x))return '';
+  return x.toLocaleDateString('zh-TW',Object.assign({timeZone:TZ},opts||{}));
+}
+function fmtTime(d,opts){
+  const x=new Date(d);
+  if(isNaN(x))return '';
+  return x.toLocaleTimeString('zh-TW',Object.assign({timeZone:TZ},opts||{}));
+}
+// 台北的 YYYY-MM-DD。跨日判斷（今日代課、今天的課表）都要用這個，
+// 不能用 toISOString().slice(0,10)——那是 UTC，台灣時間半夜到早上八點會少一天。
+function tpeYmd(d){
+  const t=tpeNow(d);
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+}
+
 // ── 狀態管理 ─────────────────────────────
 const LS_KEY='ybot_v1';
 function defaults(){return{
@@ -1431,8 +1464,9 @@ function qrAudioDel(id){
   }));
 }
 function qrStamp(d){
+  const t=tpeNow(d);
   const p=n=>String(n).padStart(2,'0');
-  return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${t.getMonth()+1}/${t.getDate()} ${p(t.getHours())}:${p(t.getMinutes())}`;
 }
 // 佔位筆記刻意不同步到雲端：那時候本來就沒網路，而且內容還不是最終的文字。
 // 等轉好了再一次把完整內容送上去（qrFlushQueue 裡的 addNote）。
@@ -1581,8 +1615,8 @@ async function addNoteAI(){
   btn.disabled=true;btn.textContent='🤖 分析中…';
   try{
     const now=new Date();
-    const weekday=['日','一','二','三','四','五','六'][now.getDay()];
-    const prompt=`你是待辦事項分類助手。現在時間是 ${now.toLocaleString('zh-TW')}（星期${weekday}）。
+    const weekday=['日','一','二','三','四','五','六'][tpeNow(now).getDay()];
+    const prompt=`你是待辦事項分類助手。現在時間是 ${fmtDateTime(now)}（星期${weekday}，台北時間）。
 請分析以下使用者輸入的內容，判斷：
 1. type：歸類為 "note"(瑣事筆記，無時間性)、"todo"(待辦事項，需要做但沒有明確時間)、"reminder"(需要在特定時間提醒)、"idea"(想法與心法：心得、原則、靈感、提醒自己的觀念，不是要去做的事) 四者之一
 2. content：整理過的簡潔內容，保留原意
@@ -1698,7 +1732,7 @@ function renderNotes(){
   const now=new Date();
   list.innerHTML=items.map(n=>{
     const overdue=n.dueAt&&!n.done&&new Date(n.dueAt)<now;
-    const dueTxt=n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+    const dueTxt=n.dueAt?fmtDateTime(n.dueAt,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
     const checkable=CHECKABLE_TYPES.includes(n.type);
     return `<div class="noteItem">
       ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
@@ -1738,13 +1772,14 @@ async function refreshContext(){
   }catch(e){document.getElementById('ctxStatus').textContent='❌ 讀取失敗，請確認後台網址';}
 }
 function showCtxStatus(){
-  const t=state.contextAt?new Date(state.contextAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}):'';
+  const t=state.contextAt?fmtTime(state.contextAt,{hour:'2-digit',minute:'2-digit'}):'';
   const c=state.context;
   document.getElementById('ctxStatus').textContent=c?`📡 ${t} 更新 · 📅 ${(c.calendar||[]).length} · 📬 ${(c.gmail||[]).length}`:'尚未載入雲端資料';
 }
 
 function gcalDayUrl(d){
-  return `https://calendar.google.com/calendar/r/day/${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+  const t=tpeNow(d);
+  return `https://calendar.google.com/calendar/r/day/${t.getFullYear()}/${t.getMonth()+1}/${t.getDate()}`;
 }
 // ── 首頁主動總覽：今日行程／重要 Email／今日新聞 ──
 function renderHeroWeather(w){
@@ -1756,7 +1791,7 @@ function renderHeroWeather(w){
 }
 // 明天的日期字串。用 setDate 而不是加 86400000 毫秒，跨月、跨年、跨日光節約時間才會對。
 function tomorrowDateStr(){
-  const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+1);
+  const d=tpeNow();d.setHours(0,0,0,0);d.setDate(d.getDate()+1);
   return d.toDateString();
 }
 // Google 內建的節日日曆（「台灣的節日」／「Holidays in Taiwan」之類）會塞進一堆
@@ -1817,7 +1852,7 @@ function buildSchoolTileHtml(){
   if(raw===null)return '';
   let recs;
   try{recs=JSON.parse(raw)||[];}catch(e){return '';}
-  const todayStr=new Date().toISOString().slice(0,10);
+  const todayStr=tpeYmd(new Date());
   const todayCount=recs.filter(r=>r&&r.date===todayStr).length;
   return `<div class="dashTile school" onclick="window.open('https://cyysongyy.github.io/principal-assistant/','_blank')"><b>${todayCount}</b><span>今日代課</span></div>`;
 }
@@ -2068,7 +2103,7 @@ function buildSchoolDbContext(){
   const read=k=>{try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}};
   const events=read('ck_events');
   if(Array.isArray(events)&&events.length){
-    const today=new Date();today.setHours(0,0,0,0);
+    const today=tpeNow();today.setHours(0,0,0,0);
     const until=new Date(today.getTime()+14*86400000);
     const upcoming=events.filter(e=>{const d=new Date(e.date);return d>=today&&d<=until;})
       .sort((a,b)=>a.date.localeCompare(b.date));
@@ -2102,7 +2137,7 @@ function buildSchoolDbContext(){
 // 同一個瀏覽器開過（使用者是 iPhone Chrome，所有 App 都在 Chrome 開就同一份）。
 const PA_DAY_NAMES=['','一','二','三','四','五'];
 // 星期幾（1=一 … 5=五）；週末回傳 0，課表相關內容就整段略過。
-function schoolDayIndex(d){const n=d.getDay();return n>=1&&n<=5?n:0;}
+function schoolDayIndex(d){const n=tpeNow(d).getDay();return n>=1&&n<=5?n:0;}
 function readLS(k){try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}}
 // 課表有兩個來源，優先用校長助理的（有班級與科目，資訊比較完整），
 // 沒有才退回 115 課表 App 的格式（只有課程代碼，例如「二數」）。
@@ -2235,7 +2270,7 @@ function timetableDayLines(tt,day,label){
 // relatedContext() 的做法（標籤優先、再比標題關鍵字），行為才一致。
 const PA_REC_TYPE={speech:'致詞稿',parent:'家長溝通',meet:'會議',staff:'教師與人事',
   crisis:'校安與危機',plan:'計畫與文案',doc:'公文與簽呈',abot:'App／系統開發',free:'自由諮詢'};
-function paRecDate(ts){const d=new Date(ts);return isNaN(d)?'':d.toLocaleDateString('zh-TW');}
+function paRecDate(ts){return fmtDate(ts);}
 // 中文沒有空白可以斷詞，照校長助理原本用空白 split 的做法，只有整句剛好是標題子字串
 // 時才比得中（「運動會致詞要怎麼寫」就配不到「115學年度運動會致詞」）。
 // 改成取 2~3 字的 n-gram 去比，才抓得到部分重疊。
@@ -2359,7 +2394,7 @@ function qaSearch(query,limit){
 function buildQaContext(question){
   const hits=qaSearch(question);
   if(!hits.length)return '';
-  const fmt=r=>`・${new Date(r.at).toLocaleDateString('zh-TW')}${r.kind==='relax'?'（鬆弛練習）':''}\n  問：${r.q}\n  答：${r.a.slice(0,400)}`;
+  const fmt=r=>`・${fmtDate(r.at)}${r.kind==='relax'?'（鬆弛練習）':''}\n  問：${r.q}\n  答：${r.a.slice(0,400)}`;
   return '你以前回答過的相關問題（Young 的個人問答庫，可以直接沿用或延伸，'
     +'但如果情況已經不同就要講出差別）：\n'+hits.map(fmt).join('\n');
 }
@@ -2390,7 +2425,7 @@ function buildRecordsContext(question){
   }
   return out.join('\n');
 }
-function paYmd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+const paYmd=tpeYmd;   // 沿用舊名字，實作換成台北時區
 function buildMyAppsContext(question){
   const lines=[];
   const now=new Date();
@@ -2466,7 +2501,7 @@ function buildContextText(question){
   const notesOnly=notes.filter(n=>n.type==='note');
   const ideas=notes.filter(n=>n.type==='idea');
   if(pendingTodos.length)lines.push('未完成待辦：'+pendingTodos.map(fmt).join('；'));
-  if(pendingReminders.length)lines.push('提醒事項：'+pendingReminders.map(n=>`${fmt(n)}（${n.dueAt?new Date(n.dueAt).toLocaleString('zh-TW'):''}）`).join('；'));
+  if(pendingReminders.length)lines.push('提醒事項：'+pendingReminders.map(n=>`${fmt(n)}（${n.dueAt?fmtDateTime(n.dueAt):''}）`).join('；'));
   if(notesOnly.length)lines.push('瑣事筆記：'+notesOnly.slice(0,50).map(fmt).join('；'));
   if(ideas.length)lines.push('想法與心法：'+ideas.slice(0,50).map(fmt).join('；'));
   const knownLinks=state.links.filter(l=>l.name&&l.url);
@@ -2484,7 +2519,7 @@ function buildContextText(question){
   const c=state.context;
   if(c){
     if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
-    if((c.calendar||[]).length)lines.push('未來行程：'+c.calendar.map(ev=>`${ev.title}(${new Date(ev.start).toLocaleString('zh-TW')})`).join('；'));
+    if((c.calendar||[]).length)lines.push('未來行程：'+c.calendar.map(ev=>`${ev.title}(${fmtDateTime(ev.start)})`).join('；'));
     if((c.gmail||[]).length)lines.push('未讀重要信件：'+c.gmail.map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
       const n=c.news;
@@ -2551,13 +2586,13 @@ async function execChatActions(actions){
         const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
         state.notes.unshift(n);
         if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
-        add(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${new Date(dueAt).toLocaleString('zh-TW')}）`:''}`,{op:'add_note',id:n.id});
+        add(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${fmtDateTime(dueAt)}）`:''}`,{op:'add_note',id:n.id});
       }else if(a.op==='add_calendar_event'&&a.start){
         if(!state.gasUrl){add(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
         const r=await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end})});
         const d=await r.json();
         // 日曆是雲端資料，這裡沒有反向刪除的動作，所以不給復原按鈕。
-        add(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${new Date(a.start).toLocaleString('zh-TW')}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
+        add(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${fmtDateTime(a.start)}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
       }else if(a.op==='complete_note'){
         const r=resolveNote(a,true);
         if(!r.note){add('⚠️ '+r.error);continue;}
@@ -2622,7 +2657,7 @@ async function sendChat(){
 - add_note 的 type：note=瑣事筆記、todo=待辦、reminder=特定時間要提醒、idea=想法與心法（心得/原則/靈感，不是要去做的事）。
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
-一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
+一次可以有多個 actions。今天日期時間是 ${fmtDateTime(new Date())}（台北時間），遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
   // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
   // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。
   const zenNote=looksLikeStressQuestion(text)?`\n\n這個問題聽起來跟壓力、情緒或人際有關。請像一個懂他的朋友在跟他講話那樣回答，不要像報告或表單：可以順著他的話接下去、可以先確認你聽懂了什麼，句型不要每次都一樣。內容依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，也不要一段講一項，自然地帶進去就好。給建議時要具體到他可以直接照做，需要他說話時就把那幾句話寫出來。最後用一句跟他這件事直接有關的具體問題把球丟回給他，不要問「你覺得呢」這種空泛的問句。\n${ZEN_OUTLINE}`:'';
@@ -2707,8 +2742,9 @@ const CN_DAY=['初一','初二','初三','初四','初五','初六','初七','�
 const CN_MONTH=['正月','二月','三月','四月','五月','六月','七月','八月','九月','十月','冬月','臘月'];
 function updateClock(){
   const now=new Date();
-  const dateStr=`${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const l=solar2lunar(now.getFullYear(),now.getMonth()+1,now.getDate());
+  const t=tpeNow(now);
+  const dateStr=`${String(t.getMonth()+1).padStart(2,'0')}/${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+  const l=solar2lunar(t.getFullYear(),t.getMonth()+1,t.getDate());
   const lunarStr=l?`農曆${l.isLeap?'閏':''}${CN_MONTH[l.lMonth-1]}${CN_DAY[l.lDay-1]}`:'';
   document.getElementById('clockBox').innerHTML=
     `<div class="clockTime">${dateStr}</div>`+(lunarStr?`<div class="clockLunar">${lunarStr}</div>`:'');
@@ -2727,14 +2763,14 @@ function renderQaList(){
   // 有輸入就用同一套 n-gram 比對；沒輸入就顯示最近的幾則。
   const hits=q.trim()?qaSearch(q,50):all.slice(0,20);
   const cloud=state.gasUrl
-    ?(state.qaSyncedAt?`已存到雲端，上次對齊 ${new Date(state.qaSyncedAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}。`
+    ?(state.qaSyncedAt?`已存到雲端，上次對齊 ${fmtDateTime(state.qaSyncedAt,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}。`
                       :'已設定雲端後台，開 App 時會自動對齊。')
     :'目前只存在這台裝置——設定雲端後台後才會自動備份。';
   sum.textContent=all.length
     ?`累積 ${all.length} 則問答${q.trim()?`，符合 ${hits.length} 則`:'，以下是最近 20 則'}。問到相似的事情時會自動當成背景依據。${cloud}`
     :`還沒有紀錄。你在對話裡問過的問題和鬆弛練習都會自動存進來。${cloud}`;
   box.innerHTML=hits.map(r=>`<details class="qaItem">
-    <summary><span class="qaWhen">${new Date(r.at).toLocaleDateString('zh-TW')}${r.kind==='relax'?' 🌿':''}</span><span>${esc(r.q)}</span></summary>
+    <summary><span class="qaWhen">${fmtDate(r.at)}${r.kind==='relax'?' 🌿':''}</span><span>${esc(r.q)}</span></summary>
     <div class="qaA">${esc(r.a)}</div>
     <button class="qaDel" onclick="qaDelete('${r.id}')">刪除這則</button>
   </details>`).join('');

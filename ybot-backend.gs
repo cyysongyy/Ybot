@@ -39,6 +39,41 @@ const BRIEF_SHEET = '每日簡報存檔';
 // 累積幾個月的問答只放本機太脆弱。
 const QA_SHEET = '問答資料庫';
 
+// ── 時間一律台北 ────────────────────────────────
+// Apps Script 的 new Date().toLocaleString() 與 getHours() 都跟著「專案時區」走，
+// 而專案時區在部署時可能不是台北（新建專案常常是 America/New_York）。
+// 起立提醒的時段判斷、每日簡報的日期都靠這些，抓錯就整個歪掉，所以全部寫死台北。
+const TZ = 'Asia/Taipei';
+function tpeFormat(d, pattern) {
+  return Utilities.formatDate(d || new Date(), TZ, pattern);
+}
+// 台北的日期字串，例如 2026/9/5
+function tpeDateStr(d) { return tpeFormat(d, 'yyyy/M/d'); }
+// 台北的月日時分，例如 9/5 14:30
+function tpeDateTimeStr(d) { return tpeFormat(d, 'M/d HH:mm'); }
+// 台北的「幾點」，用來判斷活躍時段
+function tpeHour(d) { return Number(tpeFormat(d, 'H')); }
+// 定時觸發器（每日簡報 7 點、晚間提醒 8 點…）是照「專案時區」發動的，
+// 那個時區只能在 Apps Script 的專案設定裡改，程式改不了。所以這裡負責提醒：
+// 排程函式的回傳訊息會直接告訴你目前時區對不對。
+function scriptTz() {
+  try { return Session.getScriptTimeZone(); } catch (e) { return ''; }
+}
+function tzWarn() {
+  const tz = scriptTz();
+  if (tz === TZ) return '';
+  return '\n\n⚠️ 注意：這個 Apps Script 專案的時區目前是「' + (tz || '未知') + '」，不是台北。'
+    + '定時排程會照專案時區發動，所以簡報／提醒會在錯的時間寄出。'
+    + '請到「專案設定（齒輪）→ 時區」改成 (GMT+08:00) Taipei，再重新執行一次這個排程函式。';
+}
+// 想單獨確認時區的話執行這一個
+function checkTimezone() {
+  const tz = scriptTz();
+  return (tz === TZ)
+    ? '✅ 專案時區正確：' + tz
+    : '⚠️ 專案時區是「' + (tz || '未知') + '」，請改成 (GMT+08:00) Taipei。顯示用的時間已經一律是台北，但定時排程會照專案時區發動。';
+}
+
 const NOTE_COLS = ['id', 'type', 'content', 'dueAt', 'done', 'createdAt', 'notifiedAt'];
 // kind: chat（對話問答）／ relax（鬆弛練習）
 const QA_COLS = ['id', 'q', 'a', 'kind', 'at'];
@@ -542,7 +577,7 @@ function setupDailyBrief() {
     if (t.getHandlerFunction() === 'dailyBrief') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('dailyBrief').timeBased().everyDays(1).atHour(7).create();
-  return '✅ 已排程每日早上 7 點自動產生 Ybot 簡報';
+  return '✅ 已排程每日早上 7 點自動產生 Ybot 簡報（台北時間）' + tzWarn();
 }
 
 function dailyBrief() {
@@ -554,7 +589,7 @@ function dailyBrief() {
   const groups = { red: [], orange: [], green: [] };
   priorities.forEach(p => groups[p.level].push(p));
 
-  let lines = ['【Ybot 每日簡報】' + (new Date().toLocaleDateString('zh-TW')), ''];
+  let lines = ['【Ybot 每日簡報】' + tpeDateStr() + '（台北時間）', ''];
 
   if (ctx.weather) {
     const w = ctx.weather;
@@ -564,7 +599,7 @@ function dailyBrief() {
   if (ctx.calendar.length) {
     lines.push('📅 未來行程：');
     ctx.calendar.forEach(ev => {
-      const t = ev.allDay ? '全天' : new Date(ev.start).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const t = ev.allDay ? '全天' : tpeDateTimeStr(new Date(ev.start));
       lines.push('　' + t + '　' + ev.title);
     });
     lines.push('');
@@ -661,7 +696,7 @@ function eventLevel(ev, now) {
 }
 function rank(level) { return { green: 0, orange: 1, red: 2 }[level] || 0; }
 function fmtDue(dueAt) {
-  try { return new Date(dueAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+  try { return tpeDateTimeStr(new Date(dueAt)); }
   catch (err) { return dueAt; }
 }
 function fmtItemLine(p) {
@@ -705,7 +740,7 @@ function setupReminderWatch() {
     if (t.getHandlerFunction() === 'reminderWatch') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('reminderWatch').timeBased().everyMinutes(30).create();
-  return '✅ 已排程每 30 分鐘檢查一次到點提醒';
+  return '✅ 已排程每 30 分鐘檢查一次到點提醒' + tzWarn();
 }
 
 function reminderWatch() {
@@ -732,7 +767,7 @@ function setupWeeklyReview() {
     if (t.getHandlerFunction() === 'weeklyReview') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('weeklyReview').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create();
-  return '✅ 已排程每週一早上 7 點產生本週回顧';
+  return '✅ 已排程每週一早上 7 點產生本週回顧（台北時間）' + tzWarn();
 }
 
 function weeklyReview() {
@@ -744,7 +779,7 @@ function weeklyReview() {
   const addedThisWeek = allNotes.filter(n => n.createdAt && new Date(n.createdAt) >= weekAgo);
   const decisionNotesThisWeek = allNotes.filter(n => n.type === 'note' && n.createdAt && new Date(n.createdAt) >= weekAgo);
 
-  let lines = ['【Ybot 本週回顧】' + (new Date().toLocaleDateString('zh-TW')), ''];
+  let lines = ['【Ybot 本週回顧】' + tpeDateStr() + '（台北時間）', ''];
   lines.push('📝 本週新增 ' + addedThisWeek.length + ' 筆（待辦／提醒／瑣事）');
   if (decisionNotesThisWeek.length) {
     lines.push('📌 本週瑣事筆記：');
@@ -789,7 +824,7 @@ function setupEveningDigest() {
     if (t.getHandlerFunction() === 'eveningDigest') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('eveningDigest').timeBased().everyDays(1).atHour(20).create();
-  return '✅ 已排程每天晚上 8 點檢查（有未處理的🔴/🟠事項才會寄信，沒有就不打擾）';
+  return '✅ 已排程每天晚上 8 點檢查（台北時間；有未處理的🔴/🟠事項才會寄信，沒有就不打擾）' + tzWarn();
 }
 
 function eveningDigest() {
@@ -801,7 +836,7 @@ function eveningDigest() {
   const pending = items.filter(p => p.level === 'red' || p.level === 'orange');
   if (!pending.length) return; // 沒有需要留意的事，不寄信
 
-  let lines = ['【Ybot 晚間提醒】' + (new Date().toLocaleDateString('zh-TW')), '', '還有 ' + pending.length + ' 項需要留意：'];
+  let lines = ['【Ybot 晚間提醒】' + tpeDateStr() + '（台北時間）', '', '還有 ' + pending.length + ' 項需要留意：'];
   pending.slice(0, 8).forEach(p => {
     const flag = p.level === 'red' ? '🔴' : '🟠';
     const label = p.type === 'event' ? flag + ' 📅 ' + (p.allDay ? '全天' : fmtDue(p.dueAt)) + '　' + p.content : flag + ' ' + p.content + (p.dueAt ? '（' + fmtDue(p.dueAt) + '）' : '');
@@ -819,14 +854,14 @@ function setupStandupWatch() {
     if (t.getHandlerFunction() === 'standupWatch') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('standupWatch').timeBased().everyMinutes(15).create();
-  return '✅ 已排程每 15 分鐘檢查一次起立提醒（實際頻率依「設定」中的間隔與時段）';
+  return '✅ 已排程每 15 分鐘檢查一次起立提醒（時段判斷用台北時間）' + tzWarn();
 }
 
 function standupWatch() {
   const s = getStandupSettings();
   if (!s.enabled) return;
   const now = new Date();
-  const hour = now.getHours();
+  const hour = tpeHour(now);   // 用台北的小時，不要用專案時區
   if (s.startHour <= s.endHour) {
     if (hour < s.startHour || hour >= s.endHour) return; // 不在活躍時段
   } else {
