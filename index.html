@@ -174,8 +174,13 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   transition:transform .12s,box-shadow .12s,opacity .15s;}
 .sendBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
 .sendBtn:disabled{opacity:.5;cursor:default;box-shadow:none;}
-.ctxbar{display:flex;align-items:center;justify-content:space-between;font-size:.72rem;color:var(--tx3);margin-bottom:8px;}
-.ctxbar button{background:none;border:none;color:var(--pri);font-weight:700;cursor:pointer;font-size:.72rem;}
+.ctxbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:2px 12px;
+  font-size:.72rem;color:var(--tx3);margin-bottom:8px;}
+/* 狀態文字要能縮，但不能被壓到一字一行——擠不下時整組按鈕換到下一行。 */
+.ctxbar #ctxStatus{flex:1 1 auto;min-width:150px;}
+.ctxbar .ctxActions{display:flex;gap:12px;flex-wrap:wrap;flex-shrink:0;}
+.ctxbar button{background:none;border:none;color:var(--pri);font-weight:700;cursor:pointer;font-size:.72rem;
+  padding:2px 0;white-space:nowrap;}
 
 /* Notes */
 .typeSel{display:flex;gap:6px;margin-bottom:10px;}
@@ -334,9 +339,9 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="section-title">💬 Ybot 對話</div>
       <div class="ctxbar">
         <span id="ctxStatus">尚未載入雲端資料</span>
-        <span style="display:flex;gap:10px;flex-shrink:0;">
-          <button onclick="refreshContext()">🔄 重新整理資料</button>
-          <button onclick="clearChatOnly()">🗑️ 清除對話</button>
+        <span class="ctxActions">
+          <button onclick="refreshContext()" title="重新抓取雲端資料（行事曆／信件／新聞）">🔄 更新</button>
+          <button onclick="clearChatOnly()" title="清除對話紀錄（不影響待辦與筆記）">🗑️ 清除</button>
           <button id="speakToggle" onclick="toggleSpeak()" title="鬆弛練習的回應要不要念出來">🔊 朗讀</button>
         </span>
       </div>
@@ -1689,7 +1694,7 @@ async function refreshContext(){
 function showCtxStatus(){
   const t=state.contextAt?new Date(state.contextAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}):'';
   const c=state.context;
-  document.getElementById('ctxStatus').textContent=c?`📡 資料更新於 ${t} · 📅${(c.calendar||[]).length}行程 · 📬${(c.gmail||[]).length}未讀信`:'尚未載入雲端資料';
+  document.getElementById('ctxStatus').textContent=c?`📡 ${t} 更新 · 📅 ${(c.calendar||[]).length} · 📬 ${(c.gmail||[]).length}`:'尚未載入雲端資料';
 }
 
 function gcalDayUrl(d){
