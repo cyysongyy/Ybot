@@ -1240,6 +1240,8 @@ function renderSpeakBtn(){
 // ── 鬆弛感練習 ──────────────────────────
 // 四個支柱直接來自使用者給的那張圖，寫死在這裡而不是丟給 AI 自由發揮，
 // 練習才會每次都對齊同一套框架，而不是每次得到不同風格的心靈雞湯。
+// 四段完整講完需要空間；思考型模型還會先吃掉一部分額度，所以給得比一般對話寬。
+const RELAX_MAX_TOKENS=4096;
 const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」的教練。
 鬆弛感不是躺平，也不是強迫式休息，而是面對壓力時仍然善待自己、不慌張的內在穩定。
 
@@ -1249,23 +1251,30 @@ const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」�
 3. 撕掉標籤、關掉情緒電台：區分「情緒」和「我這個人」。別人貼的標籤往往反映的是他自己的需求。用短暫行動（走動、運動）換掉頻道。
 4. 反脆弱：像乒乓球而不是玻璃杯，從逆境反彈。擁抱不確定性，允許自己犯錯，定期按暫停鍵整理思緒。
 
-以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，寫成四個短段落，段落之間空一行。
-只給情緒安慰是不夠的，後面三段一定要給出具體做法。四段依序是：
+以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，寫成四個段落，段落之間空一行。
+四段缺一不可，每一段都要寫完整、不要只寫半句就跳下一段。整體大約 300 到 400 字。
+只給情緒安慰是不夠的，後面三段一定要給出他真的能照做的具體做法。四段依序是：
 
-第一段：先同理他此刻的感受，說出來就好，不要評價也不要急著給建議。
-第二段：指出他心裡那句自動浮現的劇本（通常是「這代表我不夠好」這一類），
-  換成「這是一次可以提升的挑戰」的版本。要具體貼著他講的事，不要套公式。
-第三段：給他一句「可以直接說出口」的話——把界線或立場講清楚，語氣穩、不指責、
-  不討好、不解釋過頭。直接寫出那句話本身，讓他可以照著講。
-第四段：這件事能讓他長出什麼，或一個 30 秒內做得到的暫停動作，讓他反彈而不是碎掉。
+第一段（大約 60 字）：先同理他此刻的感受，具體說出他卡在什麼位置、為什麼會累，
+  不要評價，也不要急著給建議。
+
+第二段（大約 100 字）：指出他心裡那句自動浮現的劇本（通常是「這代表我不夠好」或
+  「這件事沒救了」這一類），把它講出來，再換成「這是一次可以提升的挑戰」的版本。
+  要具體貼著他講的事，不要套公式。
+
+第三段（大約 120 字）：給他實際可以說出口的話——把界線或立場講清楚，語氣穩、
+  不指責、不討好、不解釋過頭。直接把那幾句話寫出來讓他可以照著講，
+  並且說明什麼時機、對誰講。
+
+第四段（大約 80 字）：這件事能讓他長出什麼能力或制度，以及一個 30 秒內做得到的
+  暫停動作，讓他反彈而不是碎掉。
 
 非常重要：不要寫出任何標題或標籤。不可以出現「接住」「心理劇本重設」「不帶敵意的堅決」
-「反脆弱」「第一段」這類字眼，也不要在段落開頭加冒號。直接講內容就好，像一個人在跟他
-講話那樣自然接下去。
+「反脆弱」「第一段」這類字眼，也不要在段落開頭加冒號或編號。直接講內容就好，
+像一個人在跟他講話那樣自然接下去。
 
 這段文字會被直接念出來，所以要像講話一樣順：不要條列符號、不要編號、不要括號、
 不要 emoji。不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
-每段兩到三句，讓他聽得完也記得住。
 
 他說：`;
 // 練習的產出存成「💡 心法」——筆記頁本來就有心法篩選，等於練習紀錄免費就有了，
@@ -1278,7 +1287,7 @@ function stripRelaxLabels(txt){
 }
 function qrSaveRelax(text){
   qrSet('transcribing','🌿 想一下…','正在幫你換一個看法…','🌿','busy');
-  callAI(RELAX_GUIDE+text).then(reply=>{
+  callAI(RELAX_GUIDE+text,null,{maxTokens:RELAX_MAX_TOKENS}).then(reply=>{
     const body=stripRelaxLabels(reply);
     if(!body)throw new Error('AI 沒有回覆內容');
     saveRelaxNote(body,text);
@@ -1417,7 +1426,7 @@ async function qrFlushQueue(){
         let body='';
         if(it.mode==='relax'){
           // 離線那次沒辦法換個看法，現在補上。AI 再失敗就先留下原話，不要弄丟。
-          try{body=stripRelaxLabels(await callAI(RELAX_GUIDE+text));}catch(e){}
+          try{body=stripRelaxLabels(await callAI(RELAX_GUIDE+text,null,{maxTokens:RELAX_MAX_TOKENS}));}catch(e){}
           n.content=(body||'（這次沒能換個看法）')+'\n\n🎙️ 我說的：'+text;
         }else{
           n.content=text;
@@ -1882,24 +1891,34 @@ function aiOrder(){
   if(p==='auto'||!p)return all;
   return [p,...all.filter(x=>x!==p)].filter(id=>state.ai[id]);
 }
-async function callAI(prompt,image){
+// 預設輸出上限。gemini-flash-latest 是會「先想再答」的模型，思考用掉的 token
+// 跟回答共用同一個 maxOutputTokens——1024 太小的話，思考吃掉大半，答案就會在
+// 句子中間被硬切斷。給寬一點，反正沒用到不會計費。
+const AI_MAX_TOKENS=2048;
+async function callAI(prompt,image,opts){
   const order=aiOrder();
   if(!order.length)throw new Error('請先在「設定」填入至少一組 AI API Key');
   let lastErr;
   for(const id of order){
-    try{return await callProvider(id,prompt,image);}catch(e){lastErr=e;}
+    try{return await callProvider(id,prompt,image,opts);}catch(e){lastErr=e;}
   }
   throw lastErr||new Error('AI 呼叫失敗');
 }
-async function callProvider(id,prompt,image){
+async function callProvider(id,prompt,image,opts){
+  const maxTokens=(opts&&opts.maxTokens)||AI_MAX_TOKENS;
   if(id==='gemini'){
     const parts=[{text:prompt}];
     if(image)parts.push({inline_data:{mime_type:image.mime||'image/jpeg',data:image.b64}});
     const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${state.ai.gemini}`,
       {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:.6,maxOutputTokens:1024}})});
+       body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:.6,maxOutputTokens:maxTokens}})});
     const d=await r.json();if(!r.ok)throw new Error(d.error?.message||`Gemini ${r.status}`);
-    return d.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    const cand=d.candidates?.[0];
+    // 回應可能有多個 part（例如思考與答案分開），只取 parts[0] 會漏掉後面的內容。
+    const text=(cand?.content?.parts||[]).map(x=>x&&x.text).filter(Boolean).join('');
+    // 被長度切掉時要講出來，不要把半句話當成完整答案交出去。
+    if(cand?.finishReason==='MAX_TOKENS'&&!text)throw new Error('Gemini 回應被長度限制切掉了，請再試一次');
+    return text;
   }
   const isNv=id==='nvidia';
   const key=isNv?state.ai.nvidia:state.ai.openai;
@@ -1910,7 +1929,7 @@ async function callProvider(id,prompt,image){
     ?[{type:'text',text:prompt},{type:'image_url',image_url:{url:`data:${image.mime||'image/jpeg'};base64,${image.b64}`}}]
     :prompt;
   const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body:JSON.stringify({model,messages:[{role:'user',content}],temperature:.6,max_tokens:1024})});
+    body:JSON.stringify({model,messages:[{role:'user',content}],temperature:.6,max_tokens:maxTokens})});
   const d=await r.json();if(!r.ok)throw new Error(d.error?.message||d.detail||`${id} ${r.status}`);
   return d.choices?.[0]?.message?.content||'';
 }
