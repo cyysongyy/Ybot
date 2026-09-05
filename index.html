@@ -174,6 +174,14 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   transition:transform .12s,box-shadow .12s,opacity .15s;}
 .sendBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
 .sendBtn:disabled{opacity:.5;cursor:default;box-shadow:none;}
+.qaItem{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px;}
+.qaItem summary{cursor:pointer;font-size:.82rem;color:var(--tx);list-style:none;
+  display:flex;gap:8px;align-items:flex-start;}
+.qaItem summary::-webkit-details-marker{display:none;}
+.qaItem .qaWhen{font-size:.68rem;color:var(--tx3);flex-shrink:0;padding-top:2px;}
+.qaItem .qaA{font-size:.8rem;color:var(--tx2);line-height:1.6;margin-top:8px;white-space:pre-wrap;}
+.qaItem .qaDel{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.78rem;margin-top:6px;padding:0;}
+.qaItem .qaDel:hover{color:var(--bad);}
 .ctxbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:2px 12px;
   font-size:.72rem;color:var(--tx3);margin-bottom:8px;}
 /* 狀態文字要能縮，但不能被壓到一字一行——擠不下時整組按鈕換到下一行。 */
@@ -410,6 +418,12 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="hint">iPhone：分享 → 加入主畫面｜Android：Chrome 會自動提示安裝</div>
     </div>
     <div class="card">
+      <div class="section-title">📚 我的問答資料庫</div>
+      <div class="hint" id="qaSummary" style="margin-top:0;"></div>
+      <input id="qaSearch" class="fi" placeholder="搜尋問過的問題或答案…" oninput="renderQaList()" style="margin:8px 0;">
+      <div id="qaList"></div>
+    </div>
+    <div class="card">
       <div class="section-title">🔤 字體大小</div>
       <div class="row2" style="align-items:center;">
         <button class="btn ghost" onclick="adjustFontScale(-0.1)" style="flex:0 0 auto;">－</button>
@@ -557,7 +571,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,standupCollapsed:true,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,useAppsData:false,speakReply:true,
+  useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],
   gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -644,7 +658,7 @@ function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='notes')renderNotes();
-  if(name==='settings')fillSettings();
+  if(name==='settings'){fillSettings();renderQaList();}
 }
 
 // ── 設定 ────────────────────────────────
@@ -1247,32 +1261,57 @@ function renderSpeakBtn(){
 // 練習才會每次都對齊同一套框架，而不是每次得到不同風格的心靈雞湯。
 // 四段完整講完需要空間；思考型模型還會先吃掉一部分額度，所以給得比一般對話寬。
 const RELAX_MAX_TOKENS=4096;
+// 這四個綱要是把使用者自己的「鬆弛感・內在重建」App（zen-strength-reflection）
+// 的八個階段濃縮而成，原始架構出自范俊娟《鬆弛感》。寫死在這裡而不是去線上抓：
+// 那是方法論、不是會變的資料，而且抓不到時整個回答品質會掉，不值得冒這個險。
+// 注意：只取 App 的「架構」，不碰使用者在裡面寫的任何個人手記內容。
+const ZEN_OUTLINE=`鬆弛感的四個綱要（出自 Young 自己的「鬆弛感・內在重建」App，源自范俊娟《鬆弛感》）：
+
+一、看清楚並定位
+先把外界事件攤開來看：發生什麼事、跟誰、對方說了什麼、你身體與行為的反應、
+心裡冒出的第一個念頭。把刺激、情緒、想法三件事分開。真正的鬆弛是「內在平和 ×
+外部從容應對」，不是躺平（失去動力），也不是強迫式放鬆（壓力隨時回來）。
+
+二、改寫內在劇本與語言
+囚徒劇本是「我怎麼掙扎都沒用」——習得性無助，籠門開了也不走；行者劇本是
+「黑暗中前行是常態，這只是其中一段路」。把囚徒改寫成行者。內在角色要兩邊補齊：
+母親角色（感性、接納）與父親角色（規則、界線），缺哪邊補哪邊。並且裝上情緒的
+暫停閥門——別讓情緒直接變成對自己的攻擊，起身活動幾分鐘就能關掉情緒電台。
+
+三、撕掉標籤，終止耗能關係
+別人的評價不是你的聖旨，標籤反映的往往是「貼標籤的人自己的需求」。問三件事：
+這標籤誰給的、他想滿足什麼需求、把它當成一個帶著目的的普通人說的話。關係的內耗
+來自製造對立感，化解對立三步是：釐清需求、真實分享、深度回應。
+這就是「不帶敵意的堅決」——立場清楚，但不製造對立。
+
+四、讓鬆弛落地生根
+反脆弱：像乒乓球不像玻璃杯，問這個意外能磨練或提升你什麼。允許犯錯的打靶效應：
+這次脫靶幫你對焦到什麼。放過自己：慾望是油門、理性是剎車，兩邊失衡都會出事。
+最後建立界限——把它收成一句自己要練習的話。`;
 const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」的教練。
 鬆弛感不是躺平，也不是強迫式休息，而是面對壓力時仍然善待自己、不慌張的內在穩定。
 
-四個支柱：
-1. 內在喜悅的穩定力量：面對挑戰時依然善待自己、不慌張。
-2. 優化心理劇本：接受失敗是常態，拒絕習得性無助。把困難看成提升的挑戰，不是對個人能力的否定。
-3. 撕掉標籤、關掉情緒電台：區分「情緒」和「我這個人」。別人貼的標籤往往反映的是他自己的需求。用短暫行動（走動、運動）換掉頻道。
-4. 反脆弱：像乒乓球而不是玻璃杯，從逆境反彈。擁抱不確定性，允許自己犯錯，定期按暫停鍵整理思緒。
+請完全依照下面這套架構來回答（這是他自己在用的方法，不要另外發明別的框架）：
+
+${ZEN_OUTLINE}
 
 以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，寫成四個段落，段落之間空一行。
 四段缺一不可，每一段都要寫完整、不要只寫半句就跳下一段。整體大約 300 到 400 字。
 只給情緒安慰是不夠的，後面三段一定要給出他真的能照做的具體做法。四段依序是：
 
-第一段（大約 60 字）：先同理他此刻的感受，具體說出他卡在什麼位置、為什麼會累，
-  不要評價，也不要急著給建議。
+第一段（綱要一，大約 60 字）：先同理他此刻的感受，把刺激、情緒、想法分開，具體說出
+  他卡在什麼位置、為什麼會累。不要評價，也不要急著給建議。
 
-第二段（大約 100 字）：指出他心裡那句自動浮現的劇本（通常是「這代表我不夠好」或
-  「這件事沒救了」這一類），把它講出來，再換成「這是一次可以提升的挑戰」的版本。
-  要具體貼著他講的事，不要套公式。
+第二段（綱要二，大約 100 字）：指出他心裡那句囚徒劇本（通常是「我怎麼做都沒用」或
+  「這代表我不夠好」這一類），把它講出來，再改寫成行者的版本。需要的話點出他此刻缺的
+  是母親角色的接納還是父親角色的界線。要具體貼著他講的事，不要套公式。
 
-第三段（大約 120 字）：給他實際可以說出口的話——把界線或立場講清楚，語氣穩、
-  不指責、不討好、不解釋過頭。直接把那幾句話寫出來讓他可以照著講，
-  並且說明什麼時機、對誰講。
+第三段（綱要三，大約 120 字）：如果有人給他貼標籤，先點破那標籤反映的是對方的需求；
+  然後給他實際可以說出口的話——立場清楚但不製造對立，語氣穩、不指責、不討好、
+  不解釋過頭。直接把那幾句話寫出來讓他可以照著講，並說明什麼時機、對誰講。
 
-第四段（大約 80 字）：這件事能讓他長出什麼能力或制度，以及一個 30 秒內做得到的
-  暫停動作，讓他反彈而不是碎掉。
+第四段（綱要四，大約 80 字）：這件事能磨練或提升他什麼、幫他對焦到什麼，以及一個
+  30 秒內做得到的暫停動作或一句要練習的界限，讓他反彈而不是碎掉。
 
 非常重要：不要寫出任何標題或標籤。不可以出現「接住」「心理劇本重設」「不帶敵意的堅決」
 「反脆弱」「第一段」這類字眼，也不要在段落開頭加冒號或編號。直接講內容就好，
@@ -1309,6 +1348,7 @@ function saveRelaxNote(body,original){
   if(state.gasUrl){
     fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
   }
+  qaAdd(original,body,'relax');
   pushRelaxToChat(body,original,n.id);
   closeQuickRec();          // 浮層的任務到錄音為止，結果在對話裡看
   switchTab('chat');
@@ -1441,7 +1481,7 @@ async function qrFlushQueue(){
           fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
             body:JSON.stringify({action:'addNote',note:clean})}).catch(()=>{});
         }
-        if(it.mode==='relax'&&body)pushRelaxToChat(body,text,n.id);
+        if(it.mode==='relax'&&body){qaAdd(text,body,'relax');pushRelaxToChat(body,text,n.id);}
       }else{
         // 轉得出來但是空的：再重試幾次結果也一樣，就別一直佔著空間。
         n.content=`🎙️ 這段錄音沒有辨識到文字（${qrStamp(new Date(it.createdAt))}）`;
@@ -2199,6 +2239,53 @@ function paQueryTerms(q){
 // 門檻：標題命中一個 n-gram 就 3 分，所以要 6 分等於至少兩段標題重疊，
 // 避免「學校」「今天」這種常見詞就把不相關的記錄拉進來。
 const PA_REC_MIN_SCORE=6;
+
+// ── 個人問答資料庫 ──────────────────────
+// 對話紀錄（state.chat）是會被「清除對話」清掉的，而且只留最近幾則餵給 AI。
+// 這裡另外把每一次問答永久存起來，之後問到相似的事情就能把當時的答案叫回來，
+// 累積成 Young 自己的問答庫，而不是每次都從零開始重講。
+const QA_MAX=500;          // 上限，滿了就丟最舊的，避免 localStorage 撐爆
+const QA_MIN_SCORE=6;      // 跟工作記錄同一套門檻：至少兩段 n-gram 重疊才算相關
+const QA_RECALL=3;         // 一次最多召回幾則，太多會排擠其他 context
+function qaAdd(q,a,kind){
+  const question=String(q||'').trim(), answer=String(a||'').trim();
+  if(!question||!answer)return null;
+  if(!Array.isArray(state.qa))state.qa=[];
+  const rec={id:'q'+Date.now()+Math.random().toString(36).slice(2,7),
+    q:question,a:answer,kind:kind||'chat',at:new Date().toISOString()};
+  state.qa.unshift(rec);
+  if(state.qa.length>QA_MAX)state.qa.length=QA_MAX;
+  save();
+  return rec;
+}
+function qaDelete(id){
+  if(!Array.isArray(state.qa))return;
+  state.qa=state.qa.filter(x=>x.id!==id);
+  save();renderQaList();
+}
+// 用問題和答案一起比對：有時候你記得的是當時的答案，不是當初怎麼問的。
+function qaSearch(query,limit){
+  if(!Array.isArray(state.qa)||!state.qa.length)return [];
+  const terms=paQueryTerms(query);
+  if(!terms.length)return [];
+  return state.qa.map(r=>{
+    const q=r.q||'', a=r.a||'';
+    let score=0;
+    for(const t of terms){
+      if(q.includes(t))score+=3;   // 問題命中權重高：那是他當時真正在意的事
+      if(a.includes(t))score+=1;
+    }
+    return {r,score};
+  }).filter(x=>x.score>=QA_MIN_SCORE).sort((a,b)=>b.score-a.score)
+    .slice(0,limit||QA_RECALL).map(x=>x.r);
+}
+function buildQaContext(question){
+  const hits=qaSearch(question);
+  if(!hits.length)return '';
+  const fmt=r=>`・${new Date(r.at).toLocaleDateString('zh-TW')}${r.kind==='relax'?'（鬆弛練習）':''}\n  問：${r.q}\n  答：${r.a.slice(0,400)}`;
+  return '你以前回答過的相關問題（Young 的個人問答庫，可以直接沿用或延伸，'
+    +'但如果情況已經不同就要講出差別）：\n'+hits.map(fmt).join('\n');
+}
 function buildRecordsContext(question){
   const recs=readLS('pa_rec_v2');
   if(!Array.isArray(recs)||!recs.length)return '';
@@ -2315,6 +2402,8 @@ function buildContextText(question){
     const appsCtx=buildMyAppsContext(question);
     if(appsCtx)lines.push(appsCtx);
   }
+  const qaCtx=buildQaContext(question);
+  if(qaCtx)lines.push(qaCtx);
   const c=state.context;
   if(c){
     if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
@@ -2425,6 +2514,10 @@ async function execChatActions(actions){
   if(log.length){save();renderNotes();renderOverview();}
   return log;
 }
+// 只有在談壓力/情緒/人際時才把鬆弛感架構帶進 prompt——問「今天幾點開會」
+// 也塞一大段方法論只是浪費 token，而且會讓回答變得很怪。
+const STRESS_HINTS=/緊繃|壓力|焦慮|累|疲憊|煩|生氣|憤怒|難過|沮喪|挫折|委屈|無力|無助|崩潰|睡不著|情緒|心情|放鬆|鬆弛|投訴|抱怨|衝突|對立|爭執|得罪|不爽|討厭|受不了|人際|同事|家長|上級|長官|部屬|主任|組長|老師|該怎麼面對|怎麼辦|好難|撐不住|想哭|失眠/;
+function looksLikeStressQuestion(t){return STRESS_HINTS.test(String(t||''));}
 async function sendChat(){
   const input=document.getElementById('chatInput');
   const text=input.value.trim();
@@ -2453,11 +2546,16 @@ async function sendChat(){
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 一次可以有多個 actions。今天日期時間是 ${new Date().toLocaleString('zh-TW')}，遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
-  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
+  // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。
+  const zenNote=looksLikeStressQuestion(text)?`\n\n這個問題聽起來跟壓力、情緒或人際有關。回答時請依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，直接把想法講出來：\n${ZEN_OUTLINE}`:'';
+  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${zenNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
     state.chat.push({role:'bot',text:replyText||'（沒有取得回覆，請確認 AI 設定）'});
+    // 存進問答庫：對話會被清掉，這份要留著，之後問到相似的事才叫得回來。
+    if(replyText)qaAdd(text,replyText,'chat');
     save();renderChat();
     if(parseError){
       state.chat.push({role:'sys',text:'⚠️ AI 想執行動作，但指令格式有誤，這次沒有真的執行。可以再說一次。'});
@@ -2544,6 +2642,22 @@ setInterval(updateClock,30000);
 // 直接把「這一刻會送給 AI 的那段資料」原封不動攤開。
 // 之前遇到「診斷說讀得到、AI 卻說沒有」，光靠猜沒辦法確定是開關沒生效、
 // 多個分頁的狀態互相覆蓋、還是 AI 拿到了卻不用——把實際內容秀出來就一翻兩瞪眼。
+function renderQaList(){
+  const box=document.getElementById('qaList'), sum=document.getElementById('qaSummary');
+  if(!box||!sum)return;
+  const all=Array.isArray(state.qa)?state.qa:[];
+  const q=(document.getElementById('qaSearch')||{}).value||'';
+  // 有輸入就用同一套 n-gram 比對；沒輸入就顯示最近的幾則。
+  const hits=q.trim()?qaSearch(q,50):all.slice(0,20);
+  sum.textContent=all.length
+    ?`累積 ${all.length} 則問答${q.trim()?`，符合 ${hits.length} 則`:'，以下是最近 20 則'}。問到相似的事情時，Ybot 會自動把當時的答案帶回來參考。`
+    :'還沒有紀錄。你在對話裡問過的問題和鬆弛練習都會自動存進來。';
+  box.innerHTML=hits.map(r=>`<details class="qaItem">
+    <summary><span class="qaWhen">${new Date(r.at).toLocaleDateString('zh-TW')}${r.kind==='relax'?' 🌿':''}</span><span>${esc(r.q)}</span></summary>
+    <div class="qaA">${esc(r.a)}</div>
+    <button class="qaDel" onclick="qaDelete('${r.id}')">刪除這則</button>
+  </details>`).join('');
+}
 function toggleContextPeek(){
   const el=document.getElementById('contextPeek');
   if(!el)return;
