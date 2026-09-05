@@ -147,7 +147,9 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 @keyframes qrPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55);}50%{box-shadow:0 0 0 16px rgba(220,38,38,0);}}
 .qrHint{font-size:.84rem;color:var(--tx2);margin-top:16px;line-height:1.6;min-height:2.6em;}
 .qrText{font-size:.9rem;color:var(--tx);background:var(--bg);border-radius:12px;padding:12px;
-  margin-top:14px;text-align:left;line-height:1.6;max-height:180px;overflow:auto;white-space:pre-wrap;}
+  margin-top:14px;text-align:left;line-height:1.6;max-height:46vh;overflow:auto;white-space:pre-wrap;}
+/* 有結果之後，麥克風的任務只剩「點一下停止朗讀」，縮小把版面讓給內容。 */
+.qrMic.small{width:64px;height:64px;font-size:1.6rem;}
 .qrActions{display:flex;gap:8px;justify-content:center;margin-top:18px;}
 .undoBtn{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:20px;border:1px solid var(--line);
   background:var(--card);color:var(--tx2);font-size:.72rem;font-weight:700;cursor:pointer;vertical-align:baseline;
@@ -538,6 +540,7 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="qrText" id="qrText" style="display:none;"></div>
     <div class="qrActions">
       <button class="btn ghost" id="qrUndoBtn" style="padding:8px 18px;font-size:.84rem;display:none;" onclick="qrUndo()">↩ 復原</button>
+      <button class="btn ghost" id="qrSpeakBtn" style="padding:8px 14px;font-size:.84rem;display:none;" onclick="toggleSpeak()">🔊</button>
       <button class="btn ghost" style="padding:8px 18px;font-size:.84rem;" onclick="closeQuickRec()">關閉</button>
     </div>
   </div>
@@ -549,7 +552,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,standupCollapsed:true,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,useAppsData:false,
+  useSchoolDb:false,useAppsData:false,speakReply:true,
   gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -1026,8 +1029,11 @@ function openRelaxPractice(){
 }
 function closeQuickRec(){
   if(qrState==='recording'&&qrRecorder){try{qrRecorder.stop();}catch(e){}}
+  stopSpeaking();
   const o=document.getElementById('quickRec');
   if(o)o.style.display='none';
+  const b=document.getElementById('qrSpeakBtn');
+  if(b)b.style.display='none';
   qrSavedId=null;
   qrMode='note';
 }
@@ -1051,6 +1057,8 @@ function maybeStartQuickRec(){
 }
 function quickRecTap(){
   if(qrState==='recording'){quickRecStop();return;}
+  // 正在念的時候，點一下是「安靜」而不是「再錄一次」——不然想讓它閉嘴反而又開錄。
+  try{if(speechSynthesis.speaking||speechSynthesis.pending){stopSpeaking();return;}}catch(e){}
   if(qrState==='idle'||qrState==='error'||qrState==='done')quickRecStart(false);
 }
 async function quickRecStart(auto){
@@ -1062,6 +1070,7 @@ async function quickRecStart(auto){
     qrSet('error','⚠️ 這個瀏覽器不支援','沒有錄音功能可用。','🎙️','');
     return;
   }
+  ttsWarmUp();  // 必須在使用者手勢裡先叫一次，等一下 AI 回來才念得出來
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:true});
     qrChunks=[];qrNoSpeech=false;  // 每次重錄都要歸零，否則上一輪的狀態會影響這一輪
@@ -1178,6 +1187,56 @@ function qrWatchSilence(stream){
 }
 // 轉好的文字直接存成瑣事筆記——快速錄音的重點是「先不要弄丟」，
 // 分類之後可以再叫 Ybot 改。存完附一個復原，講錯了可以馬上收回。
+// ── 把回應念出來 ────────────────────────
+// 用瀏覽器內建的 speechSynthesis：不用 API、不花錢、離線也能念。
+// iOS 有個限制：第一次一定要在使用者手勢裡觸發過，之後才准非同步呼叫。
+// 錄音是使用者自己按的，就趁那一下先「暖機」，等 AI 回來才念得出來。
+let ttsReady=false;
+function ttsWarmUp(){
+  if(ttsReady||!('speechSynthesis'in window))return;
+  try{
+    const u=new SpeechSynthesisUtterance('');
+    u.volume=0;
+    speechSynthesis.speak(u);
+    ttsReady=true;
+  }catch(e){}
+}
+function pickZhVoice(){
+  let vs=[];
+  try{vs=speechSynthesis.getVoices()||[];}catch(e){return null;}
+  return vs.find(v=>/zh[-_]TW/i.test(v.lang))
+      ||vs.find(v=>/zh[-_]HK/i.test(v.lang))
+      ||vs.find(v=>/^zh/i.test(v.lang))||null;
+}
+function speakText(txt){
+  if(!state.speakReply)return;
+  if(!('speechSynthesis'in window))return;
+  const clean=String(txt||'').replace(/[*_#`>]/g,'').trim();
+  if(!clean)return;
+  try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(clean);
+    u.lang='zh-TW';
+    const v=pickZhVoice();
+    if(v)u.voice=v;
+    u.rate=0.95;   // 稍慢一點，是拿來沉澱的，不是趕進度
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+function stopSpeaking(){try{speechSynthesis.cancel();}catch(e){}}
+function toggleSpeak(){
+  state.speakReply=!state.speakReply;
+  save();
+  renderSpeakBtn();
+  if(!state.speakReply)stopSpeaking();
+}
+function renderSpeakBtn(){
+  const b=document.getElementById('qrSpeakBtn');
+  if(!b)return;
+  b.textContent=state.speakReply?'🔊':'🔇';
+  b.title=state.speakReply?'會念出來（點一下關掉）':'不念出來（點一下打開）';
+}
+
 // ── 鬆弛感練習 ──────────────────────────
 // 四個支柱直接來自使用者給的那張圖，寫死在這裡而不是丟給 AI 自由發揮，
 // 練習才會每次都對齊同一套框架，而不是每次得到不同風格的心靈雞湯。
@@ -1190,12 +1249,18 @@ const RELAX_GUIDE=`你是陪 Young（一位國小校長）練習「鬆弛感」�
 3. 撕掉標籤、關掉情緒電台：區分「情緒」和「我這個人」。別人貼的標籤往往反映的是他自己的需求。用短暫行動（走動、運動）換掉頻道。
 4. 反脆弱：像乒乓球而不是玻璃杯，從逆境反彈。擁抱不確定性，允許自己犯錯，定期按暫停鍵整理思緒。
 
-以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，總共不超過 120 字，剛好三行、格式如下：
-卡點：一句話說出他真正卡住的地方
-換個看法：用最貼近的那個支柱重新框架，要具體針對他講的事
-現在可以做：一個 30 秒內做得到的小動作
+以下是他剛剛講出來的事。請用繁體中文、台灣用語回覆，剛好四段、每段開頭用指定的標題加冒號，
+每段一到兩句，全部合起來不超過 180 字。只給情緒安慰是不夠的，後面三段一定要給出具體做法：
 
-不要條列符號，不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
+接住：先同理他此刻的感受，說出來就好，不要評價也不要急著給建議。
+心理劇本重設：指出他心裡那句自動浮現的劇本（通常是「這代表我不夠好」這一類），
+  換成「這是一次可以提升的挑戰」的版本。要具體貼著他講的事，不要套公式。
+不帶敵意的堅決：給他一句「可以直接說出口」的話——把界線或立場講清楚，語氣穩、不指責、
+  不討好、不解釋過頭。直接寫出那句話本身。
+反脆弱：這件事能讓他長出什麼，或一個 30 秒內做得到的暫停動作，讓他反彈而不是碎掉。
+
+這段文字會被直接念出來，所以要像講話一樣順，不要條列符號、不要括號、不要 emoji、
+不要標題以外的任何符號。不要客套話，不要重複他的原話，不要說「作為一個AI」之類的話。
 
 他說：`;
 // 練習的產出存成「💡 心法」——筆記頁本來就有心法篩選，等於練習紀錄免費就有了，
@@ -1220,8 +1285,12 @@ function saveRelaxNote(body,original){
     fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
   }
   qrSavedId=n.id;
-  qrSet('done','🌿 練習完成','已存成心法，之後在筆記頁篩「💡 心法」就看得到。','🎙️','');
+  qrSet('done','🌿 練習完成','已存成心法；點麥克風可以停止朗讀。','🔈','small');
   qrShowText(body);
+  renderSpeakBtn();
+  const b=document.getElementById('qrSpeakBtn');
+  if(b)b.style.display='inline-flex';
+  speakText(body);
 }
 
 function qrSaveNote(text){
@@ -1237,6 +1306,7 @@ function qrSaveNote(text){
   qrShowText(text);
 }
 function qrUndo(){
+  stopSpeaking();
   if(qrSavedId){deleteNote(qrSavedId);qrSavedId=null;}
   qrSet('idle','↩️ 已復原','那則筆記已刪除。點一下可以重新錄音。','🎙️','');
   qrShowText('');
