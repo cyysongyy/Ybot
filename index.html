@@ -337,6 +337,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span style="display:flex;gap:10px;flex-shrink:0;">
           <button onclick="refreshContext()">🔄 重新整理資料</button>
           <button onclick="clearChatOnly()">🗑️ 清除對話</button>
+          <button id="speakToggle" onclick="toggleSpeak()" title="鬆弛練習的回應要不要念出來">🔊 朗讀</button>
         </span>
       </div>
       <div id="chatBox"></div>
@@ -344,6 +345,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="inputRow">
         <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
         <button class="btn ghost" id="chatImageBtn" onclick="document.getElementById('chatImageInput').click()" style="flex:0 0 auto;" title="附加圖片，讓 Ybot 看圖辨識/回答">📷</button>
+        <button class="btn ghost" id="relaxBtn" onclick="openRelaxPractice()" style="flex:0 0 auto;display:none;" title="鬆弛練習：說出讓你緊繃的事，換一個看法">🌿</button>
         <textarea id="chatInput" class="fi" placeholder="問 Ybot 任何事…（Enter 送出，Shift+Enter 換行）" style="margin-bottom:0;"></textarea>
         <button class="sendBtn" id="sendBtn" onclick="sendChat()">送出</button>
       </div>
@@ -371,7 +373,6 @@ a.ovMailItem:hover{text-decoration:underline;}
       <textarea id="noteContent" class="fi" placeholder="寫下內容…"></textarea>
       <div class="row2" style="margin-bottom:10px;">
         <button class="btn ghost" id="voiceBtn" onclick="toggleRecording()" style="flex:0 0 auto;display:none;">🎙️ 錄音</button>
-        <button class="btn ghost" id="relaxBtn" onclick="openRelaxPractice()" style="flex:0 0 auto;display:none;" title="說出讓你緊繃的事，換一個看法">🌿 鬆弛</button>
         <span id="voiceStatus" class="hint" style="margin:0;align-self:center;"></span>
       </div>
       <div class="field" id="dueField" style="display:none;">
@@ -540,7 +541,6 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="qrText" id="qrText" style="display:none;"></div>
     <div class="qrActions">
       <button class="btn ghost" id="qrUndoBtn" style="padding:8px 18px;font-size:.84rem;display:none;" onclick="qrUndo()">↩ 復原</button>
-      <button class="btn ghost" id="qrSpeakBtn" style="padding:8px 14px;font-size:.84rem;display:none;" onclick="toggleSpeak()">🔊</button>
       <button class="btn ghost" style="padding:8px 18px;font-size:.84rem;" onclick="closeQuickRec()">關閉</button>
     </div>
   </div>
@@ -1231,10 +1231,10 @@ function toggleSpeak(){
   if(!state.speakReply)stopSpeaking();
 }
 function renderSpeakBtn(){
-  const b=document.getElementById('qrSpeakBtn');
+  const b=document.getElementById('speakToggle');
   if(!b)return;
-  b.textContent=state.speakReply?'🔊':'🔇';
-  b.title=state.speakReply?'會念出來（點一下關掉）':'不念出來（點一下打開）';
+  b.textContent=state.speakReply?'🔊 朗讀':'🔇 靜音';
+  b.title=state.speakReply?'鬆弛練習的回應會念出來（點一下關掉，也會停止正在念的）':'目前不念出來（點一下打開）';
 }
 
 // ── 鬆弛感練習 ──────────────────────────
@@ -1295,13 +1295,17 @@ function saveRelaxNote(body,original){
   if(state.gasUrl){
     fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
   }
-  qrSavedId=n.id;
-  qrSet('done','🌿 練習完成','已存成心法。點喇叭可以停止朗讀。','🔈','small');
-  qrShowText(body);
-  renderSpeakBtn();
-  const b=document.getElementById('qrSpeakBtn');
-  if(b)b.style.display='inline-flex';
-  speakText(body);
+  pushRelaxToChat(body,original,n.id);
+  closeQuickRec();          // 浮層的任務到錄音為止，結果在對話裡看
+  switchTab('chat');
+  speakText(body);          // 一定要在 closeQuickRec 之後——它會先把朗讀停掉
+}
+// 講的話和回應都變成對話裡的訊息，接著就能直接追問下去。
+// 回應那則帶 undo，按「↩ 復原」會把存起來的心法刪掉，跟其他動作一致。
+function pushRelaxToChat(body,original,noteId){
+  state.chat.push({role:'user',text:'🌿 '+original});
+  state.chat.push({role:'bot',text:body,undo:{op:'add_note',id:noteId}});
+  save();renderChat();
 }
 
 function qrSaveNote(text){
@@ -1410,9 +1414,9 @@ async function qrFlushQueue(){
       try{text=(await transcribeAudio(it.blob,it.mime)||'').trim();}
       catch(err){break;}
       if(text){
+        let body='';
         if(it.mode==='relax'){
           // 離線那次沒辦法換個看法，現在補上。AI 再失敗就先留下原話，不要弄丟。
-          let body='';
           try{body=stripRelaxLabels(await callAI(RELAX_GUIDE+text));}catch(e){}
           n.content=(body||'（這次沒能換個看法）')+'\n\n🎙️ 我說的：'+text;
         }else{
@@ -1423,6 +1427,7 @@ async function qrFlushQueue(){
           fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
             body:JSON.stringify({action:'addNote',note:clean})}).catch(()=>{});
         }
+        if(it.mode==='relax'&&body)pushRelaxToChat(body,text,n.id);
       }else{
         // 轉得出來但是空的：再重試幾次結果也一樣，就別一直佔著空間。
         n.content=`🎙️ 這段錄音沒有辨識到文字（${qrStamp(new Date(it.createdAt))}）`;
@@ -2554,6 +2559,7 @@ function registerSW(){
 // ── 初始化 ──────────────────────────────
 renderChat();
 renderNotes();
+renderSpeakBtn();
 renderLinkChips();
 initCountdownUI();
 if(state.context)showCtxStatus();
