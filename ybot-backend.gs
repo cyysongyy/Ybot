@@ -198,7 +198,7 @@ function doPost(e) {
         done: n.done ? 'true' : '', createdAt: n.createdAt || new Date().toISOString(), notifiedAt: n.notifiedAt || ''
       });
     });
-    return jsonResp({ ok: true, message: `同步完成：${(body.notes || []).length} 筆` });
+    return jsonResp({ ok: true, message: '同步完成：' + ((body.notes || []).length) + ' 筆' });
   }
   if (action === 'addQa') {
     const { qa } = setupSheets();
@@ -221,7 +221,7 @@ function doPost(e) {
         at: r.at || new Date().toISOString()
       });
     });
-    return jsonResp({ ok: true, message: `問答庫同步完成：${list.length} 筆` });
+    return jsonResp({ ok: true, message: '問答庫同步完成：' + list.length + ' 筆' });
   }
   if (action === 'deleteQa') {
     const { qa } = setupSheets();
@@ -554,23 +554,23 @@ function dailyBrief() {
   const groups = { red: [], orange: [], green: [] };
   priorities.forEach(p => groups[p.level].push(p));
 
-  let lines = [`【Ybot 每日簡報】${new Date().toLocaleDateString('zh-TW')}`, ''];
+  let lines = ['【Ybot 每日簡報】' + (new Date().toLocaleDateString('zh-TW')), ''];
 
   if (ctx.weather) {
     const w = ctx.weather;
-    lines.push(`${w.icon} ${w.city}天氣：${w.desc}，現在 ${w.temp}°C（今日 ${w.tMin}~${w.tMax}°C，降雨機率 ${w.rainChance ?? '—'}%）`);
+    lines.push(w.icon + ' ' + w.city + '天氣：' + w.desc + '，現在 ' + w.temp + '°C（今日 ' + w.tMin + '~' + w.tMax + '°C，降雨機率 ' + (w.rainChance ?? '—') + '%）');
     lines.push('');
   }
   if (ctx.calendar.length) {
     lines.push('📅 未來行程：');
     ctx.calendar.forEach(ev => {
       const t = ev.allDay ? '全天' : new Date(ev.start).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      lines.push(`　${t}　${ev.title}`);
+      lines.push('　' + t + '　' + ev.title);
     });
     lines.push('');
   }
   if (priorities.length) {
-    lines.push(`🎯 今天真正需要處理（共 ${priorities.length} 項，含今明行程）：`);
+    lines.push('🎯 今天真正需要處理（共 ' + priorities.length + ' 項，含今明行程）：');
     if (groups.red.length) {
       lines.push('🔴 今天必須：');
       groups.red.forEach(p => lines.push(fmtItemLine(p)));
@@ -580,36 +580,36 @@ function dailyBrief() {
       groups.orange.forEach(p => lines.push(fmtItemLine(p)));
     }
     if (groups.green.length) {
-      lines.push(`🟢 可以延後（共 ${groups.green.length} 項，僅列前 5）：`);
+      lines.push('🟢 可以延後（共 ' + groups.green.length + ' 項，僅列前 5）：');
       groups.green.slice(0, 5).forEach(p => lines.push(fmtItemLine(p)));
     }
     lines.push('');
   }
   if (ctx.gmail.length) {
-    lines.push(`📬 未讀重要信件（${ctx.gmail.length} 封）：`);
-    ctx.gmail.forEach(m => lines.push(`　${m.important ? '💳' : '・'} ${m.subject}（${m.from}）`));
+    lines.push('📬 未讀重要信件（' + ctx.gmail.length + ' 封）：');
+    ctx.gmail.forEach(m => lines.push('　' + (m.important ? '💳' : '・') + ' ' + m.subject + '（' + m.from + '）'));
     lines.push('');
   }
   const news = ctx.news || {};
   if ((news.domestic || []).length || (news.world || []).length || (news.education || []).length) {
     lines.push('📰 今日新聞：');
-    if ((news.domestic || []).length) { lines.push('　國內：'); news.domestic.forEach(n => lines.push(`　　・${n.title}`)); }
-    if ((news.world || []).length) { lines.push('　國際：'); news.world.forEach(n => lines.push(`　　・${n.title}`)); }
-    if ((news.education || []).length) { lines.push('　教育：'); news.education.forEach(n => lines.push(`　　・${n.title}`)); }
+    if ((news.domestic || []).length) { lines.push('　國內：'); news.domestic.forEach(n => lines.push('　　・' + n.title)); }
+    if ((news.world || []).length) { lines.push('　國際：'); news.world.forEach(n => lines.push('　　・' + n.title)); }
+    if ((news.education || []).length) { lines.push('　教育：'); news.education.forEach(n => lines.push('　　・' + n.title)); }
     lines.push('');
   }
   if (ctx.linked.remediation) {
     const r = ctx.linked.remediation;
-    lines.push(`🎯 考卷批改：累計 ${r.totalSubmissions} 筆，近期平均 ${r.recentAvgPercentage ?? '—'}%，常見迷思：${(r.topMisconceptions || []).join('、') || '無'}`);
+    lines.push('🎯 考卷批改：累計 ' + r.totalSubmissions + ' 筆，近期平均 ' + (r.recentAvgPercentage ?? '—') + '%，常見迷思：' + ((r.topMisconceptions || []).join('、') || '無'));
   }
   if (ctx.linked.health) {
     const h = ctx.linked.health;
-    lines.push(`🫀 健康：最新健康分 ${h.score}，生理年齡 ${h.bio}（${h.date}）`);
+    lines.push('🫀 健康：最新健康分 ' + h.score + '，生理年齡 ' + h.bio + '（' + h.date + '）');
   }
   if (ctx.linked.other && Object.keys(ctx.linked.other).length) {
     lines.push('🧩 其他串聯 App：');
     Object.entries(ctx.linked.other).forEach(([name, text]) => {
-      lines.push(`　・${name}：${String(text).slice(0, 200)}`);
+      lines.push('　・' + name + '：' + (String(text).slice(0, 200)));
     });
   }
   lines.push('');
@@ -667,9 +667,9 @@ function fmtDue(dueAt) {
 function fmtItemLine(p) {
   if (p.type === 'event') {
     const t = p.allDay ? '全天' : fmtDue(p.dueAt);
-    return `　📅 ${t}　${p.content}`;
+    return '　📅 ' + t + '　' + p.content;
   }
-  return `　・${p.content}${p.dueAt ? '（' + fmtDue(p.dueAt) + '）' : ''}`;
+  return '　・' + p.content + (p.dueAt ? '（' + fmtDue(p.dueAt) + '）' : '');
 }
 
 // AI 輔助分級 + 今日提醒文字（選填，需先設定 AI Key）。單一次呼叫回傳 JSON，
@@ -677,16 +677,16 @@ function fmtItemLine(p) {
 function aiPrioritize(items, ctx) {
   const cfg = getAiConfig();
   if (!hasAnyAiKey(cfg) || !items.length) return {};
-  const prompt = `你是 Young 的個人行政幕僚 Ybot，個性溫暖直接。以下是他目前的待辦／提醒清單（JSON），每項已有初步等級（red=今天必須, orange=建議今天, green=可延後）：\n` +
+  const prompt = '你是 Young 的個人行政幕僚 Ybot，個性溫暖直接。以下是他目前的待辦／提醒清單（JSON），每項已有初步等級（red=今天必須, orange=建議今天, green=可延後）：\n' +
     JSON.stringify(items.map(i => ({ id: i.id, content: i.content, dueAt: i.dueAt, level: i.level }))) + '\n\n' +
-    `背景資訊（僅供你判斷是否要升級等級，不要新增清單外的項目、不要臆測不存在的細節）：\n` +
-    `未讀信件主旨：${JSON.stringify(ctx.gmail.slice(0, 8).map(m => m.subject))}\n` +
-    `未來行程：${JSON.stringify(ctx.calendar.map(e => e.title))}\n` +
-    `其他系統摘要：${JSON.stringify(ctx.linked)}\n\n` +
-    `請完成兩件事，只回傳一個 JSON 物件，不要有任何其他文字或說明：\n` +
-    `1. upgrades：陣列，只列出你「有把握」該升級等級的項目（例如沒有到期日但內容明顯緊急），格式 [{"id":"...","level":"red"}]，沒有就給空陣列，不確定的不要動。\n` +
-    `2. narrative：100 字內的繁體中文「今日提醒」，語氣像朋友提醒，聚焦在今天最該優先做的 1-2 件事並給一句鼓勵，不要條列複誦清單內容。\n\n` +
-    `輸出格式：{"upgrades":[...],"narrative":"..."}`;
+    '背景資訊（僅供你判斷是否要升級等級，不要新增清單外的項目、不要臆測不存在的細節）：\n' +
+    '未讀信件主旨：' + (JSON.stringify(ctx.gmail.slice(0, 8).map(m => m.subject))) + '\n' +
+    '未來行程：' + (JSON.stringify(ctx.calendar.map(e => e.title))) + '\n' +
+    '其他系統摘要：' + (JSON.stringify(ctx.linked)) + '\n\n' +
+    '請完成兩件事，只回傳一個 JSON 物件，不要有任何其他文字或說明：\n' +
+    '1. upgrades：陣列，只列出你「有把握」該升級等級的項目（例如沒有到期日但內容明顯緊急），格式 [{"id":"...","level":"red"}]，沒有就給空陣列，不確定的不要動。\n' +
+    '2. narrative：100 字內的繁體中文「今日提醒」，語氣像朋友提醒，聚焦在今天最該優先做的 1-2 件事並給一句鼓勵，不要條列複誦清單內容。\n\n' +
+    '輸出格式：{"upgrades":[...],"narrative":"..."}';
   const raw = callAI(prompt);
   if (!raw) return {};
   try {
@@ -718,7 +718,7 @@ function reminderWatch() {
   const due = all.filter(n => n.type === 'reminder' && n.done !== 'true' && !n.notifiedAt && n.dueAt && new Date(n.dueAt) <= now);
   due.forEach(n => {
     try {
-      MailApp.sendEmail(email, '⏰ Ybot 提醒：' + n.content, `到了你設定的提醒時間：\n\n${n.content}\n\n（設定時間：${n.dueAt}）`);
+      MailApp.sendEmail(email, '⏰ Ybot 提醒：' + n.content, '到了你設定的提醒時間：\n\n' + n.content + '\n\n（設定時間：' + n.dueAt + '）');
       updatePartial(note, NOTE_COLS, n.id, { notifiedAt: new Date().toISOString() });
     } catch (err) { /* 忽略單筆寄送失敗 */ }
   });
@@ -744,24 +744,24 @@ function weeklyReview() {
   const addedThisWeek = allNotes.filter(n => n.createdAt && new Date(n.createdAt) >= weekAgo);
   const decisionNotesThisWeek = allNotes.filter(n => n.type === 'note' && n.createdAt && new Date(n.createdAt) >= weekAgo);
 
-  let lines = [`【Ybot 本週回顧】${new Date().toLocaleDateString('zh-TW')}`, ''];
-  lines.push(`📝 本週新增 ${addedThisWeek.length} 筆（待辦／提醒／瑣事）`);
+  let lines = ['【Ybot 本週回顧】' + (new Date().toLocaleDateString('zh-TW')), ''];
+  lines.push('📝 本週新增 ' + addedThisWeek.length + ' 筆（待辦／提醒／瑣事）');
   if (decisionNotesThisWeek.length) {
     lines.push('📌 本週瑣事筆記：');
-    decisionNotesThisWeek.slice(0, 15).forEach(n => lines.push(`　・${n.content}`));
+    decisionNotesThisWeek.slice(0, 15).forEach(n => lines.push('　・' + n.content));
   }
   lines.push('');
   if (ctx.linked.remediation) {
     const r = ctx.linked.remediation;
-    lines.push(`🎯 考卷批改目前狀態：累計 ${r.totalSubmissions} 筆，近期平均 ${r.recentAvgPercentage ?? '—'}%，常見迷思：${(r.topMisconceptions || []).join('、') || '無'}`);
+    lines.push('🎯 考卷批改目前狀態：累計 ' + r.totalSubmissions + ' 筆，近期平均 ' + (r.recentAvgPercentage ?? '—') + '%，常見迷思：' + ((r.topMisconceptions || []).join('、') || '無'));
   }
   if (ctx.linked.health) {
     const h = ctx.linked.health;
-    lines.push(`🫀 健康目前狀態：健康分 ${h.score}，生理年齡 ${h.bio}（${h.date}）`);
+    lines.push('🫀 健康目前狀態：健康分 ' + h.score + '，生理年齡 ' + h.bio + '（' + h.date + '）');
   }
   if (ctx.linked.other && Object.keys(ctx.linked.other).length) {
     lines.push('🧩 其他串聯 App：');
-    Object.entries(ctx.linked.other).forEach(([name, text]) => lines.push(`　・${name}：${String(text).slice(0, 200)}`));
+    Object.entries(ctx.linked.other).forEach(([name, text]) => lines.push('　・' + name + '：' + (String(text).slice(0, 200))));
   }
   lines.push('');
 
@@ -774,11 +774,11 @@ function weeklyReview() {
 
 function aiWeeklyNarrative(addedThisWeek, decisionNotesThisWeek, ctx) {
   if (!hasAnyAiKey(getAiConfig())) return '';
-  const prompt = `你是 Young 的個人行政幕僚 Ybot，個性溫暖直接。以下是本週資料：\n` +
-    `本週新增待辦/提醒/瑣事共 ${addedThisWeek.length} 筆\n` +
-    `本週瑣事筆記：${JSON.stringify(decisionNotesThisWeek.map(n => n.content))}\n` +
-    `其他系統目前狀態：${JSON.stringify(ctx.linked)}\n\n` +
-    `請用繁體中文寫一段 120 字內的「本週小結」，語氣溫暖直接，重點放在這週值得注意的事跟一句給下週的建議，不要條列複誦上面內容，不要臆測不存在的細節。`;
+  const prompt = '你是 Young 的個人行政幕僚 Ybot，個性溫暖直接。以下是本週資料：\n' +
+    '本週新增待辦/提醒/瑣事共 ' + addedThisWeek.length + ' 筆\n' +
+    '本週瑣事筆記：' + (JSON.stringify(decisionNotesThisWeek.map(n => n.content))) + '\n' +
+    '其他系統目前狀態：' + (JSON.stringify(ctx.linked)) + '\n\n' +
+    '請用繁體中文寫一段 120 字內的「本週小結」，語氣溫暖直接，重點放在這週值得注意的事跟一句給下週的建議，不要條列複誦上面內容，不要臆測不存在的細節。';
   return callAI(prompt);
 }
 
@@ -801,10 +801,10 @@ function eveningDigest() {
   const pending = items.filter(p => p.level === 'red' || p.level === 'orange');
   if (!pending.length) return; // 沒有需要留意的事，不寄信
 
-  let lines = [`【Ybot 晚間提醒】${new Date().toLocaleDateString('zh-TW')}`, '', `還有 ${pending.length} 項需要留意：`];
+  let lines = ['【Ybot 晚間提醒】' + (new Date().toLocaleDateString('zh-TW')), '', '還有 ' + pending.length + ' 項需要留意：'];
   pending.slice(0, 8).forEach(p => {
     const flag = p.level === 'red' ? '🔴' : '🟠';
-    const label = p.type === 'event' ? `${flag} 📅 ${p.allDay ? '全天' : fmtDue(p.dueAt)}　${p.content}` : `${flag} ${p.content}${p.dueAt ? '（' + fmtDue(p.dueAt) + '）' : ''}`;
+    const label = p.type === 'event' ? flag + ' 📅 ' + (p.allDay ? '全天' : fmtDue(p.dueAt)) + '　' + p.content : flag + ' ' + p.content + (p.dueAt ? '（' + fmtDue(p.dueAt) + '）' : '');
     lines.push('　' + label);
   });
   lines.push('', '（僅在有待留意事項時才會寄這封信。）');
@@ -841,7 +841,7 @@ function standupWatch() {
   try {
     const end = new Date(now.getTime() + 5 * 60000);
     const ev = CalendarApp.getDefaultCalendar().createEvent('🧍 起立走動一下', now, end,
-      { description: `每 ${s.intervalMin} 分鐘提醒一次，時段 ${s.startHour}:00~${s.endHour}:00，可在 Ybot「設定」調整或關閉。` });
+      { description: '每 ' + s.intervalMin + ' 分鐘提醒一次，時段 ' + s.startHour + ':00~' + s.endHour + ':00，可在 Ybot「設定」調整或關閉。' });
     ev.addPopupReminder(0);
   } catch (err) { /* 忽略建立失敗 */ }
 
@@ -849,7 +849,7 @@ function standupWatch() {
   if (email) {
     try {
       MailApp.sendEmail(email, '🧍 起立提醒',
-        `久坐了，站起來動一動、喝口水吧！\n\n（每 ${s.intervalMin} 分鐘提醒一次，時段 ${s.startHour}:00~${s.endHour}:00，可在 Ybot「設定」調整或關閉。）`);
+        '久坐了，站起來動一動、喝口水吧！\n\n（每 ' + s.intervalMin + ' 分鐘提醒一次，時段 ' + s.startHour + ':00~' + s.endHour + ':00，可在 Ybot「設定」調整或關閉。）');
     } catch (err) { /* 忽略單次寄送失敗 */ }
   }
   writeKv({ standupLastSent: now.toISOString() });
