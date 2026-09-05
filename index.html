@@ -606,7 +606,7 @@ function tpeYmd(d){
 // ── 狀態管理 ─────────────────────────────
 const LS_KEY='ybot_v1';
 function defaults(){return{
-  theme:'',fontScale:1,newsCollapsed:false,standupCollapsed:true,
+  theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],qaSyncedAt:'',
   gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
@@ -749,17 +749,6 @@ function saveStandupSettings(){
     document.getElementById('standupEnd').value
   );
   alert('已儲存起立提醒設定');
-}
-function saveStandupFromOverview(){
-  applyStandupSettings(
-    document.getElementById('ovStandupEnabled').checked,
-    document.getElementById('ovStandupInterval').value,
-    document.getElementById('ovStandupStart').value,
-    document.getElementById('ovStandupEnd').value
-  );
-  state.standupCollapsed=true; // 存檔後自動收合，首頁維持精簡
-  save();
-  renderOverview();
 }
 
 // ── 快速倒數計時（手動啟動的簡易倒數，獨立於自動起立提醒）──
@@ -1831,15 +1820,12 @@ function buildDashStatsHtml(c){
   const mailCount=c?(c.gmail||[]).length:null;
   const news=c?(c.news||{}):{};
   const newsCount=c?[...(news.domestic||[]),...(news.world||[]),...(news.education||[])].length:null;
-  const su=(c&&c.standup)||state.standup;
-  const standupOn=!!(su&&su.enabled);
   return `<div class="dashStats">`+
     `<div class="dashRing" style="background:conic-gradient(var(--pri) ${pct}%,var(--line) 0)"><div class="dashRingInner">${pct}<span>%</span></div></div>`+
     `<div class="dashTiles">`+
       `<div class="dashTile todo" onclick="jumpToTodos()"><b>${pendingCount}</b><span>待辦中</span></div>`+
       `<div class="dashTile mail" onclick="jumpToMail()"><b>${mailCount===null?'—':mailCount}</b><span>未讀信件</span></div>`+
       `<div class="dashTile news" onclick="jumpToNews()"><b>${newsCount===null?'—':newsCount}</b><span>今日新聞</span></div>`+
-      `<div class="dashTile standup${standupOn?' on':''}" onclick="jumpToStandup()"><b>${standupOn?'✅':'⭕'}</b><span>起立提醒</span></div>`+
       buildSchoolTileHtml()+
     `</div></div>`;
 }
@@ -1898,53 +1884,26 @@ function renderOverview(){
       ).join('')
     : `<div class="ovItem ovEmpty">暫無新聞資料</div>`;
 
-  const su=c.standup||state.standup;
-  const standupStatus=su&&su.enabled
-    ? `✅ 已啟用 · 每 ${su.intervalMin} 分鐘 · ${String(su.startHour).padStart(2,'0')}:00~${String(su.endHour).padStart(2,'0')}:00`
-    : '⭕ 尚未啟用';
-  const standupArrow=state.standupCollapsed?'▸':'▾';
-  const standupHtml=state.standupCollapsed
-    ? `<div class="ovItem ovSub">${standupStatus}</div>`
-    : `<div class="ovItem ovSub" style="margin-bottom:8px;">${standupStatus}</div>`+
-      `<div class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">`+
-      `<input type="checkbox" id="ovStandupEnabled" style="width:16px;height:16px;accent-color:var(--pri);" ${su&&su.enabled?'checked':''}>`+
-      `<label for="ovStandupEnabled" style="margin:0;font-size:.82rem;">啟用起立提醒</label></div>`+
-      `<div class="field" style="margin-bottom:8px;"><label style="display:block;font-size:.72rem;color:var(--tx2);margin-bottom:4px;">提醒間隔（分鐘）</label>`+
-      `<input type="number" id="ovStandupInterval" class="fi" min="15" max="480" step="15" value="${su?su.intervalMin:60}" style="margin-bottom:0;"></div>`+
-      `<div class="row2" style="margin-bottom:10px;">`+
-      `<select id="ovStandupStart" class="fi" style="margin-bottom:0;">${hourOptionsHtml(su?su.startHour:8)}</select>`+
-      `<select id="ovStandupEnd" class="fi" style="margin-bottom:0;">${hourOptionsHtml(su?su.endHour:18)}</select></div>`+
-      `<div class="row2" style="align-items:center;">`+
-      `<button class="btn" style="padding:7px 16px;font-size:.8rem;flex:0 0 auto;" onclick="saveStandupFromOverview()">儲存</button>`+
-      `<button class="btn ghost" style="padding:7px 16px;font-size:.8rem;flex:0 0 auto;" onclick="toggleStandupCollapse()">▲ 收起</button>`+
-      `</div>`;
-
   const newsArrow=state.newsCollapsed?'▸':'▾';
   box.innerHTML=
     `<div class="section-title"><span class="ovLivePulse" title="資料即時更新"></span>☀️ 今日總覽</div>`+
     dashHtml+
     `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
-    `<div class="ovSection" id="ovSectionStandup">`+
-    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">`+
-    `<div class="ovLabel ovLabelToggle" style="margin-bottom:0;" onclick="toggleStandupCollapse()">🧍 起立提醒 <span class="ovToggleIcon">${standupArrow}</span></div>`+
+    `<div class="ovSection" id="ovSectionCountdown">`+
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`+
+    `<div class="ovLabel" style="margin-bottom:0;">⏱️ 倒數計時</div>`+
     `<span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">`+
     `<input type="number" id="ovCdMinInput" min="1" max="60" oninput="onCdInputChange(event)" value="5" style="width:38px;text-align:center;font-weight:800;color:var(--pri);border:1px solid var(--line);border-radius:8px;padding:3px 2px;background:var(--bg);font-size:.76rem;">`+
     `<span id="ovCdDisplay" style="display:none;font-weight:800;color:var(--pri);font-size:.76rem;min-width:38px;text-align:center;">05:00</span>`+
     `<button type="button" id="ovCdStartBtn" onclick="toggleCountdown()" title="開始/暫停快速倒數計時" style="border:none;background:var(--pri);color:#fff;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:.62rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">▶</button>`+
     `<button type="button" onclick="resetCountdown()" title="重設倒數計時" style="border:none;background:none;color:var(--tx3);cursor:pointer;font-size:.8rem;padding:2px;flex-shrink:0;">⟲</button>`+
-    `</span></div>`+
-    `${standupHtml}</div>`;
+    `</span></div></div>`;
   box.style.display='block';
   syncCountdownDom(); // 重繪後把倒數計時的即時狀態同步回畫面，不會重設正在跑的秒數
 }
 function toggleNewsCollapse(){
   state.newsCollapsed=!state.newsCollapsed;
-  save();
-  renderOverview();
-}
-function toggleStandupCollapse(){
-  state.standupCollapsed=!state.standupCollapsed;
   save();
   renderOverview();
 }
@@ -1957,10 +1916,6 @@ function jumpToMail(){window.open('https://mail.google.com/mail/#inbox','_blank'
 function jumpToNews(){
   if(state.newsCollapsed){state.newsCollapsed=false;save();renderOverview();}
   setTimeout(()=>scrollToOverviewSection('ovSectionNews'),50);
-}
-function jumpToStandup(){
-  if(state.standupCollapsed){state.standupCollapsed=false;save();renderOverview();}
-  setTimeout(()=>scrollToOverviewSection('ovSectionStandup'),50);
 }
 function hourOptionsHtml(selected){
   const sel=Number(selected);
