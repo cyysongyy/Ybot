@@ -53,6 +53,7 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroWeatherMini{display:flex;align-items:center;gap:5px;font-size:.78rem;color:#e2e8f0;flex-shrink:0;}
 .heroWeatherMini .icon{font-size:1.15rem;line-height:1;}
 .heroWeatherMini .t{font-weight:800;font-size:.95rem;color:#fff;}
+.heroWeatherMini .hl{color:#cbd5e1;font-size:.68rem;}
 .heroWeatherMini .d{color:#94a3b8;font-size:.68rem;}
 .heroClock{font-size:1.02rem;color:#cbd5e1;text-align:right;line-height:1.4;user-select:none;flex-shrink:0;}
 .heroClock .clockTime{font-weight:700;color:#fff;}
@@ -1774,8 +1775,9 @@ function gcalDayUrl(d){
 function renderHeroWeather(w){
   const el=document.getElementById('heroWeatherMini');
   if(!el)return;
+  const hasRange=w&&w.tMax!=null&&w.tMin!=null;
   el.innerHTML=w
-    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><span class="t">${w.temp}°</span><span class="d">${esc(w.desc||'')}</span>`
+    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><span class="t">${w.temp}°</span>${hasRange?`<span class="hl">↑${w.tMax}° ↓${w.tMin}°</span>`:''}<span class="d">${esc(w.desc||'')}</span>`
     : `<a href="javascript:void(0)" onclick="useGpsLocation()" style="color:#c4b5fd;font-size:.72rem;">📍 定位天氣</a>`;
 }
 // 明天的日期字串。用 setDate 而不是加 86400000 毫秒，跨月、跨年、跨日光節約時間才會對。
