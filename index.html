@@ -254,37 +254,6 @@ textarea.fi{resize:vertical;min-height:56px;}
 /* Overview */
 #overviewCard{background-image:linear-gradient(180deg,rgba(109,40,217,.07),transparent 45%);}
 .ovMono{font-family:'SF Mono','Roboto Mono',ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
-.ovLivePulse{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ok);
-  box-shadow:0 0 0 0 rgba(5,150,105,.5);animation:ovPulse 2s infinite;flex-shrink:0;}
-@keyframes ovPulse{
-  0%{box-shadow:0 0 0 0 rgba(5,150,105,.5);}
-  70%{box-shadow:0 0 0 6px rgba(5,150,105,0);}
-  100%{box-shadow:0 0 0 0 rgba(5,150,105,0);}
-}
-/* 儀表板統計列：甜甜圈進度圈＋統計方塊，仿參考圖 Dashboard Metrics 視覺 */
-.dashStats{display:flex;align-items:center;gap:14px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line);}
-.dashRing{width:64px;height:64px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
-.dashRingInner{width:48px;height:48px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;
-  font-weight:800;font-size:.86rem;color:var(--pri);}
-.dashRingInner span{font-size:.62rem;margin-left:1px;}
-.dashTiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:1;min-width:0;}
-.dashTile{border-radius:10px;padding:7px 8px;text-align:center;cursor:pointer;transition:transform .12s,box-shadow .12s;}
-.dashTile:hover{transform:translateY(-1px);box-shadow:var(--shadow);}
-.dashTile:active{transform:translateY(0);}
-.dashTile b{display:block;font-size:.98rem;font-weight:800;line-height:1.3;}
-.dashTile span{font-size:.6rem;color:var(--tx2);}
-.dashTile.todo{background:rgba(109,40,217,.1);}
-.dashTile.todo b{color:var(--pri);}
-.dashTile.mail{background:rgba(217,119,6,.12);}
-.dashTile.mail b{color:var(--warn);}
-.dashTile.news{background:rgba(3,105,161,.1);}
-.dashTile.news b{color:#0369a1;}
-.dashTile.standup{background:rgba(148,163,184,.16);}
-.dashTile.standup b{color:var(--tx2);}
-.dashTile.standup.on{background:rgba(5,150,105,.12);}
-.dashTile.standup.on b{color:var(--ok);}
-.dashTile.school{background:rgba(180,83,9,.12);}
-.dashTile.school b{color:#b45309;}
 
 .ovSection{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line);}
 .ovSection:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
@@ -1824,37 +1793,6 @@ function renderHeroSchedule(events){
 }
 // 用真實本機／雲端資料組出小型儀表板（甜甜圈進度圈＋統計方塊），
 // 待辦完成率不需要雲端也能算；信件／新聞數量沒連雲端時顯示「—」。
-function buildDashStatsHtml(c){
-  const actionable=liveNotes().filter(n=>CHECKABLE_TYPES.includes(n.type));
-  const doneCount=actionable.filter(n=>n.done).length;
-  const totalActionable=actionable.length;
-  const pct=totalActionable?Math.round(doneCount/totalActionable*100):0;
-  const pendingCount=totalActionable-doneCount;
-  const mailCount=c?(c.gmail||[]).length:null;
-  const news=c?(c.news||{}):{};
-  const newsCount=c?[...(news.domestic||[]),...(news.world||[]),...(news.education||[])].length:null;
-  return `<div class="dashStats">`+
-    `<div class="dashRing" style="background:conic-gradient(var(--pri) ${pct}%,var(--line) 0)"><div class="dashRingInner">${pct}<span>%</span></div></div>`+
-    `<div class="dashTiles">`+
-      `<div class="dashTile todo" onclick="jumpToTodos()"><b>${pendingCount}</b><span>待辦中</span></div>`+
-      `<div class="dashTile mail" onclick="jumpToMail()"><b>${mailCount===null?'—':mailCount}</b><span>未讀信件</span></div>`+
-      `<div class="dashTile news" onclick="jumpToNews()"><b>${newsCount===null?'—':newsCount}</b><span>今日新聞</span></div>`+
-      buildSchoolTileHtml()+
-    `</div></div>`;
-}
-// 「校長助理」是同一個 origin（cyysongyy.github.io）底下的另一個 App，
-// 直接唯讀讀它存在 localStorage 的調課紀錄（不用網路請求），算出今日代課節數。
-// 使用者沒開過校長助理、localStorage 沒有這個 key 時就完全不顯示這格。
-function buildSchoolTileHtml(){
-  let raw;
-  try{raw=localStorage.getItem('pa_sub_records');}catch(e){return '';}
-  if(raw===null)return '';
-  let recs;
-  try{recs=JSON.parse(raw)||[];}catch(e){return '';}
-  const todayStr=tpeYmd(new Date());
-  const todayCount=recs.filter(r=>r&&r.date===todayStr).length;
-  return `<div class="dashTile school" onclick="window.open('https://cyysongyy.github.io/principal-assistant/','_blank')"><b>${todayCount}</b><span>今日代課</span></div>`;
-}
 function renderOverview(){
   const box=document.getElementById('overviewCard');
   const c=state.context;
@@ -1869,10 +1807,9 @@ function renderOverview(){
     })
     .sort((a,b)=>new Date(a.start)-new Date(b.start)):[];
   renderHeroSchedule(twoDayEvents);
-  const dashHtml=buildDashStatsHtml(c);
   if(!c){
     box.style.display='block';
-    box.innerHTML=`<div class="section-title">☀️ 今日總覽</div>${dashHtml}<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
+    box.innerHTML=`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
     return;
   }
 
@@ -1899,8 +1836,6 @@ function renderOverview(){
 
   const newsArrow=state.newsCollapsed?'▸':'▾';
   box.innerHTML=
-    `<div class="section-title"><span class="ovLivePulse" title="資料即時更新"></span>☀️ 今日總覽</div>`+
-    dashHtml+
     `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
     `<div class="ovSection" id="ovSectionCountdown">`+
@@ -1919,16 +1854,6 @@ function toggleNewsCollapse(){
   state.newsCollapsed=!state.newsCollapsed;
   save();
   renderOverview();
-}
-function scrollToOverviewSection(id){
-  const el=document.getElementById(id);
-  if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
-}
-function jumpToTodos(){switchTab('notes');}
-function jumpToMail(){window.open('https://mail.google.com/mail/#inbox','_blank');}
-function jumpToNews(){
-  if(state.newsCollapsed){state.newsCollapsed=false;save();renderOverview();}
-  setTimeout(()=>scrollToOverviewSection('ovSectionNews'),50);
 }
 function hourOptionsHtml(selected){
   const sel=Number(selected);
