@@ -43,6 +43,19 @@ function cacheKey(req){
   return u.origin+u.pathname;
 }
 
+// 點通知就把已經開著的分頁拉到前景，沒有分頁開著才新開一個。
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();
+  e.waitUntil((async()=>{
+    const url=new URL('./',self.location.href).href;
+    const clients=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+    for(const c of clients){
+      if(c.url.startsWith(url)&&'focus'in c)return c.focus();
+    }
+    if(self.clients.openWindow)return self.clients.openWindow(url);
+  })());
+});
+
 self.addEventListener('fetch',e=>{
   if(!isShellRequest(e.request))return;  // 不呼叫 respondWith 就是走瀏覽器預設，最安全
   e.respondWith((async()=>{

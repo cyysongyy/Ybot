@@ -757,6 +757,28 @@ function reminderWatch() {
       updatePartial(note, NOTE_COLS, n.id, { notifiedAt: new Date().toISOString() });
     } catch (err) { /* 忽略單筆寄送失敗 */ }
   });
+
+  autoEscalateStaleReminders(note, all, now, email);
+}
+
+// 自主動作：提醒已經到點寄過信，卻超過 AUTO_ESCALATE_HOURS 小時還沒被標記完成，
+// 代表大概率已經錯過那個時間點、或這件事其實還沒做完。提醒一旦寄過信
+// （notifiedAt 已設）reminderWatch 就不會再理它，等於悄悄消失在提醒清單裡；
+// 與其這樣，不如自動轉成「待辦」，讓它繼續出現在待辦清單／每日簡報。
+// 這是真的會改資料的自主動作，所以每次都寄信讓使用者知道 Ybot 做了什麼，
+// 且完全可逆（把類型改回「提醒」即可）。
+const AUTO_ESCALATE_HOURS = 24;
+function autoEscalateStaleReminders(note, all, now, email) {
+  const stale = all.filter(n => n.type === 'reminder' && n.done !== 'true' && n.notifiedAt &&
+    (now - new Date(n.notifiedAt)) >= AUTO_ESCALATE_HOURS * 3600000);
+  if (!stale.length) return;
+  stale.forEach(n => updatePartial(note, NOTE_COLS, n.id, { type: 'todo' }));
+  try {
+    const lines = stale.map(n => '・' + n.content + '（原提醒時間：' + n.dueAt + '）');
+    MailApp.sendEmail(email, '🤖 Ybot 自動處理：' + stale.length + ' 筆逾期提醒已轉為待辦',
+      '這些提醒已經過了 ' + AUTO_ESCALATE_HOURS + ' 小時還沒標記完成，Ybot 幫你自動轉成「待辦」，之後會繼續出現在待辦清單與每日簡報裡（不會像提醒一樣就此消失）：\n\n' +
+      lines.join('\n') + '\n\n如果不想改，打開 App 把類型改回「提醒」即可。');
+  } catch (err) { /* 忽略寄送失敗，資料已經改完 */ }
 }
 
 // ── 自動化：本週回顧（每週一早上 7 點）──

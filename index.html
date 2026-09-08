@@ -504,6 +504,13 @@ a.ovMailItem:hover{text-decoration:underline;}
     </div>
 
     <div class="card">
+      <div class="section-title">🔔 主動通知</div>
+      <div class="hint" style="margin-bottom:10px;">開啟後，App 開著（含背景分頁）的時候，到點的提醒與新的重要信件會直接跳出手機／瀏覽器通知，不用自己打開 App 才看得到。到點提醒信本來就會照常寄到信箱，這個是額外多一層「馬上跳出來」的通知。</div>
+      <button class="btn" id="pushToggleBtn" onclick="togglePushNotifications()">🔔 開啟主動通知</button>
+      <div id="pushStatus" class="hint" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
       <div class="section-title">🔗 整合其他系統</div>
       <div class="hint" style="margin-bottom:10px;">填入其他兩套系統的 Apps Script 後台網址，Ybot 對話與每日簡報就能一併帶入考卷批改與健康預測的最新摘要。</div>
       <div class="field"><label>🎯 Remedial System 後台網址</label><input id="remUrl" class="fi" placeholder="remediation-backend.gs 部署網址" style="margin-bottom:0;"></div>
@@ -609,6 +616,7 @@ function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],qaSyncedAt:'',
+  pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],
   gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -718,6 +726,7 @@ function fillSettings(){
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
   renderAppsDataStatus();
+  renderPushStatus();
   populateHourSelects();
   document.getElementById('standupEnabled').checked=!!state.standup.enabled;
   document.getElementById('standupInterval').value=state.standup.intervalMin;
@@ -2756,6 +2765,73 @@ function onAppsDataToggle(){
   refreshTimetableCache().then(()=>renderAppsDataStatus());
 }
 
+// ── 主動通知 ────────────────────────────
+// 不是完整的 Web Push（那需要後台額外做 VAPID／加密，太重）。這裡做的是
+// 「App 開著（含背景分頁、PWA 常駐）時，本機主動偵測到點提醒／新的重要信件
+// 就跳系統通知」，比純粹被動等使用者自己點開 App 看更即時一點。
+function renderPushStatus(){
+  const btn=document.getElementById('pushToggleBtn'),st=document.getElementById('pushStatus');
+  if(!btn||!st)return;
+  const supported='Notification'in window;
+  if(!supported){
+    btn.disabled=true;st.textContent='這個瀏覽器不支援通知功能。';return;
+  }
+  if(state.pushEnabled&&Notification.permission==='granted'){
+    btn.textContent='🔕 關閉主動通知';
+    st.textContent='已開啟。App 開著時到點提醒與新的重要信件會跳出通知。';
+  }else{
+    btn.textContent='🔔 開啟主動通知';
+    st.textContent=Notification.permission==='denied'?'瀏覽器目前封鎖了通知權限，請到瀏覽器設定裡手動允許本網站的通知。':'';
+  }
+}
+async function togglePushNotifications(){
+  if(state.pushEnabled){
+    state.pushEnabled=false;save();renderPushStatus();return;
+  }
+  if(!('Notification'in window)){alert('這個瀏覽器不支援通知功能');return;}
+  const perm=await Notification.requestPermission();
+  if(perm!=='granted'){renderPushStatus();return;}
+  state.pushEnabled=true;save();renderPushStatus();
+  notifyLocal('🔔 Ybot 主動通知已開啟','到點提醒與新的重要信件會直接跳通知給你。');
+  checkProactiveNotifications();
+}
+async function notifyLocal(title,body,tag){
+  if(!state.pushEnabled||Notification.permission!=='granted')return;
+  try{
+    if('serviceWorker'in navigator){
+      const reg=await navigator.serviceWorker.ready;
+      await reg.showNotification(title,{body,tag,icon:'./ybot-icon.svg',badge:'./ybot-icon.svg'});
+      return;
+    }
+  }catch(e){}
+  try{new Notification(title,{body,tag,icon:'./ybot-icon.svg'});}catch(e){}
+}
+// 每次檢查：到點但還沒推播過的提醒、以及還沒推播過的重要信件（用 id 記錄，
+// 避免同一筆重複跳好幾次通知）。跟後台寄信到點提醒（notifiedAt）是兩件事、
+// 互不影響——這裡只管「這個瀏覽器有沒有跳過通知」。
+function checkProactiveNotifications(){
+  if(!state.pushEnabled||Notification.permission!=='granted')return;
+  const now=new Date();
+  (state.notes||[]).forEach(n=>{
+    if(n.type!=='reminder'||n.done)return;
+    if(!n.dueAt||new Date(n.dueAt)>now)return;
+    if(state.pushedReminderIds.includes(n.id))return;
+    state.pushedReminderIds.push(n.id);
+    notifyLocal('⏰ 提醒時間到了',n.content,'reminder-'+n.id);
+  });
+  const mails=(state.context&&state.context.gmail)||[];
+  mails.filter(m=>m.important).forEach(m=>{
+    const mid=m.threadId||m.subject;
+    if(!mid||state.pushedMailIds.includes(mid))return;
+    state.pushedMailIds.push(mid);
+    notifyLocal('✉️ 重要信件：'+m.subject,m.from||'','mail-'+mid);
+  });
+  // 兩個清單只用來防重複，留最近 500 筆就夠，避免 localStorage 無限長大。
+  if(state.pushedReminderIds.length>500)state.pushedReminderIds=state.pushedReminderIds.slice(-500);
+  if(state.pushedMailIds.length>500)state.pushedMailIds=state.pushedMailIds.slice(-500);
+  save();
+}
+
 // ── 離線支援 ────────────────────────────
 // 註冊 service worker，讓 App 沒網路也打得開（錄音和筆記本來就不需要網路，
 // 卡住的一直是「頁面本身跟 GitHub Pages 拿不到」）。細節在 sw.js。
@@ -2787,6 +2863,10 @@ window.addEventListener('online',()=>{qrFlushQueue();qaAutoSync();});
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
+// 主動通知：每分鐘檢查一次到點提醒／重要信件，重新整理完雲端資料後也立刻檢查一次。
+checkProactiveNotifications();
+setInterval(checkProactiveNotifications,60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkProactiveNotifications();});
 </script>
 </body>
 </html>
