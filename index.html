@@ -161,7 +161,11 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .chip{font-size:.76rem;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--tx2);cursor:pointer;
   transition:border-color .15s,color .15s,box-shadow .15s;}
 .chip:hover{border-color:var(--pri);color:var(--pri);box-shadow:var(--shadow);}
-.inputRow{display:flex;gap:8px;margin-top:10px;}
+.inputRow{display:flex;gap:6px;margin-top:10px;}
+/* 三顆工具鍵（📷 🌿 🎙️）各只放一個 emoji，用預設的按鈕內距會吃掉 150px，
+   在 320px 的機器上輸入框只剩 26px。縮窄它們，把空間讓給輸入框。 */
+.inputRow .btn.ghost{padding:8px 9px;flex:0 0 auto;}
+.inputRow #chatInput{flex:1 1 auto;min-width:0;}
 .imgPreview{display:flex;align-items:center;gap:8px;margin-top:10px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);}
 .imgPreview img{width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;}
 .imgPreview span{font-size:.8rem;color:var(--tx2);}
@@ -329,6 +333,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
         <button class="btn ghost" id="chatImageBtn" onclick="document.getElementById('chatImageInput').click()" style="flex:0 0 auto;" title="附加圖片，讓 Ybot 看圖辨識/回答">📷</button>
         <button class="btn ghost" id="relaxBtn" onclick="openRelaxPractice()" style="flex:0 0 auto;display:none;" title="鬆弛練習：說出讓你緊繃的事，換一個看法">🌿</button>
+        <button class="btn ghost" id="askVoiceBtn" onclick="openVoiceAsk()" style="flex:0 0 auto;display:none;" title="用說的問 Ybot：講完會自動填進輸入框">🎙️</button>
         <textarea id="chatInput" class="fi" placeholder="問 Ybot 任何事…（Enter 送出，Shift+Enter 換行）" style="margin-bottom:0;"></textarea>
         <button class="sendBtn" id="sendBtn" onclick="sendChat()">送出</button>
       </div>
@@ -989,6 +994,8 @@ function initVoiceButton(){
   btn.style.display=ok;
   const rb=document.getElementById('relaxBtn');
   if(rb)rb.style.display=ok;
+  const ab=document.getElementById('askVoiceBtn');
+  if(ab)ab.style.display=ok;
 }
 async function toggleRecording(){
   const btn=document.getElementById('voiceBtn');
@@ -1043,11 +1050,20 @@ function openQuickRec(){
   if(o)o.style.display='flex';
   qrShowText('');
   if(qrMode==='relax')qrSet('idle','🌿 鬆弛練習','說出讓你緊繃的那件事，點一下開始。','🎙️','');
+  else if(qrMode==='ask')qrSet('idle','🎙️ 用說的問','說出你想問的事，點一下開始。','🎙️','');
   else qrSet('idle','🎙️ 快速錄音','點一下開始錄音','🎙️','');
 }
 // App 裡那顆小小的「🌿 鬆弛」走的是同一個浮層、同一套錄音流程。
 function openRelaxPractice(){
   qrMode='relax';
+  openQuickRec();
+  quickRecStart(false);
+}
+// 「🎙️ 用說的問」也是同一套流程，只是講完之後不存筆記，而是把文字填進對話輸入框。
+// 這個 App 其他地方都是語音優先，只有「問問題」還要打字——手機上打
+// 「下週三第三節誰有空代課」很痛苦，講出來三秒鐘。
+function openVoiceAsk(){
+  qrMode='ask';
   openQuickRec();
   quickRecStart(false);
 }
@@ -1111,7 +1127,13 @@ async function quickRecStart(auto){
       const mime=qrRecorder.mimeType||REC_MIME||'audio/mp4';
       const blob=new Blob(qrChunks,{type:mime});
       // 離線就別白跑一趟 API，直接排隊。
-      if(!navigator.onLine){await qrQueueOffline(blob,mime);return;}
+      // 問問題模式離線時沒有意義（AI 也答不了），但講過的話不能弄丟，
+      // 所以降級成一般筆記排隊，等有網路轉成文字存起來，之後再自己問。
+      if(!navigator.onLine){
+        if(qrMode==='ask')qrMode='note';
+        await qrQueueOffline(blob,mime);
+        return;
+      }
       qrSet('transcribing','⏳ 轉文字中','講完了，正在把語音轉成文字…','⏳','busy');
       try{
         const text=(await transcribeAudio(blob,mime)||'').trim();
@@ -1127,8 +1149,12 @@ async function quickRecStart(auto){
     };
     qrRecorder.start();
     // 錄音中也要看得出是哪一種，不然誤觸鬆弛練習會不知道自己在錄什麼。
-    qrSet('recording',qrMode==='relax'?'🌿 鬆弛練習中':'🔴 錄音中',
-      qrMode==='relax'?'慢慢講，中間想一下沒關係；真的講完停久一點才會結束。':'講完停頓一下就會自動結束；中間想一下不會被切掉。','⏹','rec');
+    qrSet('recording',
+      qrMode==='relax'?'🌿 鬆弛練習中':(qrMode==='ask'?'🎙️ 聽你問…':'🔴 錄音中'),
+      qrMode==='relax'?'慢慢講，中間想一下沒關係；真的講完停久一點才會結束。'
+        :(qrMode==='ask'?'問完停頓一下就會自動結束，文字會填進輸入框讓你確認。'
+                        :'講完停頓一下就會自動結束；中間想一下不會被切掉。'),
+      '⏹','rec');
     qrWatchSilence(stream);
   }catch(err){
     // 自動開始被瀏覽器擋掉是預期內的（iOS 需要使用者手勢），這時只要點一下就好。
@@ -1369,8 +1395,24 @@ function pushRelaxToChat(body,original,noteId){
   save();renderChat();
 }
 
+// 講完的問題填進對話輸入框，不自動送出。
+// 轉文字對人名和專有名詞常常出錯（「呂美純」「課發會」這種），送出一個問錯的
+// 問題會白花一次 API、答案也不對；讓他看一眼再按送出，只多一下。
+// 刻意不 focus 輸入框：手機上一 focus 就跳鍵盤，反而把送出鍵擋住。
+function qrFillAsk(text){
+  const input=document.getElementById('chatInput');
+  if(input){
+    const prev=input.value.trim();
+    input.value=prev?prev+' '+text:text;   // 已經打了一半也不會被蓋掉
+  }
+  closeQuickRec();
+  switchTab('chat');
+  const btn=document.getElementById('sendBtn');
+  if(btn)btn.scrollIntoView({block:'nearest'});
+}
 function qrSaveNote(text){
   if(qrMode==='relax'){qrSaveRelax(text);return;}
+  if(qrMode==='ask'){qrFillAsk(text);return;}
   const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:'note',content:text,
     dueAt:'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
   state.notes.unshift(n);save();renderNotes();renderOverview();
