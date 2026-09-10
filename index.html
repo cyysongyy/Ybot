@@ -185,6 +185,13 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   display:flex;gap:8px;align-items:flex-start;}
 .qaItem summary::-webkit-details-marker{display:none;}
 .qaItem .qaWhen{font-size:.68rem;color:var(--tx3);flex-shrink:0;padding-top:2px;}
+/* 鬆弛練習存進來的「問題」是整段口述，本身就好幾百字。全部攤開在列表上，
+   一則就佔滿整個手機畫面，往下翻不完。收合時夾成兩行，點開才顯示全文。 */
+.qaItem .qaQ{flex:1 1 auto;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;
+  -webkit-line-clamp:2;overflow:hidden;}
+.qaItem[open] .qaQ{display:block;overflow:visible;}
+.qaItem .qaCaret{flex:0 0 auto;color:var(--tx3);font-size:.62rem;padding-top:4px;transition:transform .15s;}
+.qaItem[open] .qaCaret{transform:rotate(90deg);}
 .qaItem .qaA{font-size:.8rem;color:var(--tx2);line-height:1.6;margin-top:8px;white-space:pre-wrap;}
 .qaItem .qaDel{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.78rem;margin-top:6px;padding:0;}
 .qaItem .qaDel:hover{color:var(--bad);}
@@ -2703,7 +2710,7 @@ function renderQaList(){
     ?`累積 ${all.length} 則問答${q.trim()?`，符合 ${hits.length} 則`:'，以下是最近 20 則'}。問到相似的事情時會自動當成背景依據。${cloud}`
     :`還沒有紀錄。你在對話裡問過的問題和鬆弛練習都會自動存進來。${cloud}`;
   box.innerHTML=hits.map(r=>`<details class="qaItem">
-    <summary><span class="qaWhen">${fmtDate(r.at)}${r.kind==='relax'?' 🌿':''}</span><span>${esc(r.q)}</span></summary>
+    <summary><span class="qaWhen">${fmtDate(r.at)}${r.kind==='relax'?' 🌿':''}</span><span class="qaQ">${esc(r.q)}</span><span class="qaCaret">▶</span></summary>
     <div class="qaA">${esc(r.a)}</div>
     <button class="qaDel" onclick="qaDelete('${r.id}')">刪除這則</button>
   </details>`).join('');
