@@ -6,7 +6,9 @@
  * 使用方式：
  * 1. 開啟一份 Google 試算表 → 擴充功能 → Apps Script
  * 2. 貼上此程式碼（取代所有內容）
- * 3. 執行一次 setupDailyBrief()（授權後排程「每日簡報」）
+ * 3. 執行一次 generateApiToken()，把回傳的那串通關密語貼進
+ *    Ybot「設定 → 雲端後台 → 通關密語」（沒設的話，任何知道網址的人都讀得到你的資料）
+ * 3-1. 執行一次 setupDailyBrief()（授權後排程「每日簡報」）
  *    再執行一次 setupReminderWatch()（排程「到點提醒」，每 30 分鐘檢查一次）
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
@@ -158,6 +160,49 @@ function callAiProvider(provider, key, prompt) {
   return (d.choices && d.choices[0] && d.choices[0].message.content) || '';
 }
 
+// ── 通關密語（保護後台不被「知道網址的人」隨意讀寫）──────────
+// 這個網頁應用程式必須部署成「所有人皆可存取」，瀏覽器才連得上，
+// 也就是說：任何知道網址的人都打得到，後台不會因為你換手機就認得你。
+// 網址是一長串亂碼、猜不出來，但它會出現在瀏覽器歷史紀錄、截圖、
+// 轉貼的訊息裡——一旦流出去，對方就能讀到 Gmail 摘要、行事曆與全部
+// 筆記問答，而且你不會收到通知，也查不出誰讀過。
+// 設了密語之後，光有網址沒有用；密語萬一外洩，重新產生一組就好，
+// 網址不用換、Ybot 那邊也只要改一個欄位。
+//
+// 啟用：在編輯器執行一次 generateApiToken()，把回傳的那串貼進
+// Ybot「設定 → 雲端後台 → 通關密語」。
+const TOKEN_PROP = 'API_TOKEN';
+function generateApiToken() {
+  const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty(TOKEN_PROP, token);
+  return '✅ 新的通關密語（整串複製，貼進 Ybot 設定 → 雲端後台 → 通關密語）：\n\n'
+    + token + '\n\n舊的密語即刻失效，網址不用換。';
+}
+function getApiToken() {
+  return PropertiesService.getScriptProperties().getProperty(TOKEN_PROP) || '';
+}
+// 想確認目前有沒有保護，執行這一個（不會把密語印出來）
+function checkApiToken() {
+  return getApiToken()
+    ? '✅ 已啟用通關密語，只有帶對密語的請求讀得到資料。'
+    : '⚠️ 尚未設定通關密語，任何知道網址的人都能讀寫這個後台。執行 generateApiToken() 產生一組。';
+}
+function clearApiToken() {
+  PropertiesService.getScriptProperties().deleteProperty(TOKEN_PROP);
+  return '⚠️ 已關閉通關密語檢查，現在任何知道網址的人都能讀寫這個後台。';
+}
+// 還沒設密語時一律放行。不然貼上新程式、還來不及執行 generateApiToken()，
+// App 就整個連不上，反而會被誤判成「後台又失效了」。放行時回應會帶
+// tokenRequired:false，前端據此顯示「尚未保護」的警告。
+function authOk(supplied) {
+  const token = getApiToken();
+  if (!token) return true;
+  return String(supplied || '') === token;
+}
+function authFail() {
+  return jsonResp({ ok: false, error: '通關密語不正確或尚未填寫', authRequired: true });
+}
+
 // ── 初始化試算表 ────────────────────────────────
 function setupSheets() {
   const note = ensureSheet(NOTE_SHEET, NOTE_COLS);
@@ -180,9 +225,12 @@ function ensureSheet(name, cols) {
 // ── GET 處理 ────────────────────────────────────
 function doGet(e) {
   const action = e?.parameter?.action || 'context';
+  if (!authOk(e?.parameter?.t)) return authFail();
 
   if (action === 'ping') {
-    return jsonResp({ ok: true, message: 'Ybot 後台連線正常', time: new Date().toISOString() });
+    // tokenRequired 讓前端知道這個後台到底有沒有上鎖，沒上鎖就在設定頁提醒。
+    return jsonResp({ ok: true, message: 'Ybot 後台連線正常', time: new Date().toISOString(),
+      tokenRequired: !!getApiToken() });
   }
   if (action === 'notes') {
     const { note } = setupSheets();
@@ -202,6 +250,7 @@ function doGet(e) {
 function doPost(e) {
   let body;
   try { body = JSON.parse(e.postData.contents); } catch (err) { return jsonResp({ ok: false, error: 'Invalid JSON' }); }
+  if (!authOk(body.t)) return authFail();
   const action = body.action;
 
   if (action === 'addNote') {
