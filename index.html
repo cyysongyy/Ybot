@@ -456,6 +456,12 @@ a.ovMailItem:hover{text-decoration:underline;}
         <input id="gasUrl" class="fi" placeholder="https://script.google.com/macros/s/…/exec" style="margin-bottom:0;">
       </div>
       <div class="field">
+        <label>通關密語</label>
+        <input id="gasToken" class="fi" type="password" autocomplete="off" placeholder="在 Apps Script 執行 generateApiToken() 取得" style="margin-bottom:0;">
+        <div class="hint" style="margin-top:6px;">後台必須開放給「所有人」瀏覽器才連得上，等於知道網址的人都讀得到你的信件摘要、行程與筆記。設了密語，光有網址就沒有用。<br>取得方式：Apps Script 編輯器 → 函式選 <b>generateApiToken</b> → 執行 → 複製回傳的那一串貼在這裡。</div>
+        <div id="gasTokenStatus" class="statusLine" style="display:none;"></div>
+      </div>
+      <div class="field">
         <label>天氣地點</label>
         <div class="row2">
           <input id="weatherCity" class="fi" placeholder="台北" style="margin-bottom:0;">
@@ -587,7 +593,7 @@ function defaults(){return{
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],
-  gasUrl:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
+  gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
   links:[
@@ -683,6 +689,43 @@ function populateHourSelects(){
   if(s&&!s.dataset.filled){s.innerHTML=opts;s.dataset.filled='1';}
   if(e&&!e.dataset.filled){e.innerHTML=opts;e.dataset.filled='1';}
 }
+// ── 所有後台請求都走這兩個函式 ────────────────────────────
+// 之前是 25 個地方各自對後台網址發 fetch，加通關密語時只要漏掉一個，
+// 那條路就會靜靜地壞掉（而且多半是 .catch(()=>{}) 吞掉，看不出來）。
+// 收成兩個入口，以後新增呼叫點也不可能忘了帶密語。
+function gasGet(action,params){
+  const u=new URL(state.gasUrl);
+  u.searchParams.set('action',action);
+  if(state.gasToken)u.searchParams.set('t',state.gasToken);
+  if(params)Object.keys(params).forEach(k=>u.searchParams.set(k,params[k]));
+  return fetch(u.toString());
+}
+function gasPost(body){
+  // Content-Type 用 text/plain 是為了避開 CORS 預檢（Apps Script 不回應 OPTIONS）。
+  return fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+    body:JSON.stringify(Object.assign({t:state.gasToken||''},body))});
+}
+// 後台沒上鎖是預設會發生的事（貼上新程式但還沒執行 generateApiToken()），
+// 不講的話使用者永遠不會知道自己的資料是敞開的，所以在設定頁明講。
+function showTokenStatus(kind,text){
+  const el=document.getElementById('gasTokenStatus');
+  if(!el)return;
+  if(!text){el.style.display='none';return;}
+  el.className='statusLine '+kind;el.textContent=text;el.style.display='block';
+}
+async function checkBackendLock(){
+  if(!state.gasUrl){showTokenStatus('','');return;}
+  try{
+    const d=await (await gasGet('ping')).json();
+    if(d&&d.authRequired){showTokenStatus('bad','🔒 後台已上鎖，但這裡的通關密語不對或還沒填。');return;}
+    if(d&&d.ok&&d.tokenRequired===false){
+      showTokenStatus('bad','⚠️ 後台目前沒有上鎖：任何知道網址的人都讀得到你的信件摘要、行程與全部筆記。請到 Apps Script 執行一次 generateApiToken()。');return;
+    }
+    if(d&&d.ok&&d.tokenRequired){showTokenStatus('ok','🔒 已上鎖，密語正確。');return;}
+    showTokenStatus('','');
+  }catch(e){showTokenStatus('','');}
+}
+
 function fillSettings(){
   applyFontScale();
   document.getElementById('aiProvider').value=state.ai.provider;
@@ -690,6 +733,7 @@ function fillSettings(){
   document.getElementById('openaiKey').value=state.ai.openai;
   document.getElementById('nvidiaKey').value=state.ai.nvidia;
   document.getElementById('gasUrl').value=state.gasUrl;
+  document.getElementById('gasToken').value=state.gasToken||'';
   document.getElementById('weatherCity').value=(state.weatherLat&&state.weatherLon)?`📍 目前位置（${state.weatherLat}, ${state.weatherLon}）`:state.weatherCity;
   document.getElementById('remUrl').value=state.remUrl;
   document.getElementById('hltUrl').value=state.hltUrl;
@@ -697,6 +741,7 @@ function fillSettings(){
   document.getElementById('useAppsData').checked=!!state.useAppsData;
   renderAppsDataStatus();
   renderPushStatus();
+  checkBackendLock();
   populateHourSelects();
   document.getElementById('standupEnabled').checked=!!state.standup.enabled;
   document.getElementById('standupInterval').value=state.standup.intervalMin;
@@ -714,8 +759,7 @@ function applyStandupSettings(enabled,intervalMin,startHour,endHour){
   if(state.context)state.context.standup=state.standup; // 立刻同步，避免總覽卡片顯示舊的雲端快照
   save();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'saveStandupSettings',enabled:state.standup.enabled,intervalMin:state.standup.intervalMin,startHour:state.standup.startHour,endHour:state.standup.endHour})})
+    gasPost({action:'saveStandupSettings',enabled:state.standup.enabled,intervalMin:state.standup.intervalMin,startHour:state.standup.startHour,endHour:state.standup.endHour})
       .then(()=>refreshContext()).catch(()=>{});
   }
   renderOverview();
@@ -855,8 +899,7 @@ function countdownAlert(){
 function saveWeatherLocation(){
   save();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'saveWeatherLocation',city:state.weatherCity,lat:state.weatherLat,lon:state.weatherLon})})
+    gasPost({action:'saveWeatherLocation',city:state.weatherCity,lat:state.weatherLat,lon:state.weatherLon})
       .then(()=>refreshContext()).catch(()=>{});
   }
 }
@@ -906,6 +949,7 @@ function saveSettings(showToast){
   state.ai.openai=document.getElementById('openaiKey').value.trim();
   state.ai.nvidia=document.getElementById('nvidiaKey').value.trim();
   state.gasUrl=document.getElementById('gasUrl').value.trim();
+  state.gasToken=document.getElementById('gasToken').value.trim();
   save();
   pushSharedAiKeys();
   if(showToast){const el=document.getElementById('connStatus');el.className='statusLine ok';el.textContent='✅ 已儲存';el.style.display='block';setTimeout(()=>el.style.display='none',1800);}
@@ -915,8 +959,7 @@ function saveLinked(){
   state.hltUrl=document.getElementById('hltUrl').value.trim();
   save();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'saveLinkedBackends',remediationBackendUrl:state.remUrl,healthBackendUrl:state.hltUrl})}).catch(()=>{});
+    gasPost({action:'saveLinkedBackends',remediationBackendUrl:state.remUrl,healthBackendUrl:state.hltUrl}).catch(()=>{});
   }
   alert('已儲存整合設定');
 }
@@ -925,10 +968,15 @@ async function testConnection(){
   if(!state.gasUrl){el.className='statusLine bad';el.textContent='請先輸入後台網址';el.style.display='block';return;}
   el.className='statusLine';el.textContent='連線中…';el.style.display='block';
   try{
-    const r=await fetch(state.gasUrl+'?action=ping');
+    const r=await gasGet('ping');
     const d=await r.json();
-    if(d.ok){el.className='statusLine ok';el.textContent='✅ 連線成功：'+d.message;}
+    if(d.ok){
+      el.className='statusLine ok';
+      el.textContent='✅ 連線成功：'+d.message+(d.tokenRequired?'（已上鎖）':'（尚未上鎖）');
+    }
+    else if(d.authRequired){el.className='statusLine bad';el.textContent='❌ 通關密語不正確——後台已上鎖，請確認上面的密語有貼完整。';}
     else{el.className='statusLine bad';el.textContent='❌ '+(d.error||'連線失敗');}
+    checkBackendLock();
   }catch(e){el.className='statusLine bad';el.textContent='❌ 連線失敗，請確認網址與部署設定';}
 }
 function renderLinks(){
@@ -959,8 +1007,7 @@ function renderLinkChips(){
 function saveLinksAll(){
   save();renderLinkChips();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'saveOtherLinks',links:state.links})}).catch(()=>{});
+    gasPost({action:'saveOtherLinks',links:state.links}).catch(()=>{});
   }
   alert('已儲存');
 }
@@ -1353,7 +1400,7 @@ function saveRelaxNote(body,original){
     dueAt:'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
   state.notes.unshift(n);save();renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+    gasPost({action:'addNote',note:n}).catch(()=>{});
   }
   qaAdd(original,body,'relax');
   pushRelaxToChat(body,original,n.id);
@@ -1375,7 +1422,7 @@ function qrSaveNote(text){
     dueAt:'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
   state.notes.unshift(n);save();renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+    gasPost({action:'addNote',note:n}).catch(()=>{});
   }
   qrSavedId=n.id;
   qrSet('done','✅ 已存成筆記','再按一次錄音鍵可以繼續錄下一則。','🎙️','');
@@ -1486,8 +1533,7 @@ async function qrFlushQueue(){
         }
         if(state.gasUrl){
           const {pendingAudio,...clean}=n;
-          fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-            body:JSON.stringify({action:'addNote',note:clean})}).catch(()=>{});
+          gasPost({action:'addNote',note:clean}).catch(()=>{});
         }
         if(it.mode==='relax'&&body){qaAdd(text,body,'relax');pushRelaxToChat(body,text,n.id);}
       }else{
@@ -1570,7 +1616,7 @@ function addNote(){
   document.getElementById('noteDue').value='';
   renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+    gasPost({action:'addNote',note:n}).catch(()=>{});
   }
 }
 // AI 智慧新增：讀懂輸入內容自動判斷類型（瑣事／待辦／提醒），
@@ -1607,13 +1653,13 @@ async function addNoteAI(){
     document.getElementById('noteDue').value='';
     renderNotes();renderOverview();
     if(state.gasUrl){
-      fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+      gasPost({action:'addNote',note:n}).catch(()=>{});
     }
     let msg=`✅ 已新增為「${TYPE_LABEL[type]}」`;
     if(parsed.calendarEvent&&parsed.calendarEvent.start&&!isNaN(new Date(parsed.calendarEvent.start))){
       if(state.gasUrl){
         try{
-          const r=await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addCalendarEvent',title:parsed.calendarEvent.title||n.content,start:parsed.calendarEvent.start,end:parsed.calendarEvent.end})});
+          const r=await gasPost({action:'addCalendarEvent',title:parsed.calendarEvent.title||n.content,start:parsed.calendarEvent.start,end:parsed.calendarEvent.end});
           const d=await r.json();
           msg+=d.ok?'，並已加入 Google 日曆':'（日曆建立失敗：'+(d.error||'未知錯誤')+'）';
         }catch(e){msg+='（日曆建立失敗，請確認雲端後台網址）';}
@@ -1632,7 +1678,7 @@ function toggleNote(id){
   const n=state.notes.find(x=>x.id===id);if(!n)return;
   n.done=!n.done;save();renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id,patch:{done:n.done?'true':''}})}).catch(()=>{});
+    gasPost({action:'updateNote',id,patch:{done:n.done?'true':''}}).catch(()=>{});
   }
 }
 // 軟刪除：本機只標記 deleted（保留資料供復原），雲端仍照舊真刪。
@@ -1641,14 +1687,14 @@ function deleteNote(id){
   const n=state.notes.find(x=>x.id===id);if(!n||n.deleted)return;
   n.deleted=true;n.deletedAt=new Date().toISOString();save();renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'deleteNote',id})}).catch(()=>{});
+    gasPost({action:'deleteNote',id}).catch(()=>{});
   }
 }
 function restoreNote(id){
   const n=state.notes.find(x=>x.id===id);if(!n)return;
   delete n.deleted;delete n.deletedAt;save();renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+    gasPost({action:'addNote',note:n}).catch(()=>{});
   }
 }
 // 修改既有筆記的欄位。只開放 content／dueAt／type 三個欄位，
@@ -1669,7 +1715,7 @@ function updateNoteFields(id,patch){
   if(!Object.keys(applied).length)return null;
   save();renderNotes();renderOverview();
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id,patch:applied})}).catch(()=>{});
+    gasPost({action:'updateNote',id,patch:applied}).catch(()=>{});
   }
   return{before,applied};
 }
@@ -1677,7 +1723,7 @@ function syncNotesToCloud(){
   if(!state.gasUrl){alert('請先設定並儲存雲端後台網址');return;}
   // 只送還在的項目：後台 syncAll 是照 id upsert，把軟刪除的一起送過去
   // 會讓已刪除的項目在雲端復活。
-  fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'syncAll',notes:liveNotes()})})
+  gasPost({action:'syncAll',notes:liveNotes()})
     .then(r=>r.json()).then(d=>alert(d.ok?'✅ '+d.message:'❌ '+d.error)).catch(()=>alert('❌ 同步失敗'));
 }
 const TYPE_LABEL={note:'📌 瑣事',todo:'✅ 待辦',reminder:'⏰ 提醒',idea:'💡 心法'};
@@ -1719,7 +1765,7 @@ async function refreshContext(){
   if(!state.gasUrl){document.getElementById('ctxStatus').textContent='尚未設定雲端後台（設定 → 雲端後台）';return;}
   document.getElementById('ctxStatus').textContent='更新中…';
   try{
-    const r=await fetch(state.gasUrl+'?action=context');
+    const r=await gasGet('context');
     const d=await r.json();
     if(d.ok){
       state.context=d.context;state.contextAt=new Date().toISOString();save();
@@ -1963,7 +2009,7 @@ function undoChatAction(i){
     if(n){
       n.done=false;
       if(state.gasUrl){
-        fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id:u.id,patch:{done:''}})}).catch(()=>{});
+        gasPost({action:'updateNote',id:u.id,patch:{done:''}}).catch(()=>{});
       }
     }
   }else if(u.op==='update_note'){
@@ -2194,8 +2240,7 @@ function qaAdd(q,a,kind){
   // 順手備份到雲端。跟筆記一樣是 fire-and-forget：後台掛了或還沒更新版本，
   // 本機這筆照樣存著，之後按「與雲端同步」還是補得回去。
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'addQa',qa:rec})}).catch(()=>{});
+    gasPost({action:'addQa',qa:rec}).catch(()=>{});
   }
   return rec;
 }
@@ -2205,8 +2250,7 @@ function qaDelete(id){
   save();renderQaList();
   // 雲端也要刪掉，不然下次同步又被拉回來。
   if(state.gasUrl){
-    fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'deleteQa',id})}).catch(()=>{});
+    gasPost({action:'deleteQa',id}).catch(()=>{});
   }
 }
 // 雙向同步：先把雲端有、本機沒有的補進來，再把本機有、雲端沒有的送上去。
@@ -2221,7 +2265,7 @@ async function qaSync(opts){
   qaSyncing=true;
   say('同步中…');
   try{
-    const r=await fetch(state.gasUrl+'?action=qa');
+    const r=await gasGet('qa');
     const d=await r.json();
     // 舊版後台不認得這個 action，會回 ok:false。要講清楚是後台要更新，
     // 不要讓使用者以為是同步壞掉。
@@ -2241,8 +2285,7 @@ async function qaSync(opts){
     const remoteIds=new Set(remote.map(x=>x.id));
     const toPush=state.qa.filter(x=>!remoteIds.has(x.id));
     if(toPush.length){
-      await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
-        body:JSON.stringify({action:'syncQa',qa:toPush})});
+      await gasPost({action:'syncQa',qa:toPush});
     }
     state.qaSyncedAt=new Date().toISOString();
     save();renderQaList();
@@ -2476,11 +2519,11 @@ async function execChatActions(actions){
         const dueAt=a.dueAt&&!isNaN(new Date(a.dueAt))?new Date(a.dueAt).toISOString():'';
         const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
         state.notes.unshift(n);
-        if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addNote',note:n})}).catch(()=>{});
+        if(state.gasUrl)gasPost({action:'addNote',note:n}).catch(()=>{});
         add(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${fmtDateTime(dueAt)}）`:''}`,{op:'add_note',id:n.id});
       }else if(a.op==='add_calendar_event'&&a.start){
         if(!state.gasUrl){add(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
-        const r=await fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end})});
+        const r=await gasPost({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end});
         const d=await r.json();
         // 日曆是雲端資料，這裡沒有反向刪除的動作，所以不給復原按鈕。
         add(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${fmtDateTime(a.start)}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
@@ -2491,7 +2534,7 @@ async function execChatActions(actions){
           add(`⚠️ 「${r.note.content}」是${TYPE_LABEL[r.note.type]}，沒有完成與否的狀態`);continue;
         }
         r.note.done=true;
-        if(state.gasUrl)fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'updateNote',id:r.note.id,patch:{done:'true'}})}).catch(()=>{});
+        if(state.gasUrl)gasPost({action:'updateNote',id:r.note.id,patch:{done:'true'}}).catch(()=>{});
         add(`✅ 已標記完成：${r.note.content}`,{op:'complete_note',id:r.note.id});
       }else if(a.op==='delete_note'){
         const r=resolveNote(a);
