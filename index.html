@@ -725,16 +725,42 @@ function populateHourSelects(){
 // 之前是 25 個地方各自對後台網址發 fetch，加通關密語時只要漏掉一個，
 // 那條路就會靜靜地壞掉（而且多半是 .catch(()=>{}) 吞掉，看不出來）。
 // 收成兩個入口，以後新增呼叫點也不可能忘了帶密語。
+// new URL() 對不合格的網址會直接丟 TypeError，訊息還是英文的
+// 「Failed to construct 'URL'」。與其讓它冒到 catch 裡變成一句籠統的
+// 「讀取失敗」，不如在這裡就講清楚是網址本身有問題。
+function gasUrlOrThrow(){
+  const raw=String(state.gasUrl||'').trim();
+  if(!raw)throw new Error('還沒設定雲端後台網址（設定 → 雲端後台）');
+  try{return new URL(raw);}
+  catch(e){throw new Error('後台網址格式不對，要像 https://script.google.com/macros/s/…/exec 這樣：'+raw.slice(0,50));}
+}
+// 把各種失敗翻成「看得懂、知道下一步要做什麼」的話。
+// 原本不管是離線、網址打錯、還是後台回了一頁 HTML，畫面都只說
+// 「讀取失敗，請確認後台網址」——三種毛病三種修法，卻給同一句提示。
+function gasErrText(e){
+  const msg=String((e&&e.message)||e||'');
+  if(/^(還沒設定|後台網址格式不對)/.test(msg))return msg;
+  if(/Failed to fetch|NetworkError|Load failed|ERR_/i.test(msg)){
+    return navigator.onLine
+      ? '連不上後台。網路是通的，所以多半是後台網址不對、或部署被停用了（設定 → 雲端後台 → 測試連線）'
+      : '目前沒有網路，等連上線會自動重新抓一次';
+  }
+  if(/JSON|Unexpected token|unexpected character/i.test(msg)){
+    return '後台回傳的不是資料，是一頁網頁。多半是網址少了結尾的 /exec，或部署的存取權限不是「所有人」';
+  }
+  return msg||'讀取失敗';
+}
 function gasGet(action,params){
-  const u=new URL(state.gasUrl);
+  const u=gasUrlOrThrow();
   u.searchParams.set('action',action);
   if(state.gasToken)u.searchParams.set('t',state.gasToken);
   if(params)Object.keys(params).forEach(k=>u.searchParams.set(k,params[k]));
   return fetch(u.toString());
 }
 function gasPost(body){
+  const u=gasUrlOrThrow();
   // Content-Type 用 text/plain 是為了避開 CORS 預檢（Apps Script 不回應 OPTIONS）。
-  return fetch(state.gasUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
+  return fetch(u.toString(),{method:'POST',headers:{'Content-Type':'text/plain'},
     body:JSON.stringify(Object.assign({t:state.gasToken||''},body))});
 }
 // 後台沒上鎖是預設會發生的事（貼上新程式但還沒執行 generateApiToken()），
@@ -1010,7 +1036,7 @@ async function testConnection(){
     else if(d.authRequired){el.className='statusLine bad';el.textContent='❌ 通關密語不正確——後台已上鎖，請確認上面的密語有貼完整。';}
     else{el.className='statusLine bad';el.textContent='❌ '+(d.error||'連線失敗');}
     checkBackendLock();
-  }catch(e){el.className='statusLine bad';el.textContent='❌ 連線失敗，請確認網址與部署設定';}
+  }catch(e){el.className='statusLine bad';el.textContent='❌ '+gasErrText(e);}
 }
 function renderLinks(){
   const box=document.getElementById('linkList');
@@ -1858,8 +1884,10 @@ async function refreshContext(){
       renderNotes();
       showCtxStatus();
       renderOverview();
+    }else if(d.authRequired){
+      document.getElementById('ctxStatus').textContent='🔒 通關密語不正確或還沒填（設定 → 雲端後台 → 通關密語）';
     }else{document.getElementById('ctxStatus').textContent='❌ '+(d.error||'讀取失敗');}
-  }catch(e){document.getElementById('ctxStatus').textContent='❌ 讀取失敗，請確認後台網址';}
+  }catch(e){document.getElementById('ctxStatus').textContent='❌ '+gasErrText(e);}
 }
 function showCtxStatus(){
   const t=state.contextAt?fmtTime(state.contextAt,{hour:'2-digit',minute:'2-digit'}):'';
@@ -2555,7 +2583,7 @@ async function qaSync(opts){
       ? `　長期記憶：拉回 ${pulledProfile.length} 條、上傳 ${toPushProfile.length} 條。` : '';
     say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。${memNote}`);
   }catch(err){
-    say('⚠️ 同步失敗：'+(err.message||'連不上後台')+'（本機資料沒有動）');
+    say('⚠️ 同步失敗：'+gasErrText(err)+'（本機資料沒有動）');
   }finally{
     qaSyncing=false;
   }
@@ -3128,7 +3156,11 @@ registerSW();
 // 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。
 qrFlushQueue();
 qaAutoSync();   // 問答庫在背景跟雲端對齊，不必手動按
-window.addEventListener('online',()=>{qrFlushQueue();qaAutoSync();});
+window.addEventListener('online',()=>{
+  qrFlushQueue();qaAutoSync();
+  // 離線時那句錯誤會一直掛在畫面上，回到線上自己重抓一次比較不會讓人以為壞掉了。
+  if(state.gasUrl)refreshContext();
+});
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
