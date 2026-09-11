@@ -180,6 +180,13 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   transition:transform .12s,box-shadow .12s,opacity .15s;}
 .sendBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
 .sendBtn:disabled{opacity:.5;cursor:default;box-shadow:none;}
+.profileItem{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);
+  border-radius:10px;padding:7px 9px;margin-bottom:6px;font-size:.82rem;color:var(--tx);}
+.profileItem .profileWhen{flex:0 0 auto;font-size:.72rem;padding-top:1px;}
+.profileItem .profileText{flex:1 1 auto;min-width:0;line-height:1.5;word-break:break-word;}
+.profileItem .profileDel{flex:0 0 auto;background:none;border:none;color:var(--tx3);
+  cursor:pointer;font-size:.8rem;padding:0 2px;line-height:1.5;}
+.profileItem .profileDel:hover{color:var(--bad);}
 .qaItem{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px;}
 .qaItem summary{cursor:pointer;font-size:.82rem;color:var(--tx);list-style:none;
   display:flex;gap:8px;align-items:flex-start;}
@@ -400,6 +407,18 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="hint">iPhone：分享 → 加入主畫面｜Android：Chrome 會自動提示安裝</div>
     </div>
     <div class="card">
+      <div class="section-title">🧠 Ybot 記住我的事</div>
+      <div class="hint" style="margin-top:0;">聊天時 Ybot 會自己把「以後每次都用得到」的事記下來（稱呼、偏好、做事方式），之後每次回答都會帶上。這裡看得到全部，也可以自己加或刪掉不對的。</div>
+      <div class="row2" style="margin:8px 0;">
+        <input id="profileInput" class="fi" placeholder="例如：報告我習慣先看結論" style="margin-bottom:0;"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addProfileFromInput();}">
+        <button class="btn ghost" onclick="addProfileFromInput()" style="flex:0 0 auto;">記住</button>
+      </div>
+      <div id="profileStatus" class="hint" style="margin:0 0 6px;"></div>
+      <div id="profileList"></div>
+    </div>
+
+    <div class="card">
       <div class="section-title">📚 我的問答資料庫</div>
       <div class="hint" id="qaSummary" style="margin-top:0;"></div>
       <input id="qaSearch" class="fi" placeholder="搜尋問過的問題或答案…" oninput="renderQaList()" style="margin:8px 0;">
@@ -616,7 +635,7 @@ function defaults(){return{
     {id:'footdrop-rehab',name:'垂足復健 5 步驟',url:'https://cyysongyy.github.io/5-steps-rehab-for-footdrop/',apiUrl:''},
     {id:'young-app-library',name:'Young App Library',url:'https://cyysongyy.github.io/Young-App-Library/',apiUrl:''}
   ],
-  notes:[],chat:[],
+  notes:[],chat:[],profile:[],
   context:null,contextAt:null
 };}
 let state;
@@ -692,7 +711,7 @@ function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='notes')renderNotes();
-  if(name==='settings'){fillSettings();renderQaList();}
+  if(name==='settings'){fillSettings();renderQaList();renderProfileList();}
 }
 
 // ── 設定 ────────────────────────────────
@@ -2051,7 +2070,9 @@ function undoChatAction(i){
   const m=state.chat[i];
   if(!m||!m.undo)return;
   const u=m.undo;
-  if(u.op==='add_note'){
+  if(u.op==='remember'){
+    profileDelete(u.id);
+  }else if(u.op==='add_note'){
     deleteNote(u.id);
   }else if(u.op==='delete_note'){
     restoreNote(u.id);
@@ -2366,6 +2387,83 @@ const PA_REC_MIN_SCORE=6;
 // 對話紀錄（state.chat）是會被「清除對話」清掉的，而且只留最近幾則餵給 AI。
 // 這裡另外把每一次問答永久存起來，之後問到相似的事情就能把當時的答案叫回來，
 // 累積成 Young 自己的問答庫，而不是每次都從零開始重講。
+// ── 關於我：長期記憶 ────────────────────────────────────
+// 問答庫記的是「問過什麼、答過什麼」，翻得到但要靠 n-gram 撞得上才召回得到。
+// 這裡記的是另一種東西：關於 Young 這個人**每次都適用**的事——怎麼稱呼別人、
+// 偏好多長的回答、固定的做事方式、身分與職責。所以不做召回，每次對話一律附上。
+//
+// 兩個來源：AI 在對話中自己判斷值得記的（remember 動作），以及使用者手動加的。
+// 一律看得到、刪得掉——AI 對你的認知要是不能檢查也不能更正，那不是記憶是猜測。
+const PROFILE_MAX=60;      // 每次對話都要整包送出去，不能無限長
+function profileList(){return Array.isArray(state.profile)?state.profile:[];}
+function profileAdd(text,source){
+  const t=String(text||'').trim();
+  if(!t)return null;
+  if(!Array.isArray(state.profile))state.profile=[];
+  // 同一件事 AI 很容易每次對話都想記一次，重複的直接跳過。
+  const exists=state.profile.find(x=>String(x.text||'').trim()===t);
+  if(exists)return null;
+  const rec={id:'p'+Date.now()+Math.random().toString(36).slice(2,7),
+    text:t,source:source||'me',at:new Date().toISOString()};
+  state.profile.unshift(rec);
+  if(state.profile.length>PROFILE_MAX)state.profile.length=PROFILE_MAX;
+  save();
+  // 借問答庫那張表存雲端（kind='profile'），後台不用改也不用重新部署。
+  if(state.gasUrl){
+    gasPost({action:'addQa',qa:profileToQa(rec)}).catch(()=>{});
+  }
+  return rec;
+}
+function profileDelete(id){
+  if(!Array.isArray(state.profile))return;
+  state.profile=state.profile.filter(x=>x.id!==id);
+  save();renderProfileList();
+  if(state.gasUrl){
+    gasPost({action:'deleteQa',id}).catch(()=>{});
+  }
+}
+// 雲端那張表的欄位是 q/a/kind/at，記憶只有一句話，就放進 a、q 擺固定標記。
+function profileToQa(r){
+  return {id:r.id,q:'__profile__',a:r.text,kind:'profile',at:r.at};
+}
+function qaToProfile(r){
+  return {id:r.id,text:String(r.a||'').trim(),source:'cloud',at:r.at||new Date().toISOString()};
+}
+// 帶 id 是為了讓 AI 能用 forget 指名刪掉過期的（例如換職務、改了習慣）。
+function buildProfileContext(){
+  const list=profileList();
+  if(!list.length)return '';
+  return '關於使用者（每次都適用，不必複誦）：'+
+    list.map(r=>`[${r.id}]${r.text}`).join('；');
+}
+function renderProfileList(){
+  const box=document.getElementById('profileList');
+  if(!box)return;
+  const list=profileList();
+  if(!list.length){
+    box.innerHTML='<div class="empty">還沒有記住任何事。聊天時 Ybot 會自己記，你也可以在上面手動加。</div>';
+    return;
+  }
+  box.innerHTML=list.map(r=>`<div class="profileItem">
+    <span class="profileWhen">${r.source==='me'?'✍️':'🤖'}</span>
+    <span class="profileText">${esc(r.text)}</span>
+    <button class="profileDel" onclick="profileDelete('${r.id}')" title="忘掉這一條">✕</button>
+  </div>`).join('');
+}
+function addProfileFromInput(){
+  const el=document.getElementById('profileInput');
+  if(!el)return;
+  const t=el.value.trim();
+  if(!t)return;
+  const rec=profileAdd(t,'me');
+  el.value='';
+  renderProfileList();
+  if(!rec){
+    const st=document.getElementById('profileStatus');
+    if(st){st.textContent='這件事已經記過了。';setTimeout(()=>{st.textContent='';},2500);}
+  }
+}
+
 const QA_MAX=500;          // 上限，滿了就丟最舊的，避免 localStorage 撐爆
 const QA_MIN_SCORE=6;      // 跟工作記錄同一套門檻：至少兩段 n-gram 重疊才算相關
 const QA_RECALL=3;         // 一次最多召回幾則，太多會排擠其他 context
@@ -2414,8 +2512,13 @@ async function qaSync(opts){
       say('⚠️ 後台還不支援問答庫，請先把最新的 ybot-backend.gs 貼到 Apps Script 並重新部署。');
       return;
     }
-    const remote=Array.isArray(d.qa)?d.qa.filter(x=>x&&x.id):[];
+    const all=Array.isArray(d.qa)?d.qa.filter(x=>x&&x.id):[];
+    // 長期記憶借住在同一張表（kind='profile'），拉回來要分流，
+    // 不然它會混進問答庫被搜尋到、也會被 QA_MAX 擠掉。
+    const remote=all.filter(x=>x.kind!=='profile');
+    const remoteProfile=all.filter(x=>x.kind==='profile');
     if(!Array.isArray(state.qa))state.qa=[];
+    if(!Array.isArray(state.profile))state.profile=[];
     const localIds=new Set(state.qa.map(x=>x.id));
     const pulled=remote.filter(x=>!localIds.has(x.id));
     if(pulled.length){
@@ -2423,14 +2526,28 @@ async function qaSync(opts){
         .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
       if(state.qa.length>QA_MAX)state.qa.length=QA_MAX;
     }
-    const remoteIds=new Set(remote.map(x=>x.id));
+    const localPids=new Set(state.profile.map(x=>x.id));
+    const localTexts=new Set(state.profile.map(x=>String(x.text||'').trim()));
+    const pulledProfile=remoteProfile
+      .filter(x=>!localPids.has(x.id))
+      .map(qaToProfile)
+      .filter(x=>x.text&&!localTexts.has(x.text));   // 兩台裝置各自記了同一件事就別留兩份
+    if(pulledProfile.length){
+      state.profile=state.profile.concat(pulledProfile)
+        .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
+      if(state.profile.length>PROFILE_MAX)state.profile.length=PROFILE_MAX;
+    }
+    const remoteIds=new Set(all.map(x=>x.id));
     const toPush=state.qa.filter(x=>!remoteIds.has(x.id));
-    if(toPush.length){
-      await gasPost({action:'syncQa',qa:toPush});
+    const toPushProfile=state.profile.filter(x=>!remoteIds.has(x.id)).map(profileToQa);
+    if(toPush.length||toPushProfile.length){
+      await gasPost({action:'syncQa',qa:toPush.concat(toPushProfile)});
     }
     state.qaSyncedAt=new Date().toISOString();
-    save();renderQaList();
-    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。`);
+    save();renderQaList();renderProfileList();
+    const memNote=(pulledProfile.length||toPushProfile.length)
+      ? `　長期記憶：拉回 ${pulledProfile.length} 條、上傳 ${toPushProfile.length} 條。` : '';
+    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。${memNote}`);
   }catch(err){
     say('⚠️ 同步失敗：'+(err.message||'連不上後台')+'（本機資料沒有動）');
   }finally{
@@ -2567,6 +2684,8 @@ function buildMyAppsContext(question){
 }
 function buildContextText(question){
   const lines=[];
+  const profile=buildProfileContext();
+  if(profile)lines.push(profile);
   const notes=liveNotes();
   // 每筆前面帶上 [id]，AI 要操作某筆時可以直接指名 id，不必再用關鍵字猜；
   // 先前只給內容，遇到相似的項目比對到多筆就只能放棄。
@@ -2683,6 +2802,13 @@ async function execChatActions(actions){
         const label=r.note.content,id=r.note.id;
         deleteNote(id);
         add(`🗑️ 已刪除：${label}`,{op:'delete_note',id});
+      }else if(a.op==='remember'){
+        const rec=profileAdd(a.text,'ai');
+        // 重複的就安靜跳過，不要每次對話都冒一則「已記住」洗版
+        if(rec)add(`🧠 記住了：${rec.text}`,{op:'remember',id:rec.id});
+      }else if(a.op==='forget'){
+        const gone=profileList().find(x=>x.id===a.id);
+        if(gone){profileDelete(a.id);add(`🧠 忘掉了：${gone.text}`);}
       }else if(a.op==='update_note'){
         const r=resolveNote(a);
         if(!r.note){add('⚠️ '+r.error);continue;}
@@ -2723,7 +2849,9 @@ async function sendChat(){
   {"op":"add_calendar_event","title":"...","start":"ISO時間","end":"ISO時間"},
   {"op":"complete_note","id":"要標記完成的項目 id"},
   {"op":"update_note","id":"要修改的項目 id","content":"新內容（不改就不要放這個欄位）","dueAt":"新時間","type":"新類型"},
-  {"op":"delete_note","id":"要刪除的項目 id"}
+  {"op":"delete_note","id":"要刪除的項目 id"},
+  {"op":"remember","text":"關於使用者、以後每次都適用的一句話"},
+  {"op":"forget","id":"已經不成立的那條記憶 id"}
 ]}
 <<<END>>>
 重要規則：
@@ -2732,6 +2860,8 @@ async function sendChat(){
 - add_note 的 type：note=瑣事筆記、todo=待辦、reminder=特定時間要提醒、idea=想法與心法（心得/原則/靈感，不是要去做的事）。
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
+- remember 用在「以後每次對話都用得到」的事：怎麼稱呼某個人、偏好多長的回答、固定的做事方式、職務與負責範圍、在意什麼。**不要**拿它記一次性的待辦、當下的心情、或這次問題的答案——那些本來就會進待辦和問答庫。一次對話最多記一件事，沒有真正新的就不要記。
+- 上面「關於使用者」那段每條前面的 [pxxxxx] 就是記憶 id。使用者說某條已經不成立了（換職務、改習慣），用 forget 指名刪掉。
 一次可以有多個 actions。今天日期時間是 ${fmtDateTime(new Date())}（台北時間），遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
   // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
   // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。
