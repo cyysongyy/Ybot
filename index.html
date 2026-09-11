@@ -180,6 +180,17 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   transition:transform .12s,box-shadow .12s,opacity .15s;}
 .sendBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
 .sendBtn:disabled{opacity:.5;cursor:default;box-shadow:none;}
+.draftCard{border:1px solid var(--pri);border-radius:12px;padding:10px 12px;margin:8px 0;
+  background:var(--card);font-size:.82rem;}
+.draftCard .draftHead{font-weight:700;color:var(--tx);margin-bottom:8px;}
+.draftCard .draftHead span{display:block;font-weight:400;font-size:.72rem;color:var(--tx3);margin-top:2px;}
+.draftCard label{display:block;font-size:.7rem;color:var(--tx3);margin:6px 0 3px;}
+.draftCard .fi{margin-bottom:0;}
+.draftCard .draftBody{resize:vertical;min-height:96px;line-height:1.6;font-family:inherit;}
+.draftCard .draftBtns{display:flex;gap:8px;margin-top:10px;}
+.draftCard .draftBtns .btn{flex:1 1 auto;}
+.draftCard .draftErr{margin-top:8px;font-size:.76rem;color:var(--bad);line-height:1.5;}
+.msg.draftDone .draftSubj{font-size:.76rem;color:var(--tx3);margin-top:3px;}
 .profileItem{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);
   border-radius:10px;padding:7px 9px;margin-bottom:6px;font-size:.82rem;color:var(--tx);}
 .profileItem .profileWhen{flex:0 0 auto;font-size:.72rem;padding-top:1px;}
@@ -2066,10 +2077,83 @@ function renderChat(){
   // 動作訊息會帶 undo，多渲染一顆「↩ 復原」；因為動作是自動執行不先問，
   // 這顆按鈕就是使用者發現 AI 做錯時的救命索。
   box.innerHTML=state.chat.map((m,i)=>{
+    if(m.draft)return renderDraftCard(m,i);
     const undoBtn=m.undo?`<button class="undoBtn" onclick="undoChatAction(${i})">↩ 復原</button>`:'';
     return `<div class="msg ${m.role}">${esc(m.text)}${undoBtn}</div>`;
   }).join('');
   box.scrollTop=box.scrollHeight;
+}
+// ── 寄信草稿 ────────────────────────────────────────────
+// 其他動作都是先做再給「↩ 復原」，寄信不行——信寄出去收不回來。
+// 所以這個動作只產生草稿：收件人、主旨、內文全部可以改，按了送出才真的寄。
+// AI 沒有辦法自己把信寄出去，這是刻意的。
+function renderDraftCard(m,i){
+  const d=m.draft;
+  if(d.status==='sent'){
+    return `<div class="msg sys draftDone">✅ 已寄出給 ${esc(d.to)}<div class="draftSubj">${esc(d.subject||'(無主旨)')}</div></div>`;
+  }
+  if(d.status==='cancelled'){
+    return `<div class="msg sys draftDone">🚫 已取消，這封信沒有寄出。</div>`;
+  }
+  const busy=d.status==='sending';
+  return `<div class="draftCard">
+    <div class="draftHead">✉️ 這封信要寄出去嗎？<span>按「送出」才會寄，在那之前都可以改</span></div>
+    <label>收件人${d.to?'':'（Ybot 不知道對方的 email，請自己填）'}</label>
+    <input class="fi" type="email" value="${esc(d.to)}" placeholder="someone@example.com"
+      oninput="draftEdit(${i},'to',this.value)" ${busy?'disabled':''}>
+    <label>主旨</label>
+    <input class="fi" value="${esc(d.subject)}" oninput="draftEdit(${i},'subject',this.value)" ${busy?'disabled':''}>
+    <label>內文</label>
+    <textarea class="fi draftBody" rows="7" oninput="draftEdit(${i},'body',this.value)" ${busy?'disabled':''}>${esc(d.body)}</textarea>
+    <div class="draftBtns">
+      <button class="btn" onclick="draftSend(${i})" ${busy?'disabled':''}>${busy?'寄送中…':'送出'}</button>
+      <button class="btn ghost" onclick="draftCancel(${i})" ${busy?'disabled':''}>取消</button>
+    </div>
+    ${d.error?`<div class="draftErr">⚠️ ${esc(d.error)}</div>`:''}
+  </div>`;
+}
+// 邊打邊存，但**不要**重新渲染——重畫整個對話框會讓輸入游標跳掉。
+function draftEdit(i,field,val){
+  const m=state.chat[i];
+  if(!m||!m.draft)return;
+  m.draft[field]=val;
+  if(m.draft.error)m.draft.error='';
+  save();
+}
+function draftCancel(i){
+  const m=state.chat[i];
+  if(!m||!m.draft)return;
+  m.draft.status='cancelled';
+  save();renderChat();
+}
+async function draftSend(i){
+  const m=state.chat[i];
+  if(!m||!m.draft||m.draft.status==='sending')return;
+  const d=m.draft;
+  if(!String(d.to||'').trim()){
+    d.error='請先填收件人。';save();renderChat();return;
+  }
+  if(!state.gasUrl){
+    d.error='還沒設定雲端後台，沒辦法寄信（設定 → 雲端後台）。';save();renderChat();return;
+  }
+  d.status='sending';d.error='';save();renderChat();
+  try{
+    const r=await gasPost({action:'sendMail',to:d.to,subject:d.subject,body:d.body});
+    const res=await r.json();
+    if(res&&res.ok){
+      d.status='sent';
+    }else{
+      d.status='pending';
+      // 後台還是舊版的話會回 Unknown action，講清楚要去更新，不要讓人以為是網路問題
+      d.error=(res&&res.error||'').indexOf('Unknown action')>=0
+        ? '後台還不支援寄信，請把最新的 ybot-backend.gs 貼到 Apps Script 並重新部署。'
+        : (res&&res.error)||'寄送失敗';
+    }
+  }catch(err){
+    d.status='pending';
+    d.error='連不上後台：'+(err.message||'請稍後再試');
+  }
+  save();renderChat();
 }
 // 把某一則動作訊息記錄的動作反向做回去。復原後拿掉 undo 欄位，避免重複按。
 function undoChatAction(i){
@@ -2808,6 +2892,13 @@ async function execChatActions(actions){
         const label=r.note.content,id=r.note.id;
         deleteNote(id);
         add(`🗑️ 已刪除：${label}`,{op:'delete_note',id});
+      }else if(a.op==='draft_email'){
+        // 注意：這裡只是把草稿放進對話，沒有寄任何東西出去。
+        state.chat.push({role:'sys',text:'',draft:{
+          id:'d'+Date.now()+Math.random().toString(36).slice(2,7),
+          to:String(a.to||'').trim(),subject:String(a.subject||'').trim(),
+          body:String(a.body||''),status:'pending',error:''}});
+        save();renderChat();
       }else if(a.op==='remember'){
         const rec=profileAdd(a.text,'ai');
         // 重複的就安靜跳過，不要每次對話都冒一則「已記住」洗版
@@ -2857,7 +2948,8 @@ async function sendChat(){
   {"op":"update_note","id":"要修改的項目 id","content":"新內容（不改就不要放這個欄位）","dueAt":"新時間","type":"新類型"},
   {"op":"delete_note","id":"要刪除的項目 id"},
   {"op":"remember","text":"關於使用者、以後每次都適用的一句話"},
-  {"op":"forget","id":"已經不成立的那條記憶 id"}
+  {"op":"forget","id":"已經不成立的那條記憶 id"},
+  {"op":"draft_email","to":"對方 email（不確定就給空字串）","subject":"主旨","body":"信件內文"}
 ]}
 <<<END>>>
 重要規則：
@@ -2868,6 +2960,9 @@ async function sendChat(){
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 - remember 用在「以後每次對話都用得到」的事：怎麼稱呼某個人、偏好多長的回答、固定的做事方式、職務與負責範圍、在意什麼。**不要**拿它記一次性的待辦、當下的心情、或這次問題的答案——那些本來就會進待辦和問答庫。一次對話最多記一件事，沒有真正新的就不要記。
 - 上面「關於使用者」那段每條前面的 [pxxxxx] 就是記憶 id。使用者說某條已經不成立了（換職務、改習慣），用 forget 指名刪掉。
+- draft_email 只在使用者明確要你寫信或回信時才用。它**不會**把信寄出去，只會把草稿顯示給使用者過目、讓他修改，他按下「送出」才真的寄。所以你回覆的文字要說「草稿寫好了，看看要不要改」之類的，不要說「已經幫你寄出」。
+- **收件人絕對不可以自己編**。只有在上面的資料裡真的看得到那個 email（例如未讀信件的寄件者）才填進 to；查不到就給空字串，讓使用者自己補，並在回覆裡說一句你不知道對方信箱。教職員名冊裡沒有 email 欄位，不要從姓名去猜。
+- 信件內文用繁體中文，語氣照一般公務書信，結尾署名 Young。
 一次可以有多個 actions。今天日期時間是 ${fmtDateTime(new Date())}（台北時間），遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
   // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
   // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。

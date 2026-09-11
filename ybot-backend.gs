@@ -18,6 +18,9 @@
  *    - 誰可以存取：所有人（Anyone）
  * 5. 複製部署網址，貼入 ybot.html「⚙️ 設定 → 雲端後台」→ 測試連線
  *
+ * 寄信：對話裡叫 Ybot 寫信時，它只會產生草稿讓你過目、可以改，
+ * 按下「送出」才真的寄（action=sendMail）。用的是 MailApp，權限跟每日簡報同一份。
+ *
  * AI 摘要（選填，供每日簡報/晚間提醒/本週回顧生成友善文字用）：
  * 支援 Gemini／OpenAI／NVIDIA，可只設定一組，也可都設定（自動依優先順序備援）。
  * 每個 provider 各自執行一次：
@@ -312,6 +315,9 @@ function doPost(e) {
     deleteRow(qa, body.id);
     return jsonResp({ ok: true, message: '已刪除' });
   }
+  if (action === 'sendMail') {
+    return sendMailAction(body);
+  }
   if (action === 'saveLinkedBackends') {
     writeKv({ remediationBackendUrl: body.remediationBackendUrl || '', healthBackendUrl: body.healthBackendUrl || '' });
     return jsonResp({ ok: true, message: '已儲存整合設定' });
@@ -352,6 +358,41 @@ function doPost(e) {
     return jsonResp({ ok: true, message: '已儲存起立提醒設定' });
   }
   return jsonResp({ ok: false, error: 'Unknown action: ' + action });
+}
+
+// ── 寄信 ────────────────────────────────────────
+// 前端會先把草稿攤開給使用者看、讓他改，按了送出才打到這裡。
+// 也就是說：AI 永遠不會自己把信寄出去，這支只負責「使用者已經按下送出」之後的事。
+// MailApp 的權限本來就有（每日簡報在用），不需要重新授權。
+function sendMailAction(body) {
+  const rawTo = String(body.to || '').trim();
+  const subject = String(body.subject || '').trim();
+  const text = String(body.body || '');
+  if (!rawTo) return jsonResp({ ok: false, error: '沒有填收件人' });
+  if (!subject && !text.trim()) return jsonResp({ ok: false, error: '主旨與內文都是空的，沒有東西可以寄' });
+
+  // 逗號或分號分隔都接受。每一個都要通過檢查——寄錯人是收不回來的，
+  // 寧可整封退掉叫使用者改，也不要「其中兩個對就先寄出去」。
+  const list = rawTo.split(/[,;，；]/).map(function (x) { return x.trim(); }).filter(Boolean);
+  const bad = list.filter(function (x) { return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x); });
+  if (bad.length) return jsonResp({ ok: false, error: '這些收件人看起來不是 email：' + bad.join('、') });
+  if (list.length > 10) return jsonResp({ ok: false, error: '一次最多寄給 10 個人，目前有 ' + list.length + ' 個' });
+
+  var left;
+  try { left = MailApp.getRemainingDailyQuota(); } catch (err) { left = null; }
+  if (left !== null && left < list.length) {
+    return jsonResp({ ok: false, error: '今天的寄信額度只剩 ' + left + ' 封，不夠寄給 ' + list.length + ' 個人。（Gmail 每日上限，明天會重置）' });
+  }
+  try {
+    MailApp.sendEmail(list.join(','), subject || '(無主旨)', text);
+    return jsonResp({
+      ok: true,
+      message: '已寄給 ' + list.join('、'),
+      remaining: (left === null ? null : left - list.length)
+    });
+  } catch (err) {
+    return jsonResp({ ok: false, error: '寄送失敗：' + err.message });
+  }
 }
 
 // ── 彙整上下文：Gmail + 日曆 + 新聞 + 天氣 + 起立提醒設定 + 待辦提醒 + 其他系統摘要 ──
