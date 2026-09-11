@@ -509,10 +509,11 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="card">
       <div class="section-title">🏫 校務管理系統（CK-SCHADMIN）</div>
       <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;">
-        <input type="checkbox" id="useSchoolDb" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useSchoolDb=this.checked;save();">
+        <input type="checkbox" id="useSchoolDb" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useSchoolDb=this.checked;save();onSchoolDbToggle();">
         對話時附上校務系統資料給 AI 參考
       </label>
-      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含聯絡方式），僅排除身分證字號、薪資與學生成績（不讀取）。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
+      <div id="schoolDbStatus" class="hint" style="margin-top:8px;"></div>
+      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（週四品格圍圈輪值另外從校務系統網頁直接讀取）（含聯絡方式），僅排除身分證字號、薪資與學生成績（不讀取）。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
     </div>
 
     <div class="card">
@@ -752,6 +753,7 @@ function fillSettings(){
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
   renderAppsDataStatus();
+  renderSchoolDbStatus();
   renderPushStatus();
   checkBackendLock();
   populateHourSelects();
@@ -2084,6 +2086,81 @@ function parseRocBirthMonthDay(birth){
   if(mm<1||mm>12||dd<1||dd>31)return null;
   return `${mm}/${dd}`;
 }
+// ── 週四品格圍圈輪值 ────────────────────────────────────
+// 這份名單「寫死在 CK-SCHADMIN 的原始碼裡」（const SEL_ROTATION），不像行事曆
+// 那些會被同步進 localStorage，所以光讀 localStorage 永遠撈不到。作法跟課表一樣：
+// 直接抓那個 App 的 HTML、把陣列挖出來、存進本機快取，一週更新一次。
+//
+// 解析用正規表達式而不是 eval／new Function：那是別的網頁回傳的文字，
+// 就算是自己的網站也不該直接當程式碼執行。解析失敗就當作沒有這份資料，
+// 不會影響其他功能。
+const SEL_ROTATION_CACHE_KEY='ybot_sel_rotation_v1';
+const SEL_ROTATION_URL='https://cyysongyy.github.io/CK-SCHADMIN/';
+// 逐列把 {week:2, date:'2026/9/10', theme:'堅毅', A:'陳永芝', B:'吳惠雅'} 拆成物件。
+// 不假設欄位順序——之後那邊調換順序或多加欄位都還讀得到。
+function parseSelRotationRows(text){
+  const m=text.match(/const\s+SEL_ROTATION\s*=\s*(\[[\s\S]*?\n\s*\]);/);
+  if(!m)return [];
+  const out=[];
+  (m[1].match(/\{[^{}]*\}/g)||[]).forEach(chunk=>{
+    const o={};
+    const kv=/(\w+)\s*:\s*(?:'([^']*)'|"([^"]*)"|(\d+))/g;
+    let f;
+    while((f=kv.exec(chunk)))o[f[1]]=f[2]!==undefined?f[2]:(f[3]!==undefined?f[3]:Number(f[4]));
+    if(o.date&&(o.A||o.B))out.push(o);
+  });
+  return out;
+}
+// 時間與地點寫在頁面文字裡（「下午 3:00–3:20　A組：樂活運動場　B組：圖書室」），
+// 一起抓下來，之後場地改了不用改 Ybot。抓不到就只是少一行說明。
+function parseSelRotationMeta(text){
+  const meta={};
+  const place=text.match(/下午\s*3:00[–-]3:20[^<]*/);
+  if(place)meta.when=place[0].replace(/\s+/g,' ').trim();
+  const ga=text.match(/A組・([\d.]+)年級/), gb=text.match(/B組・([\d.]+)年級/);
+  if(ga)meta.gradesA=ga[1];
+  if(gb)meta.gradesB=gb[1];
+  return meta;
+}
+async function refreshSelRotationCache(force){
+  const cached=readLS(SEL_ROTATION_CACHE_KEY);
+  if(!force&&cached&&cached.fetchedAt&&Date.now()-new Date(cached.fetchedAt).getTime()<7*86400000)return false;
+  try{
+    const r=await fetch(SEL_ROTATION_URL,{cache:'no-cache'});
+    if(!r.ok)return false;
+    const text=await r.text();
+    const rows=parseSelRotationRows(text);
+    if(!rows.length)return false;
+    localStorage.setItem(SEL_ROTATION_CACHE_KEY,
+      JSON.stringify({rows,meta:parseSelRotationMeta(text),fetchedAt:new Date().toISOString()}));
+    return true;
+  }catch(e){return false;}   // 抓不到就沿用舊快取，沒有舊的就當作沒這份資料
+}
+// 排成給 AI 看的文字。刻意把「下一次」單獨挑出來講，因為最常問的就是
+// 「這禮拜誰輪值」；同時附上整學期名單，才答得出「蔡幸華哪一週」這種問題。
+function buildSelRotationContext(){
+  const c=readLS(SEL_ROTATION_CACHE_KEY);
+  if(!c||!Array.isArray(c.rows)||!c.rows.length)return '';
+  const meta=c.meta||{};
+  const today=tpeNow();today.setHours(0,0,0,0);
+  const rows=c.rows.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const head='週四品格圍圈輪值'+(meta.when?'（'+meta.when+'）':'')
+    +(meta.gradesA?'　A組='+meta.gradesA+'年級':'')+(meta.gradesB?'、B組='+meta.gradesB+'年級':'');
+  const fmt=r=>r.date+'（第'+(r.week||'?')+'週·'+(r.theme||'—')+'）A組 '+(r.A||'—')+'、B組 '+(r.B||'—');
+  const upcoming=rows.filter(r=>new Date(r.date)>=today);
+  const lines=[head+'：'];
+  if(upcoming.length){
+    lines.push('　下一次 '+fmt(upcoming[0]));
+    if(upcoming[1])lines.push('　再下一次 '+fmt(upcoming[1]));
+  }else{
+    lines.push('　本學期輪值已全部結束。');
+  }
+  lines.push('　全學期名單：'+rows.map(r=>
+    (r.date)+' '+(r.theme||'')+' A'+(r.A||'—')+'/B'+(r.B||'—')+(new Date(r.date)<today?'(已結束)':'')
+  ).join('；'));
+  return lines.join('\n');
+}
+
 function buildSchoolDbContext(){
   const lines=[];
   const read=k=>{try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}};
@@ -2115,6 +2192,8 @@ function buildSchoolDbContext(){
         return `${s.name}(${parts.join('·')})`;
       }).join('；'));
   }
+  const rotation=buildSelRotationContext();
+  if(rotation)lines.push(rotation);
   return lines.join('\n');
 }
 // ── 讀取同一個 cyysongyy.github.io 網域底下、使用者自己其他 App 的資料 ──
@@ -2778,6 +2857,23 @@ function renderAppsDataStatus(){
   const peek=document.getElementById('contextPeek');
   if(peek)peek.style.display='none';
 }
+// 打開校務系統開關時立刻去補圍圈輪值，不用等下次開 App 才有。
+function onSchoolDbToggle(){
+  if(!state.useSchoolDb)return;
+  refreshSelRotationCache().then(()=>renderSchoolDbStatus());
+}
+// 讓使用者看得到「現在到底讀到什麼」，而不是只能猜為什麼 AI 答不出來。
+function renderSchoolDbStatus(){
+  const el=document.getElementById('schoolDbStatus');
+  if(!el)return;
+  if(!state.useSchoolDb){el.textContent='';return;}
+  const n=k=>{const v=readLS(k);return Array.isArray(v)?v.length:0;};
+  const rot=readLS(SEL_ROTATION_CACHE_KEY);
+  const parts=['行事曆 '+n('ck_events'),'行政業務 '+n('ck_admin'),
+    '研習 '+n('ck_training'),'教職員 '+n('ck_staff'),
+    '圍圈輪值 '+((rot&&Array.isArray(rot.rows))?rot.rows.length:0)];
+  el.textContent='目前讀到：'+parts.join('　')+'（筆）';
+}
 // 打開開關時立刻去抓課表，抓到再把狀態更新一次，使用者才看得到有沒有成功。
 function onAppsDataToggle(){
   if(!state.useAppsData)return;
@@ -2873,6 +2969,8 @@ if(state.gasUrl)refreshContext();
 tryAutoLocate();
 // 課表快取在背景補齊，抓完就寫進 localStorage，下一次對話就讀得到。
 if(state.useAppsData)refreshTimetableCache();
+// 圍圈輪值名單同樣在背景補齊（寫死在校務系統原始碼裡，localStorage 撈不到）。
+if(state.useSchoolDb)refreshSelRotationCache();
 maybeStartQuickRec();
 registerSW();
 // 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。
