@@ -512,7 +512,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <input type="checkbox" id="useSchoolDb" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useSchoolDb=this.checked;save();">
         對話時附上校務系統資料給 AI 參考
       </label>
-      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含聯絡方式），僅排除身分證字號、薪資與學生成績（不讀取）。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
+      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含身分證字號、薪資、聯絡方式）／學生名冊／學生成績，內容不受限制。這些資料會連同對話一起送給你設定的 AI 服務。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
     </div>
 
     <div class="card">
@@ -2071,9 +2071,9 @@ function undoChatAction(i){
 function quickAsk(text){document.getElementById('chatInput').value=text;sendChat();}
 // 校務管理系統（CK-SCHADMIN）是同一個 origin 下的另一個 App，直接唯讀讀取其
 // localStorage 快取（該 App 自己會把 Firebase 資料同步進 localStorage）。
-// 教職員資料依使用者指示全部帶入（含電話/地址/出生年月日等）；仍排除身分證
-// 字號與薪資兩項（查詢用途極低、外洩風險極高，即使個人使用也不划算），
-// 學生成績（cksch_grades）涉及未成年人資料，完全不讀取。
+// 依使用者指示，行事曆／行政業務／研習記錄／教職員資料（含身分證字號、薪資）／
+// 學生名冊／學生成績全部帶入，供對話時查詢——這些內容會連同對話一起送給
+// 使用者設定的 AI 服務（Gemini／OpenAI／NVIDIA）。
 // 教職員的 birth 欄位是民國年月日（6或7碼數字，例如「700101」），直接原封不動
 // 塞給 AI 很容易被誤解析或猜錯月份，這裡先轉成「8/10」這種好判斷的月/日格式，
 // 讓「幾月有誰生日」這類查詢能用真實資料正確回答，而不是憑印象亂猜。
@@ -2107,13 +2107,26 @@ function buildSchoolDbContext(){
   }
   const staffList=read('ck_staff');
   if(Array.isArray(staffList)&&staffList.length){
-    lines.push('教職員名冊（共'+staffList.length+'位，不含身分證字號/薪資）：'+
+    lines.push('教職員名冊（共'+staffList.length+'位）：'+
       staffList.slice(0,60).map(s=>{
         const md=parseRocBirthMonthDay(s.birth);
-        const parts=[s.unit,s.title,s.rank,s.phone?'電話'+s.phone:'',s.mobile?'手機'+s.mobile:'',
+        const parts=[s.unit,s.title,s.rank,s.idno?'身分證/職編'+s.idno:'',s.salary?'薪點'+s.salary:'',
+          s.phone?'電話'+s.phone:'',s.mobile?'手機'+s.mobile:'',
           md?'生日'+md:(s.birth?'出生'+s.birth:''),s.startDate?'到職'+s.startDate:'',s.addr?'地址'+s.addr:'',s.note].filter(Boolean);
         return `${s.name}(${parts.join('·')})`;
       }).join('；'));
+  }
+  const roster=read('ck_roster_cache');
+  if(Array.isArray(roster)&&roster.length){
+    lines.push('學生名冊（共'+roster.length+'位）：'+
+      roster.slice(0,200).map(r=>`${r.name||'(無姓名)'}(${r.cls}第${r.seat}號·學號${r.sid})`).join('；'));
+  }
+  const grades=read('cksch_grades');
+  const gradeRows=grades&&Array.isArray(grades.data)?grades.data:null;
+  if(gradeRows&&gradeRows.length){
+    const recent=gradeRows.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,150);
+    lines.push('學生成績（共'+gradeRows.length+'筆，僅列最近150筆）：'+
+      recent.map(g=>`${g.name}(${g.cls})${g.subject}${g.score}分(${g.year}學年${g.semester}學期${g.stage}${g.date?'·'+g.date:''})`).join('；'));
   }
   return lines.join('\n');
 }
