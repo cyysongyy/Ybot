@@ -337,7 +337,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span class="ctxActions">
           <button onclick="refreshContext()" title="重新抓取雲端資料（行事曆／信件／新聞）">🔄 更新</button>
           <button onclick="clearChatOnly()" title="清除對話紀錄（不影響待辦與筆記）">🗑️ 清除</button>
-          <button id="speakToggle" onclick="toggleSpeak()" title="鬆弛練習的回應要不要念出來">🔊 朗讀</button>
+          <button id="speakToggle" onclick="toggleSpeak()" title="用說的問時，答案要不要念出來（鬆弛練習也適用）">🔊 朗讀</button>
         </span>
       </div>
       <div id="chatBox"></div>
@@ -1359,6 +1359,9 @@ function pickZhVoice(){
       ||vs.find(v=>/zh[-_]HK/i.test(v.lang))
       ||vs.find(v=>/^zh/i.test(v.lang))||null;
 }
+// 這一輪對話是不是用 🎙️ 問的。sendChat 拿完就歸零，
+// 免得下一次用打字的還接著念。
+let askedByVoice=false;
 function speakText(txt){
   if(!state.speakReply)return;
   if(!('speechSynthesis'in window))return;
@@ -1385,7 +1388,7 @@ function renderSpeakBtn(){
   const b=document.getElementById('speakToggle');
   if(!b)return;
   b.textContent=state.speakReply?'🔊 朗讀':'🔇 靜音';
-  b.title=state.speakReply?'鬆弛練習的回應會念出來（點一下關掉，也會停止正在念的）':'目前不念出來（點一下打開）';
+  b.title=state.speakReply?'用說的問時答案會念出來，鬆弛練習也會（點一下關掉，也會停止正在念的）':'目前不念出來（點一下打開）';
 }
 
 // ── 鬆弛感練習 ──────────────────────────
@@ -1515,7 +1518,9 @@ function qrFillAsk(text){
   if(btn)btn.scrollIntoView({block:'nearest'});
   // 只有真的問到東西才送。沒辨識到字的話上游就攔掉了，這裡再擋一次，
   // 免得送出一則空訊息白白吃一次 API。
-  if(input&&input.value.trim())sendChat();
+  // 用說的問就用說的答——手上在忙、或正在走路的時候，答案只用看的等於沒答。
+  // 打字問的不念，不然在安靜的場合會很尷尬。
+  if(input&&input.value.trim()){askedByVoice=true;sendChat();}
 }
 function qrSaveNote(text){
   if(qrMode==='relax'){qrSaveRelax(text);return;}
@@ -2867,6 +2872,7 @@ async function sendChat(){
   if(!text&&!pendingImage)return;
   const image=pendingImage;
   pendingImage=null;renderChatImagePreview();
+  const byVoice=askedByVoice;askedByVoice=false;
   state.chat.push({role:'user',text:image?`📷 ${text||'（已附加一張圖片）'}`:text});
   input.value='';renderChat();save();
   const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;sendBtn.textContent='思考中…';
@@ -2901,6 +2907,9 @@ async function sendChat(){
     const raw=await callAI(prompt,image);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
     state.chat.push({role:'bot',text:replyText||'（沒有取得回覆，請確認 AI 設定）'});
+    // 用說的問的，答案就念出來。speakText 自己會看 🔊 朗讀 開關，
+    // 關著就安靜（在安靜的場合可以直接關掉）。
+    if(byVoice&&replyText)speakText(replyText);
     // 存進問答庫：對話會被清掉，這份要留著，之後問到相似的事才叫得回來。
     if(replyText)qaAdd(text,replyText,'chat');
     save();renderChat();
