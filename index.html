@@ -347,7 +347,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
         <button class="btn ghost" id="chatImageBtn" onclick="document.getElementById('chatImageInput').click()" style="flex:0 0 auto;" title="附加圖片，讓 Ybot 看圖辨識/回答">📷</button>
         <button class="btn ghost" id="relaxBtn" onclick="openRelaxPractice()" style="flex:0 0 auto;display:none;" title="鬆弛練習：說出讓你緊繃的事，換一個看法">🌿</button>
-        <button class="btn ghost" id="askVoiceBtn" onclick="openVoiceAsk()" style="flex:0 0 auto;display:none;" title="用說的問 Ybot：講完會自動填進輸入框">🎙️</button>
+        <button class="btn ghost" id="askVoiceBtn" onclick="openVoiceAsk()" style="flex:0 0 auto;display:none;" title="用說的問 Ybot：講完自動送出，直接回答">🎙️</button>
         <textarea id="chatInput" class="fi" placeholder="問 Ybot 任何事…（Enter 送出，Shift+Enter 換行）" style="margin-bottom:0;"></textarea>
         <button class="sendBtn" id="sendBtn" onclick="sendChat()">送出</button>
       </div>
@@ -1474,6 +1474,9 @@ function pushRelaxToChat(body,original,noteId){
 // 轉文字對人名和專有名詞常常出錯（「呂美純」「課發會」這種），送出一個問錯的
 // 問題會白花一次 API、答案也不對；讓他看一眼再按送出，只多一下。
 // 刻意不 focus 輸入框：手機上一 focus 就跳鍵盤，反而把送出鍵擋住。
+// 用說的問，講完就直接送出去問，不用再按一次送出——講話本來就是為了省掉打字，
+// 講完還要找按鈕按等於把省下來的又還回去。辨識結果仍會原封不動出現在對話裡
+// （送出時就是使用者那則訊息），聽錯了看得出來，重講一次就好。
 function qrFillAsk(text){
   const input=document.getElementById('chatInput');
   if(input){
@@ -1484,6 +1487,9 @@ function qrFillAsk(text){
   switchTab('chat');
   const btn=document.getElementById('sendBtn');
   if(btn)btn.scrollIntoView({block:'nearest'});
+  // 只有真的問到東西才送。沒辨識到字的話上游就攔掉了，這裡再擋一次，
+  // 免得送出一則空訊息白白吃一次 API。
+  if(input&&input.value.trim())sendChat();
 }
 function qrSaveNote(text){
   if(qrMode==='relax'){qrSaveRelax(text);return;}
