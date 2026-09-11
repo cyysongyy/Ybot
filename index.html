@@ -330,7 +330,6 @@ a.ovMailItem:hover{text-decoration:underline;}
         <div class="heroScheduleMini" id="heroScheduleMini"></div>
       </div>
     </div>
-    <div class="card" id="overviewCard" style="display:none;"></div>
     <div class="card" id="chatCard">
       <div class="section-title">💬 Ybot 對話</div>
       <div class="ctxbar">
@@ -352,6 +351,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <button class="sendBtn" id="sendBtn" onclick="sendChat()">送出</button>
       </div>
     </div>
+    <div class="card" id="overviewCard" style="display:none;"></div>
     <div class="card" id="linksCard" style="display:none;">
       <div class="section-title">🔗 快速連結</div>
       <div class="linkChips" id="linkChips"></div>
@@ -1986,17 +1986,13 @@ function renderOverview(){
   box.innerHTML=
     `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
-    `<div class="ovSection" id="ovSectionCountdown">`+
-    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">`+
-    `<div class="ovLabel" style="margin-bottom:0;">⏱️ 倒數計時</div>`+
-    `<span style="display:flex;align-items:center;gap:5px;flex-shrink:0;">`+
-    `<input type="number" id="ovCdMinInput" min="1" max="60" oninput="onCdInputChange(event)" value="5" style="width:38px;text-align:center;font-weight:800;color:var(--pri);border:1px solid var(--line);border-radius:8px;padding:3px 2px;background:var(--bg);font-size:.76rem;">`+
-    `<span id="ovCdDisplay" style="display:none;font-weight:800;color:var(--pri);font-size:.76rem;min-width:38px;text-align:center;">05:00</span>`+
-    `<button type="button" id="ovCdStartBtn" onclick="toggleCountdown()" title="開始/暫停快速倒數計時" style="border:none;background:var(--pri);color:#fff;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:.62rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">▶</button>`+
-    `<button type="button" onclick="resetCountdown()" title="重設倒數計時" style="border:none;background:none;color:var(--tx3);cursor:pointer;font-size:.8rem;padding:2px;flex-shrink:0;">⟲</button>`+
-    `</span></div></div>`;
+    ``;
   box.style.display='block';
-  syncCountdownDom(); // 重繪後把倒數計時的即時狀態同步回畫面，不會重設正在跑的秒數
+  // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
+  // resetCountdown／countdownAlert 都還在，正在跑的倒數也照樣會響）。
+  // CD_INSTANCES 那幾個 DOM 操作本來就每個都 if(el) 守過，少了畫面不會壞。
+  // 之後要放回來，把這裡的 ovSectionCountdown 區塊加回去就好。
+  syncCountdownDom();
 }
 function toggleNewsCollapse(){
   state.newsCollapsed=!state.newsCollapsed;
