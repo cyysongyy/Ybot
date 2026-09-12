@@ -601,6 +601,29 @@ function fmtDateTime(d,opts){
   if(isNaN(x))return '';
   return x.toLocaleString('zh-TW',Object.assign({timeZone:TZ},opts||{}));
 }
+// ── 星期 ────────────────────────────────────────────────
+// AI 算日期算星期很不可靠。之前只餵它「2026/9/12 上午6:16」，沒告訴它那天
+// 是星期六，於是問「下禮拜一」它自己推，推成 9/18——而 9/18 其實是星期五，
+// 同一輪對話裡它還把 9/18 一下叫星期五、一下叫星期一。
+// 解法不是叫它算準一點，是根本不要讓它算：把日期和星期的對照表直接給它查。
+const WD_NAMES=['日','一','二','三','四','五','六'];
+function tpeWeekday(d){const t=tpeNow(d);return isNaN(t)?'':WD_NAMES[t.getDay()];}
+// 「9/16(三)」這種一眼就對得起來的寫法
+function fmtDayLabel(d){
+  const t=tpeNow(d);
+  if(isNaN(t))return '';
+  return (t.getMonth()+1)+'/'+t.getDate()+'('+WD_NAMES[t.getDay()]+')';
+}
+// 往後 n 天的日期對照表。給得夠遠，「下下禮拜三」也查得到。
+function buildDateRef(days){
+  const out=[],base=tpeNow();
+  if(isNaN(base))return '';
+  for(let i=0;i<days;i++){
+    const d=new Date(base.getTime()+i*86400000);
+    out.push(fmtDayLabel(d)+(i===0?'←今天':i===1?'←明天':''));
+  }
+  return out.join('、');
+}
 function fmtDate(d,opts){
   const x=new Date(d);
   if(isNaN(x))return '';
@@ -2226,7 +2249,7 @@ function buildSchoolDbContext(){
     const until=new Date(today.getTime()+14*86400000);
     const upcoming=events.filter(e=>{const d=new Date(e.date);return d>=today&&d<=until;})
       .sort((a,b)=>a.date.localeCompare(b.date));
-    if(upcoming.length)lines.push('校務行事曆（近14天）：'+upcoming.map(e=>`${e.name}(${e.date}${e.type?'·'+e.type:''})`).join('；'));
+    if(upcoming.length)lines.push('校務行事曆（近14天）：'+upcoming.map(e=>`${e.name}(${fmtDayLabel(e.date)}${e.type?'·'+e.type:''})`).join('；'));
   }
   const adminTasks=read('ck_admin');
   if(Array.isArray(adminTasks)){
@@ -2748,7 +2771,8 @@ function buildContextText(question){
   const c=state.context;
   if(c){
     if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
-    if((c.calendar||[]).length)lines.push('未來行程：'+c.calendar.map(ev=>`${ev.title}(${fmtDateTime(ev.start)})`).join('；'));
+    if((c.calendar||[]).length)lines.push('未來行程：'+c.calendar.map(ev=>
+      `${ev.title}(${fmtDayLabel(ev.start)}${ev.allDay?'全天':' '+fmtDateTime(ev.start,{hour:'2-digit',minute:'2-digit'})})`).join('；'));
     if((c.gmail||[]).length)lines.push('未讀重要信件：'+c.gmail.map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
       const n=c.news;
@@ -2898,7 +2922,12 @@ async function sendChat(){
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 - remember 用在「以後每次對話都用得到」的事：怎麼稱呼某個人、偏好多長的回答、固定的做事方式、職務與負責範圍、在意什麼。**不要**拿它記一次性的待辦、當下的心情、或這次問題的答案——那些本來就會進待辦和問答庫。一次對話最多記一件事，沒有真正新的就不要記。
 - 上面「關於使用者」那段每條前面的 [pxxxxx] 就是記憶 id。使用者說某條已經不成立了（換職務、改習慣），用 forget 指名刪掉。
-一次可以有多個 actions。今天日期時間是 ${fmtDateTime(new Date())}（台北時間），遇到「明天」「下週五」等相對時間請自行換算成正確日期時間。`;
+一次可以有多個 actions。
+今天是 ${fmtDayLabel(new Date())} ${fmtDateTime(new Date(),{hour:'2-digit',minute:'2-digit'})}（台北時間）。
+遇到「明天」「下禮拜一」「這禮拜三」這類說法時，**一律查下面這張對照表**，不要自己推算星期——括號裡就是星期幾：
+${buildDateRef(21)}
+「下禮拜X」指的是今天之後最近的那個星期X所在的那一週；如果今天就是週末，「下禮拜一」就是接下來那個星期一。
+回答行程時請照實引用上面「未來行程」裡有的項目，日期與星期要跟對照表一致，沒有的不要自己補。`;
   // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
   // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。
   const zenNote=looksLikeStressQuestion(text)?`\n\n這個問題聽起來跟壓力、情緒或人際有關。請像一個懂他的朋友在跟他講話那樣回答，不要像報告或表單：可以順著他的話接下去、可以先確認你聽懂了什麼，句型不要每次都一樣。內容依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，也不要一段講一項，自然地帶進去就好。給建議時要具體到他可以直接照做，需要他說話時就把那幾句話寫出來。最後用一句跟他這件事直接有關的具體問題把球丟回給他，不要問「你覺得呢」這種空泛的問句。\n${ZEN_OUTLINE}`:'';
