@@ -3026,7 +3026,7 @@ function buildContextText(question){
   const c=state.context;
   if(c){
     if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
-    if((c.calendar||[]).length)lines.push('未來行程：'+c.calendar.map(ev=>
+    if((c.calendar||[]).length)lines.push('未來行程（每筆後面的日期與星期已經算好，回答時原封不動照抄，不要自己重新計算或改寫成別的星期）：'+c.calendar.map(ev=>
       `${ev.title}(${fmtDayLabel(ev.start)}${ev.allDay?'全天':' '+fmtDateTime(ev.start,{hour:'2-digit',minute:'2-digit'})})`).join('；'));
     if((c.gmail||[]).length)lines.push('未讀重要信件：'+c.gmail.map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
