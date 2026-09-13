@@ -1223,10 +1223,19 @@ async function toggleRecording(){
       try{
         const text=await transcribeAudio(blob,mediaRecorder.mimeType||REC_MIME||'audio/mp4');
         if(text){
-          const ta=document.getElementById('noteContent');
-          ta.value=(ta.value?ta.value+' ':'')+text;
-          status.textContent='✅ 已轉成文字稿，正在新增…';
-          addNote();  // 講完就直接送出，不用再多按一次「新增」
+          status.textContent='✅ 已轉成文字稿，AI 判斷類型與時間中…';
+          try{
+            // 讓 AI 判斷類型跟日期（例如「禮拜一記得帶茶葉」自動存成禮拜一的提醒），
+            // 不要只是照目前選的類型原封不動存進去——講的時候通常沒特地去點選類型。
+            status.textContent=await classifyAndSaveNote(text);
+          }catch(aiErr){
+            // AI 判斷失敗（沒設 API Key、網路問題等）就退回舊行為：原文存成目前
+            // 選的類型，總比講的話憑空消失好。
+            const ta=document.getElementById('noteContent');
+            ta.value=(ta.value?ta.value+' ':'')+text;
+            addNote();
+            status.textContent='⚠️ AI 判斷失敗，已用目前選的類型直接存成筆記（'+aiErr.message+'）';
+          }
         }else{
           status.textContent='⚠️ 沒有辨識到內容';
         }
@@ -2065,6 +2074,55 @@ function addNote(){
 }
 // AI 智慧新增：讀懂輸入內容自動判斷類型（瑣事／待辦／提醒），
 // 若內容牽涉具體日期時間，額外呼叫後台在 Google 日曆建立事件。
+// 共用核心：讓 AI 判斷類型/日期並存成筆記，回傳可以直接顯示給使用者的結果訊息。
+// 「🤖 AI 智慧新增」按鈕跟語音新增（toggleRecording）都走這裡，不要各自維護
+// 一份分類邏輯——日期對照表也用同一份 buildDateRef()，不讓 AI 自己算「禮拜一」
+// 是幾號（AI 自己算日期星期已經證實不可靠，這個 repo 為此修過好幾輪 bug）。
+async function classifyAndSaveNote(content){
+  const now=new Date();
+  const prompt=`你是待辦事項分類助手。現在時間是 ${fmtDateTime(now)}（台北時間）。
+遇到「明天」「禮拜一」「下禮拜三」這類說法時，**一律查下面這張對照表換算日期**，
+不要自己推算星期——括號裡就是星期幾：
+${buildDateRef(21)}
+請分析以下使用者輸入的內容，判斷：
+1. type：歸類為 "note"(瑣事筆記，無時間性)、"todo"(待辦事項，需要做但沒有明確時間)、"reminder"(需要在特定時間提醒)、"idea"(想法與心法：心得、原則、靈感、提醒自己的觀念，不是要去做的事) 四者之一
+2. content：整理過的簡潔內容，保留原意
+3. dueAt：若 type 是 reminder，或內容有明確提到日期/時間，依上面對照表換算成 ISO 8601 本地時間字串（例如 2026-08-15T14:00:00），無法判斷則為 null
+4. calendarEvent：若內容牽涉「具體日期或時間的行程/約會/會議/活動」，給出 {"title":"事件標題","start":"ISO時間","end":"ISO時間，未提及長度則預設比start晚1小時"}；若只是單純提醒事項、無具體行程性質，則為 null
+
+使用者輸入：「${content}」
+
+只回傳 JSON，不要有其他文字或說明，格式：
+{"type":"note|todo|reminder|idea","content":"...","dueAt":"ISO字串或null","calendarEvent":{"title":"...","start":"...","end":"..."}或null}`;
+  const raw=await callAI(prompt);
+  const m=raw.match(/\{[\s\S]*\}/);
+  if(!m)throw new Error('AI 回覆格式錯誤，請稍後再試');
+  const parsed=JSON.parse(m[0]);
+  const type=NOTE_TYPES.includes(parsed.type)?parsed.type:'note';
+  const dueAt=parsed.dueAt&&!isNaN(new Date(parsed.dueAt))?new Date(parsed.dueAt).toISOString():'';
+  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content:parsed.content||content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+  state.notes.unshift(n);save();
+  renderNotes();renderOverview();
+  if(state.gasUrl){
+    gasPost({action:'addNote',note:n}).catch(()=>{});
+  }
+  // 把算出來的日期講回去：AI 判斷偶爾還是會出錯，答案裡直接看得到日期，
+  // 猜錯了才能馬上發現，而不是提醒真的沒響才知道。
+  let msg=`✅ 已新增為「${TYPE_LABEL[type]}」：${n.content}`+
+    (dueAt?`（${fmtDayLabel(dueAt)} ${fmtDateTime(dueAt,{hour:'2-digit',minute:'2-digit'})}）`:'');
+  if(parsed.calendarEvent&&parsed.calendarEvent.start&&!isNaN(new Date(parsed.calendarEvent.start))){
+    if(state.gasUrl){
+      try{
+        const r=await gasPost({action:'addCalendarEvent',title:parsed.calendarEvent.title||n.content,start:parsed.calendarEvent.start,end:parsed.calendarEvent.end});
+        const d=await r.json();
+        msg+=d.ok?'，並已加入 Google 日曆':'（日曆建立失敗：'+(d.error||'未知錯誤')+'）';
+      }catch(e){msg+='（日曆建立失敗，請確認雲端後台網址）';}
+    }else{
+      msg+='（偵測到日期，但尚未設定雲端後台網址，無法加入 Google 日曆）';
+    }
+  }
+  return msg;
+}
 async function addNoteAI(){
   const content=document.getElementById('noteContent').value.trim();
   if(!content){alert('請輸入內容');return;}
@@ -2072,45 +2130,9 @@ async function addNoteAI(){
   const origText=btn.textContent;
   btn.disabled=true;btn.textContent='🤖 分析中…';
   try{
-    const now=new Date();
-    const weekday=['日','一','二','三','四','五','六'][tpeNow(now).getDay()];
-    const prompt=`你是待辦事項分類助手。現在時間是 ${fmtDateTime(now)}（星期${weekday}，台北時間）。
-請分析以下使用者輸入的內容，判斷：
-1. type：歸類為 "note"(瑣事筆記，無時間性)、"todo"(待辦事項，需要做但沒有明確時間)、"reminder"(需要在特定時間提醒)、"idea"(想法與心法：心得、原則、靈感、提醒自己的觀念，不是要去做的事) 四者之一
-2. content：整理過的簡潔內容，保留原意
-3. dueAt：若 type 是 reminder，或內容有明確提到日期/時間，換算成 ISO 8601 本地時間字串（例如 2026-08-15T14:00:00），無法判斷則為 null
-4. calendarEvent：若內容牽涉「具體日期或時間的行程/約會/會議/活動」，給出 {"title":"事件標題","start":"ISO時間","end":"ISO時間，未提及長度則預設比start晚1小時"}；若只是單純提醒事項、無具體行程性質，則為 null
-
-使用者輸入：「${content}」
-
-只回傳 JSON，不要有其他文字或說明，格式：
-{"type":"note|todo|reminder|idea","content":"...","dueAt":"ISO字串或null","calendarEvent":{"title":"...","start":"...","end":"..."}或null}`;
-    const raw=await callAI(prompt);
-    const m=raw.match(/\{[\s\S]*\}/);
-    if(!m)throw new Error('AI 回覆格式錯誤，請稍後再試');
-    const parsed=JSON.parse(m[0]);
-    const type=NOTE_TYPES.includes(parsed.type)?parsed.type:'note';
-    const dueAt=parsed.dueAt&&!isNaN(new Date(parsed.dueAt))?new Date(parsed.dueAt).toISOString():'';
-    const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content:parsed.content||content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
-    state.notes.unshift(n);save();
+    const msg=await classifyAndSaveNote(content);
     document.getElementById('noteContent').value='';
     document.getElementById('noteDue').value='';
-    renderNotes();renderOverview();
-    if(state.gasUrl){
-      gasPost({action:'addNote',note:n}).catch(()=>{});
-    }
-    let msg=`✅ 已新增為「${TYPE_LABEL[type]}」`;
-    if(parsed.calendarEvent&&parsed.calendarEvent.start&&!isNaN(new Date(parsed.calendarEvent.start))){
-      if(state.gasUrl){
-        try{
-          const r=await gasPost({action:'addCalendarEvent',title:parsed.calendarEvent.title||n.content,start:parsed.calendarEvent.start,end:parsed.calendarEvent.end});
-          const d=await r.json();
-          msg+=d.ok?'，並已加入 Google 日曆':'（日曆建立失敗：'+(d.error||'未知錯誤')+'）';
-        }catch(e){msg+='（日曆建立失敗，請確認雲端後台網址）';}
-      }else{
-        msg+='（偵測到日期，但尚未設定雲端後台網址，無法加入 Google 日曆）';
-      }
-    }
     alert(msg);
   }catch(e){
     alert('❌ AI 分析失敗：'+e.message+'\n可改用上方手動選類型後按「新增」。');
