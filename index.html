@@ -1549,7 +1549,7 @@ function qrWatchSilence(stream){
   }catch(e){return;}  // 不支援就算了，使用者仍然可以手動按停止
   const startedAt=Date.now();
   const quiet=qrSilenceMs(),maxMs=qrMaxMs();
-  let heard=false,lastLoudAt=startedAt,floor=null,peak=0,level=null,env=null;
+  let heard=false,lastLoudAt=startedAt,floor=null,peak=0,level=null,env=null,loudRun=0;
   const timer=setInterval(()=>{
     if(qrState!=='recording'){clearInterval(timer);try{ctx.close();}catch(e){}return;}
     analyser.getByteTimeDomainData(buf);
@@ -1567,7 +1567,14 @@ function qrWatchSilence(stream){
     floor=qrNoiseFloor(floor,env);
     level=qrSpeechLevel(level,env);
     const threshold=qrThreshold(floor,level);
-    if(env>threshold){heard=true;lastLoudAt=now;}
+    // 要連續兩格（約 0.24 秒）超過門檻才算「還在講」。極吵的環境裡，
+    // 平滑過的音量偶爾還是會單格衝過門檻，一格就重置 lastLoudAt 的話，
+    // 安靜期永遠湊不滿 3.2 秒——模擬底噪 0.2 時大約每 18 次會卡住一次。
+    // 人講話一定持續好幾格，這個門檻擋得掉雜訊尖峰但擋不掉人聲。
+    if(env>threshold){
+      loudRun++;
+      if(loudRun>=2){heard=true;lastLoudAt=now;}
+    }else loudRun=0;
     const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt,peak,silenceMs:quiet,maxMs});
     if(verdict==='wait')return;
     clearInterval(timer);try{ctx.close();}catch(e){}
