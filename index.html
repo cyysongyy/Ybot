@@ -639,6 +639,68 @@ function buildDateRef(days){
   }
   return out.join('、');
 }
+// ── 問行程直接讓程式碼算答案，完全不經過 AI ──────────────────
+// 前面幾輪修正（對照表雙重轉換、AI 自己篩「今天/明天」）都是在補救 AI 組合
+// 日期與行程內容時會出錯這件事，修了好幾次還是有漏網的案例（AI 把下週的會議
+// 講成明天的）。與其一直堵漏洞，「問行程」這類問題乾脆完全不讓 AI 碰日期
+// 判斷或行程篩選，程式碼自己算好、自己排版，AI 沒有機會把日期跟內容兜錯。
+// 涵蓋不到的問法（沒有比對到任何關鍵字）才照舊交給 AI 處理。
+const WD_INDEX={'日':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6};
+// 一週以禮拜一為起點（台灣慣例），回傳當週禮拜一 00:00（沿用傳入日期已經是
+// tpeNow() 轉換過、本地欄位＝台北時間的物件，這裡只用本地欄位運算，不再轉換）。
+function mondayStart(taipeiLocalDate){
+  const d=new Date(taipeiLocalDate);
+  const dow=d.getDay(); // 0=日...6=六
+  d.setDate(d.getDate()-((dow+6)%7)); // 禮拜一 offset 0，禮拜日 offset 6
+  d.setHours(0,0,0,0);
+  return d;
+}
+// 同時像是在下指令（新增/提醒/刪除等）的訊息不要攔截，怕漏掉那個指令。
+const SCHEDULE_ACTION_HINT=/新增|待辦|提醒我|加一個|加到|建立|刪除|標記|改成|改到|記一下/;
+function detectScheduleRange(text){
+  const t=String(text||'').trim();
+  if(SCHEDULE_ACTION_HINT.test(t))return null;
+  if(!/行程|日曆|行事曆|會議|課程|活動|安排|排定|排好/.test(t))return null;
+  const today=tpeNow();today.setHours(0,0,0,0);
+  const addDays=n=>new Date(today.getTime()+n*86400000);
+  if(/今天|今日/.test(t))return{label:'今天',start:addDays(0),end:addDays(1)};
+  if(/明天|明日/.test(t))return{label:'明天',start:addDays(1),end:addDays(2)};
+  if(/後天/.test(t))return{label:'後天',start:addDays(2),end:addDays(3)};
+  const nextWd=t.match(/下(?:禮拜|週|星期)([一二三四五六日])/);
+  if(nextWd){
+    const dayOffset=WD_INDEX[nextWd[1]]===0?6:WD_INDEX[nextWd[1]]-1;
+    const target=new Date(mondayStart(today).getTime()+(7+dayOffset)*86400000);
+    return{label:'下禮拜'+nextWd[1],start:target,end:new Date(target.getTime()+86400000)};
+  }
+  const thisWd=t.match(/(?:這|本)?(?:禮拜|週|星期)([一二三四五六日])/);
+  if(thisWd){
+    const dayOffset=WD_INDEX[thisWd[1]]===0?6:WD_INDEX[thisWd[1]]-1;
+    const target=new Date(mondayStart(today).getTime()+dayOffset*86400000);
+    return{label:'禮拜'+thisWd[1],start:target,end:new Date(target.getTime()+86400000)};
+  }
+  if(/下禮拜|下週|下星期/.test(t)){
+    const start=new Date(mondayStart(today).getTime()+7*86400000);
+    return{label:'下禮拜',start,end:new Date(start.getTime()+7*86400000)};
+  }
+  if(/這禮拜|這週|本週|本禮拜/.test(t)){
+    const start=mondayStart(today);
+    return{label:'這禮拜',start,end:new Date(start.getTime()+7*86400000)};
+  }
+  const nDays=t.match(/(?:未來|接下來|近)\s*(\d{1,2})\s*天/);
+  if(nDays)return{label:`未來${Math.min(30,parseInt(nDays[1],10))}天`,start:addDays(0),end:addDays(Math.min(30,parseInt(nDays[1],10)))};
+  return{label:'近期',start:addDays(0),end:addDays(7)}; // 泛泛問「行程」，預設列一週
+}
+function answerScheduleRange(range){
+  const c=state.context;
+  if(!c)return '尚未連接雲端後台，請先到「設定 → 雲端後台」連接後才能查行程。';
+  const events=(c.calendar||[]).filter(ev=>{
+    const t=tpeNow(ev.start).getTime();
+    return t>=range.start.getTime()&&t<range.end.getTime();
+  }).sort((a,b)=>new Date(a.start)-new Date(b.start));
+  if(!events.length)return `${range.label}沒有查到行程。`;
+  const lines=events.map(ev=>`・${fmtDayLabel(ev.start)}${ev.allDay?' 全天':' '+fmtDateTime(ev.start,{hour:'2-digit',minute:'2-digit'})}　${ev.title}`);
+  return `${range.label}的行程（共 ${events.length} 項）：\n`+lines.join('\n');
+}
 function fmtDate(d,opts){
   const x=new Date(d);
   if(isNaN(x))return '';
@@ -3212,6 +3274,17 @@ async function sendChat(){
   const byVoice=askedByVoice;askedByVoice=false;
   state.chat.push({role:'user',text:image?`📷 ${text||'（已附加一張圖片）'}`:text});
   input.value='';renderChat();save();
+  // 純問行程的問題直接用程式碼算答案回覆，跳過 AI，見 detectScheduleRange 的說明。
+  const scheduleRange=(!image)?detectScheduleRange(text):null;
+  if(scheduleRange){
+    const reply=answerScheduleRange(scheduleRange);
+    state.chat.push({role:'bot',text:reply});
+    save();renderChat();
+    if(byVoice)speakText(reply);
+    qaAdd(text,reply,'chat');
+    save();
+    return;
+  }
   const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;sendBtn.textContent='思考中…';
   const history=state.chat.slice(-8).map(m=>`${m.role==='user'?'使用者':'Ybot'}：${m.text}`).join('\n');
   const imgNote=image?'\n\n使用者這則訊息附加了一張圖片，請先仔細看圖片內容再回答（例如辨識文字、描述內容、回答關於圖片的問題；若圖片裡有多個待辦事項或行程，也可以一次全部整理成多個 add_note／add_calendar_event 動作）。':'';
