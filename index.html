@@ -360,6 +360,11 @@ a.ovMailItem:hover{text-decoration:underline;}
 
   <!-- 📝 待辦與筆記 -->
   <div class="pane" id="pane-notes">
+    <div class="card" id="meetingCard" style="display:none;">
+      <button class="btn" onclick="openMeetingRec()" style="display:block;width:100%;">📋 開始會議記錄</button>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦（該你做的會直接進待辦清單），逐字稿另外存成筆記。</div>
+    </div>
+
     <div class="card">
       <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
     </div>
@@ -1120,6 +1125,8 @@ function initVoiceButton(){
   if(rb)rb.style.display=ok;
   const ab=document.getElementById('askVoiceBtn');
   if(ab)ab.style.display=ok;
+  const mc=document.getElementById('meetingCard');
+  if(mc)mc.style.display=(ok==='none')?'none':'block';
 }
 async function toggleRecording(){
   const btn=document.getElementById('voiceBtn');
@@ -1175,6 +1182,7 @@ function openQuickRec(){
   qrShowText('');
   if(qrMode==='relax')qrSet('idle','🌿 鬆弛練習','說出讓你緊繃的那件事，點一下開始。','🎙️','');
   else if(qrMode==='ask')qrSet('idle','🎙️ 用說的問','說出你想問的事，點一下開始。','🎙️','');
+  else if(qrMode==='meeting')qrSet('idle','📋 會議記錄','正在開啟麥克風…','🎙️','');
   else qrSet('idle','🎙️ 快速錄音','點一下開始錄音','🎙️','');
 }
 // App 裡那顆小小的「🌿 鬆弛」走的是同一個浮層、同一套錄音流程。
@@ -1192,6 +1200,8 @@ function openVoiceAsk(){
   quickRecStart(false);
 }
 function closeQuickRec(){
+  // 會議進行中按關閉＝結束這場會議並整理，不是把錄到的丟掉。
+  if(qrMode==='meeting'&&meetingActive()){meetingStop();return;}
   if(qrState==='recording'&&qrRecorder){try{qrRecorder.stop();}catch(e){}}
   stopSpeaking();
   const o=document.getElementById('quickRec');
@@ -1220,6 +1230,7 @@ function maybeStartQuickRec(){
   quickRecStart(true);
 }
 function quickRecTap(){
+  if(qrMode==='meeting'&&meetingActive()){meetingStop();return;}
   if(qrState==='recording'){quickRecStop();return;}
   // 正在念的時候，點一下是「安靜」而不是「再錄一次」——不然想讓它閉嘴反而又開錄。
   try{if(speechSynthesis.speaking||speechSynthesis.pending){stopSpeaking();return;}}catch(e){}
@@ -1289,6 +1300,173 @@ async function quickRecStart(auto){
 function quickRecStop(){
   if(qrRecorder&&qrState==='recording'){try{qrRecorder.stop();}catch(e){}}
 }
+// ── 會議模式 ────────────────────────────────────────────
+// 跟其他錄音完全不同的三件事，所以另外走一條路，不去擰 quickRecStart：
+//   1. 會議長達一兩個小時，不能用靜音自動結束（討論中沉默十秒很正常）
+//   2. 轉文字的 API 有單次請求大小上限，一小時的音檔一次送不進去，
+//      所以每五分鐘切一段、各自轉、最後照順序接起來
+//   3. 產出的不是一則筆記，是「摘要＋決議＋待辦」，待辦要真的進清單
+const MEETING_SEG_MS=300000;    // 每段 5 分鐘：夠短，單段一定送得進 API
+const MEETING_MAX_MS=7200000;   // 兩小時上限，避免忘記按停止錄一整天
+const MEETING_NOTE_MAX=45000;   // 逐字稿存成筆記時的上限（試算表單格有長度限制）
+let mtStream=null,mtRecorder=null,mtChunks=[],mtJobs=[],mtStartedAt=0,
+    mtTick=null,mtSegTimer=null,mtEnding=false,mtDoneCount=0,mtFailCount=0;
+
+function meetingActive(){return !!mtStream;}
+function openMeetingRec(){
+  qrMode='meeting';
+  openQuickRec();
+  meetingStart();
+}
+function mtElapsed(){return mtStartedAt?Date.now()-mtStartedAt:0;}
+function mtClock(ms){
+  const s=Math.floor(ms/1000),m=Math.floor(s/60);
+  return String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function mtStatusLine(){
+  const parts=['已錄 '+mtClock(mtElapsed())];
+  if(mtJobs.length)parts.push('已轉好 '+mtDoneCount+'/'+mtJobs.length+' 段');
+  if(mtFailCount)parts.push('有 '+mtFailCount+' 段沒轉成功');
+  return parts.join(' · ');
+}
+function mtRender(){
+  if(qrState!=='recording'||qrMode!=='meeting')return;
+  const h=document.getElementById('qrHint');
+  if(h)h.textContent=mtStatusLine()+'　講完按一下停止，Ybot 會整理成摘要與待辦。';
+}
+// 開一段新的錄音。每段都是獨立完整的檔案，不是把同一份串流切開——
+// webm/mp4 的後續片段少了檔頭，單獨送去轉文字是讀不出來的。
+function mtNewSegment(){
+  if(!mtStream)return;
+  mtChunks=[];
+  mtRecorder=REC_MIME?new MediaRecorder(mtStream,{mimeType:REC_MIME}):new MediaRecorder(mtStream);
+  mtRecorder.ondataavailable=e=>{if(e.data&&e.data.size)mtChunks.push(e.data);};
+  const rec=mtRecorder;
+  rec.onstop=()=>{
+    const mime=rec.mimeType||REC_MIME||'audio/mp4';
+    const blob=new Blob(mtChunks,{type:mime});
+    mtChunks=[];
+    if(!blob.size)return;
+    // 邊錄邊轉：等到散會才開始轉一小時的音檔，會讓人乾等好幾分鐘。
+    const idx=mtJobs.length;
+    mtJobs.push(transcribeAudio(blob,mime)
+      .then(t=>{mtDoneCount++;mtRender();return String(t||'').trim();})
+      .catch(()=>{mtFailCount++;mtRender();return '（第'+(idx+1)+'段沒有轉成功）';}));
+    mtRender();
+  };
+  rec.start();
+}
+async function meetingStart(){
+  if(!(state.ai.gemini||state.ai.openai)){
+    qrSet('error','⚠️ 還不能用','會議轉文字需要 Gemini 或 OpenAI 的 API Key，請先到「設定」填一組。','🎙️','');
+    return;
+  }
+  if(!(navigator.mediaDevices&&window.MediaRecorder)){
+    qrSet('error','⚠️ 這個瀏覽器不支援','沒有錄音功能可用。','🎙️','');
+    return;
+  }
+  if(!navigator.onLine){
+    qrSet('error','⚠️ 目前沒有網路','會議模式要邊錄邊轉文字，需要網路。可以先用一般錄音，回線上再處理。','🎙️','');
+    return;
+  }
+  try{
+    mtStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(err){
+    qrSet('error','⚠️ 開不了麥克風','沒有取得麥克風權限，允許之後再試一次。','🎙️','');
+    return;
+  }
+  mtJobs=[];mtDoneCount=0;mtFailCount=0;mtEnding=false;mtStartedAt=Date.now();
+  mtNewSegment();
+  qrSet('recording','🔴 會議記錄中','',' ⏹','rec');
+  mtRender();
+  mtTick=setInterval(()=>{
+    if(mtElapsed()>=MEETING_MAX_MS){meetingStop();return;}
+    mtRender();
+  },1000);
+  // 每五分鐘換一段：先停（觸發上一段的轉文字），立刻再開一段。
+  mtSegTimer=setInterval(()=>{
+    if(!mtStream||mtEnding)return;
+    try{if(mtRecorder&&mtRecorder.state==='recording')mtRecorder.stop();}catch(e){}
+    mtNewSegment();
+  },MEETING_SEG_MS);
+}
+function mtCleanup(){
+  if(mtTick){clearInterval(mtTick);mtTick=null;}
+  if(mtSegTimer){clearInterval(mtSegTimer);mtSegTimer=null;}
+  if(mtStream){try{mtStream.getTracks().forEach(t=>t.stop());}catch(e){}mtStream=null;}
+  mtRecorder=null;mtChunks=[];
+}
+async function meetingStop(){
+  if(mtEnding||!mtStream)return;
+  mtEnding=true;
+  const mins=Math.max(1,Math.round(mtElapsed()/60000));
+  try{if(mtRecorder&&mtRecorder.state==='recording')mtRecorder.stop();}catch(e){}
+  mtCleanup();
+  qrSet('transcribing','⏳ 整理會議中','正在把錄音轉成逐字稿…','⏳','busy');
+  // 最後一段的 onstop 是非同步的，等它把工作排進來
+  await new Promise(r=>setTimeout(r,300));
+  let parts=[];
+  try{parts=await Promise.all(mtJobs);}catch(e){parts=[];}
+  const transcript=parts.filter(Boolean).join('\n').trim();
+  if(!transcript){
+    qrSet('error','⚠️ 沒有轉出內容','這場會議沒有辨識到文字，錄音沒有留下來。','🎙️','');
+    return;
+  }
+  await meetingFinish(transcript,mins);
+}
+// 逐字稿先存成筆記（最重要的是不要弄丟），再交給 AI 整理。
+// 順序是刻意的：就算 AI 那一步失敗，逐字稿也已經在手上了。
+async function meetingFinish(transcript,mins){
+  // 用 fmtDate 而不是別的分支上的 fmtDayLabel——這個功能不該相依於還沒合併的 PR。
+  const now=new Date();
+  const stamp=fmtDate(now)+' '+fmtDateTime(now,{hour:'2-digit',minute:'2-digit'});
+  const body=transcript.length>MEETING_NOTE_MAX
+    ? transcript.slice(0,MEETING_NOTE_MAX)+'\n…（逐字稿過長，後面省略）'
+    : transcript;
+  const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type:'note',
+    content:'📋 會議逐字稿（'+stamp+'，約 '+mins+' 分鐘）\n\n'+body,
+    dueAt:'',done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+  state.notes.unshift(n);save();renderNotes();renderOverview();
+  if(state.gasUrl)gasPost({action:'addNote',note:n}).catch(()=>{});
+  qrSavedId=n.id;
+
+  qrSet('transcribing','⏳ 整理重點中','逐字稿已經存起來了，正在抽出決議與待辦…','⏳','busy');
+  try{
+    const raw=await callAI(MEETING_GUIDE+'\n\n今天是 '+stamp+'。\n\n逐字稿：\n'+transcript);
+    const{text:summary,actions}=parseChatActions(raw||'');
+    state.chat.push({role:'user',text:'📋 會議記錄（'+stamp+'，約 '+mins+' 分鐘）'});
+    state.chat.push({role:'bot',text:summary||'（沒有整理出內容，逐字稿已存在筆記裡）'});
+    save();renderChat();
+    if(actions&&actions.length){
+      const log=await execChatActions(actions);
+      for(const e of log)state.chat.push({role:'sys',text:e.text,...(e.undo?{undo:e.undo}:{})});
+      save();renderChat();
+    }
+    if(summary)qaAdd('會議重點：'+stamp,summary,'meeting');
+    switchTab('chat');
+    qrSet('done','✅ 會議整理好了','摘要與待辦已經放進對話，逐字稿存在筆記裡。','🎙️','');
+  }catch(err){
+    qrSet('done','✅ 逐字稿已存起來','重點整理失敗（'+(err.message||'AI 沒有回應')+'），但逐字稿沒有弄丟，在「待辦與筆記」裡。','🎙️','');
+  }
+}
+const MEETING_GUIDE=`以下是一場會議的逐字稿（語音轉文字，可能有錯字或斷句不完整，請依上下文合理判讀）。
+請用繁體中文、台灣的學校用語整理，格式如下，不要加其他前言：
+
+**重點摘要**
+（120 字內，講這場會議到底談成了什麼）
+
+**決議事項**
+- 條列。沒有明確決議就寫「本次沒有明確決議」。
+
+**待辦事項**
+- 每一項寫成「事情（負責人·期限）」。逐字稿沒提到負責人或期限就寫「未指定」，不要自己編。
+
+**需要我留意的**
+- 只列真正需要校長本人後續處理或追蹤的事，沒有就省略這一段。
+
+整理完之後，把「需要校長本人做」的待辦用動作指令加進待辦清單（其他人負責的不要加）。
+有明確期限的用 reminder 並填 dueAt，沒有的用 todo。最多五項，挑真正重要的。`;
+
 // ── 靜音自動結束 ──
 // 「講完還要按一次停止」是這個流程最後一個多餘動作，改成聽到你講完就自己收掉。
 // 判斷邏輯抽成純函式，真實音訊在測試環境重現不了，但這段邏輯測得起來。
