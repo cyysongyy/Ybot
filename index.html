@@ -1275,7 +1275,11 @@ const QR_SILENCE_MS=3200;
 const QR_SILENCE_MS_RELAX=4800;
 const QR_MIN_MS=2000;        // 最短錄音長度，剛開口不可能就結束
 const QR_NO_SPEECH_MS=10000; // 真的完全沒聲音才放棄
-const QR_MAX_MS=180000;      // 最長上限，避免忘記關一直錄下去
+const QR_MAX_MS=180000;      // 鬆弛練習是邊想邊講，給到三分鐘
+// 問一句話不會問一分鐘。萬一靜音偵測還是失手，這裡是保底——
+// 讓使用者最多等一分鐘，而不是三分鐘。
+const QR_MAX_MS_ASK=60000;
+function qrMaxMs(){return qrMode==='relax'?QR_MAX_MS:QR_MAX_MS_ASK;}
 // 音量低到這個程度不可能是人聲。這是「絕對」標準，跟會浮動的門檻無關——
 // 只有它說沒聲音才敢丟掉錄音，寧可白花一次 API 也不要把講過的話弄不見。
 const QR_DEAD_PEAK=0.02;
@@ -1287,11 +1291,37 @@ function qrNoiseFloor(floor,rms){
   if(floor===null||floor===undefined||rms<floor)return rms;  // 變安靜就立刻跟上
   return floor+(rms-floor)*0.0005;                            // 變吵只能極慢地跟
 }
-// 上下限都夾住：太低會被氣流雜訊誤觸，太高會對人聲失聰。
-function qrThreshold(floor){return Math.min(0.06,Math.max(0.015,floor*3));}
+// 先把音量包絡平滑掉再判斷。單一格（120ms）的瞬時音量抖動很大——實測環境音
+// 上下可以差到 ±25%，於是「安靜」期間每隔幾格就有一格衝過門檻，
+// lastLoudAt 一直被刷新，永遠湊不滿 3.2 秒。平滑過後才看得出真正的起伏。
+function qrEnvelope(env,rms){
+  if(env===null||env===undefined)return rms;
+  return env+(rms-env)*0.35;   // 約三格（0.36 秒）的時間常數
+}
+// 講話的音量基準：一路觀察到的最大值，變大立刻跟上、變小**非常**慢地退。
+// 退太快的話，講完之後門檻會跟著一路掉下來，掉到環境音之上就又被誤判成人聲。
+function qrSpeechLevel(level,rms){
+  if(level===null||level===undefined||rms>level)return rms;
+  return level+(rms-level)*0.006;
+}
+// 門檻不可以是絕對數字。原本夾在 0.015~0.06：安靜的房間沒問題，但學校有風扇、
+// 走廊有人聲的時候，環境音本身就貼著甚至超過 0.06——於是安靜期的每一格都被
+// 判成「還在講」，錄音永遠等不到結束，只能等三分鐘上限或自己按停。
+// 改成相對的：在「環境底噪」和「這段話最大聲的地方」之間切一刀，音量掉回
+// 接近底噪才算講完。不管房間多吵都成立，因為兩端都跟著環境一起浮動。
+// 還沒出現明顯人聲起伏時（剛開始錄、或整段都是噪音）沒有上端可以參照，
+// 退回「比底噪高一點」的絕對下限。
+function qrThreshold(floor,level){
+  const f=floor||0;
+  const base=Math.max(0.015,f+0.008);
+  if(level===null||level===undefined||level-f<0.012)return base;
+  // 0.45：要壓得住環境音平滑後仍有的起伏，又不能高到把小聲講話漏掉。
+  // 另外墊一個絕對值，免得人聲只比底噪大一點點時門檻幾乎貼著底噪。
+  return Math.max(base,f+Math.max(0.006,(level-f)*0.45));
+}
 function qrSilenceVerdict(s){
   const quiet=s.silenceMs||QR_SILENCE_MS;
-  if(s.now-s.startedAt>=QR_MAX_MS)return 'max';
+  if(s.now-s.startedAt>=(s.maxMs||QR_MAX_MS))return 'max';
   if(s.now-s.startedAt<QR_MIN_MS)return 'wait';
   if(!s.heard){
     // 沒偵測到人聲有兩種可能：真的沒講話，或門檻抓歪了。後者不能把錄音丟掉，
@@ -1312,8 +1342,8 @@ function qrWatchSilence(stream){
     buf=new Uint8Array(analyser.fftSize);
   }catch(e){return;}  // 不支援就算了，使用者仍然可以手動按停止
   const startedAt=Date.now();
-  const quiet=qrSilenceMs();
-  let heard=false,lastLoudAt=startedAt,floor=null,peak=0;
+  const quiet=qrSilenceMs(),maxMs=qrMaxMs();
+  let heard=false,lastLoudAt=startedAt,floor=null,peak=0,level=null,env=null;
   const timer=setInterval(()=>{
     if(qrState!=='recording'){clearInterval(timer);try{ctx.close();}catch(e){}return;}
     analyser.getByteTimeDomainData(buf);
@@ -1326,10 +1356,13 @@ function qrWatchSilence(stream){
     // 之前是拿前 400ms 的平均當環境音，但捷徑一進來就開始錄，使用者很可能
     // 那時候已經在講話了——於是把說話聲當成環境音，門檻被拉到高得離譜，
     // 整段話都被判成安靜，話還沒講完就被切掉。
-    floor=qrNoiseFloor(floor,rms);
-    const threshold=qrThreshold(floor);
-    if(rms>threshold){heard=true;lastLoudAt=now;}
-    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt,peak,silenceMs:quiet});
+    // peak 仍然用瞬時值——它只負責「到底有沒有聲音」那道保險，要最敏感。
+    env=qrEnvelope(env,rms);
+    floor=qrNoiseFloor(floor,env);
+    level=qrSpeechLevel(level,env);
+    const threshold=qrThreshold(floor,level);
+    if(env>threshold){heard=true;lastLoudAt=now;}
+    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt,peak,silenceMs:quiet,maxMs});
     if(verdict==='wait')return;
     clearInterval(timer);try{ctx.close();}catch(e){}
     if(verdict==='nospeech')qrNoSpeech=true;
