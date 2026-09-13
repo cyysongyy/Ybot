@@ -1151,12 +1151,20 @@ async function toggleRecording(){
         if(text){
           const ta=document.getElementById('noteContent');
           ta.value=(ta.value?ta.value+' ':'')+text;
+          status.textContent='✅ 已轉成文字稿，正在新增…';
+          addNote();  // 講完就直接送出，不用再多按一次「新增」
+        }else{
+          status.textContent='⚠️ 沒有辨識到內容';
         }
-        status.textContent=text?'✅ 已轉成文字稿':'⚠️ 沒有辨識到內容';
       }catch(err){status.textContent='❌ 轉文字失敗：'+err.message;}
     };
     mediaRecorder.start();
-    recording=true;btn.textContent='🔴 錄音中…（再按一次停止）';status.textContent='';
+    recording=true;btn.textContent='🔴 錄音中…（講完停頓一下會自動結束）';status.textContent='';
+    watchSilenceAutoStop(stream,{
+      silenceMs:QR_SILENCE_MS,maxMs:QR_MAX_MS_ASK,
+      isActive:()=>recording,
+      onStop:()=>{try{mediaRecorder.stop();}catch(e){}}
+    });
   }catch(err){status.textContent='❌ 無法取得麥克風權限';}
 }
 // ── 快速錄音（給 iPhone 實體鍵用捷徑開 ?rec=1 進來）──
@@ -1536,7 +1544,11 @@ function qrSilenceVerdict(s){
   }
   return (s.now-s.lastLoudAt>=quiet)?'done':'wait';
 }
-function qrWatchSilence(stream){
+// 通用版靜音自動結束：任何錄音流程都能用，不綁死在快速錄音的 qrState/qrMode。
+// isActive()回傳false（使用者手動停止、或錄音已經結束）就自己收工；
+// 偵測到「講完」或「太久沒聲音」或「錄超過上限」就呼叫 onStop(verdict)。
+function watchSilenceAutoStop(stream,opts){
+  const silenceMs=opts.silenceMs,maxMs=opts.maxMs,isActive=opts.isActive,onStop=opts.onStop;
   let ctx,analyser,buf;
   try{
     const AC=window.AudioContext||window.webkitAudioContext;
@@ -1548,10 +1560,9 @@ function qrWatchSilence(stream){
     buf=new Uint8Array(analyser.fftSize);
   }catch(e){return;}  // 不支援就算了，使用者仍然可以手動按停止
   const startedAt=Date.now();
-  const quiet=qrSilenceMs(),maxMs=qrMaxMs();
   let heard=false,lastLoudAt=startedAt,floor=null,peak=0,level=null,env=null,loudRun=0;
   const timer=setInterval(()=>{
-    if(qrState!=='recording'){clearInterval(timer);try{ctx.close();}catch(e){}return;}
+    if(!isActive()){clearInterval(timer);try{ctx.close();}catch(e){}return;}
     analyser.getByteTimeDomainData(buf);
     let sum=0;
     for(let i=0;i<buf.length;i++){const v=(buf[i]-128)/128;sum+=v*v;}
@@ -1575,12 +1586,18 @@ function qrWatchSilence(stream){
       loudRun++;
       if(loudRun>=2){heard=true;lastLoudAt=now;}
     }else loudRun=0;
-    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt,peak,silenceMs:quiet,maxMs});
+    const verdict=qrSilenceVerdict({now,startedAt,heard,lastLoudAt,peak,silenceMs,maxMs});
     if(verdict==='wait')return;
     clearInterval(timer);try{ctx.close();}catch(e){}
-    if(verdict==='nospeech')qrNoSpeech=true;
-    quickRecStop();
+    onStop(verdict);
   },120);
+}
+function qrWatchSilence(stream){
+  watchSilenceAutoStop(stream,{
+    silenceMs:qrSilenceMs(),maxMs:qrMaxMs(),
+    isActive:()=>qrState==='recording',
+    onStop:verdict=>{if(verdict==='nospeech')qrNoSpeech=true;quickRecStop();}
+  });
 }
 // 轉好的文字直接存成瑣事筆記——快速錄音的重點是「先不要弄丟」，
 // 分類之後可以再叫 Ybot 改。存完附一個復原，講錯了可以馬上收回。
