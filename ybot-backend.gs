@@ -401,13 +401,16 @@ function getGmailDigest() {
   } catch (err) { return []; }
 }
 
-// 日曆彙整：未來 7 天的行程
+// 日曆彙整：未來 14 天的行程
+// 原本是 7 天。問題是：禮拜一問「下禮拜的行程」，下禮拜五已經超過 7 天，
+// 答案會缺一截，而且前端看不出來是缺的還是真的沒有。14 天涵蓋得住
+// 「這禮拜＋下禮拜」的任何問法。
 // 讀取「所有」看得到的日曆（含訂閱/分享加入清單的），不只主要日曆，
 // 避免副曆的行程被漏掉；同一事件若出現在多個日曆中則去重。
 function getCalendarDigest() {
   try {
     const now = new Date();
-    const until = new Date(now.getTime() + 7 * 86400000);
+    const until = new Date(now.getTime() + 14 * 86400000);
     const calendars = CalendarApp.getAllCalendars();
     const seen = new Set();
     const events = [];
@@ -428,7 +431,7 @@ function getCalendarDigest() {
       } catch (err) { /* 單一日曆讀取失敗就跳過，不影響其他日曆 */ }
     });
     events.sort((a, b) => new Date(a.start) - new Date(b.start));
-    return events.slice(0, 50);
+    return events.slice(0, 80);   // 兩週的量比一週多，上限跟著放寬
   } catch (err) { return []; }
 }
 
@@ -645,9 +648,16 @@ function dailyBrief() {
     lines.push(w.icon + ' ' + w.city + '天氣：' + w.desc + '，現在 ' + w.temp + '°C（今日 ' + w.tMin + '~' + w.tMax + '°C，降雨機率 ' + (w.rainChance ?? '—') + '%）');
     lines.push('');
   }
-  if (ctx.calendar.length) {
-    lines.push('📅 未來行程：');
-    ctx.calendar.forEach(ev => {
+  // context 給到 14 天是為了讓對話問得到「下禮拜」，但早上這封信不需要跟著
+  // 變成兩倍長——信是拿來掃一眼的，只列一週。
+  const briefWindow = new Date(Date.now() + 7 * 86400000);
+  const briefEvents = (ctx.calendar || []).filter(function (ev) {
+    const d = new Date(ev.start);
+    return !isNaN(d) && d <= briefWindow;
+  });
+  if (briefEvents.length) {
+    lines.push('📅 未來一週行程：');
+    briefEvents.forEach(ev => {
       const t = ev.allDay ? '全天' : tpeDateTimeStr(new Date(ev.start));
       lines.push('　' + t + '　' + ev.title);
     });
