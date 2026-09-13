@@ -675,7 +675,12 @@ function detectScheduleRange(text){
   const thisWd=t.match(/(?:這|本)?(?:禮拜|週|星期)([一二三四五六日])/);
   if(thisWd){
     const dayOffset=WD_INDEX[thisWd[1]]===0?6:WD_INDEX[thisWd[1]]-1;
-    const target=new Date(mondayStart(today).getTime()+dayOffset*86400000);
+    let target=new Date(mondayStart(today).getTime()+dayOffset*86400000);
+    // 沒加「下」字問「禮拜三」，如果本週的禮拜三已經過去了（今天已經過那天、
+    // 或今天剛好是週末），使用者要問的幾乎一定是接下來那個禮拜三，不是已經
+    // 過完、什麼用都沒有的那天——這裡實際發生過（使用者週日問「這個禮拜三」，
+    // 卻被算成三天前，導致真正在下週三的行程被講成「沒有」）。
+    if(target.getTime()<today.getTime())target=new Date(target.getTime()+7*86400000);
     return{label:'禮拜'+thisWd[1],start:target,end:new Date(target.getTime()+86400000)};
   }
   if(/下禮拜|下週|下星期/.test(t)){
