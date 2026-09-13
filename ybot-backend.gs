@@ -76,7 +76,9 @@ function checkTimezone() {
     : '⚠️ 專案時區是「' + (tz || '未知') + '」，請改成 (GMT+08:00) Taipei。顯示用的時間已經一律是台北，但定時排程會照專案時區發動。';
 }
 
-const NOTE_COLS = ['id', 'type', 'content', 'dueAt', 'done', 'createdAt', 'notifiedAt'];
+// owner：交辦給誰。空白＝自己要做的。
+// 加在最後面，舊資料的那七欄位置不動，既有資料不用搬。
+const NOTE_COLS = ['id', 'type', 'content', 'dueAt', 'done', 'createdAt', 'notifiedAt', 'owner'];
 // kind: chat（對話問答）／ relax（鬆弛練習）
 const QA_COLS = ['id', 'q', 'a', 'kind', 'at'];
 // type: note（瑣事筆記）／ todo（待辦）／ reminder（有時間點的提醒，到點會主動寄信）
@@ -218,7 +220,16 @@ function ensureSheet(name, cols) {
     sh.getRange(1, 1, 1, cols.length).setValues([cols]);
     sh.getRange(1, 1, 1, cols.length).setFontWeight('bold');
     sh.setFrozenRows(1);
+    return sh;
   }
+  // 之後加欄位時（例如 owner），既有的工作表不會自己長出標題列。
+  // 資料本身照 index 讀寫沒問題，但表頭缺一格，人去看試算表會一頭霧水。
+  try {
+    if (sh.getLastColumn() < cols.length) {
+      sh.getRange(1, 1, 1, cols.length).setValues([cols]);
+      sh.getRange(1, 1, 1, cols.length).setFontWeight('bold');
+    }
+  } catch (err) { /* 補標題失敗不影響讀寫，略過 */ }
   return sh;
 }
 
@@ -259,7 +270,8 @@ function doPost(e) {
     const id = n.id || Utilities.getUuid();
     appendObj(note, NOTE_COLS, {
       id, type: n.type || 'note', content: n.content || '', dueAt: n.dueAt || '',
-      done: n.done ? 'true' : '', createdAt: n.createdAt || new Date().toISOString(), notifiedAt: ''
+      done: n.done ? 'true' : '', createdAt: n.createdAt || new Date().toISOString(), notifiedAt: '',
+      owner: n.owner || ''
     });
     return jsonResp({ ok: true, message: '已新增', id });
   }
@@ -279,7 +291,8 @@ function doPost(e) {
       if (!n.id) return;
       upsertRow(note, NOTE_COLS, n.id, {
         id: n.id, type: n.type || 'note', content: n.content || '', dueAt: n.dueAt || '',
-        done: n.done ? 'true' : '', createdAt: n.createdAt || new Date().toISOString(), notifiedAt: n.notifiedAt || ''
+        done: n.done ? 'true' : '', createdAt: n.createdAt || new Date().toISOString(),
+        notifiedAt: n.notifiedAt || '', owner: n.owner || ''
       });
     });
     return jsonResp({ ok: true, message: '同步完成：' + ((body.notes || []).length) + ' 筆' });
