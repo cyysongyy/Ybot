@@ -2206,7 +2206,10 @@ function renderHeroSchedule(events){
   const items=events.slice(0,LIMIT).map(ev=>{
     const d=new Date(ev.start);
     // 明天的行程掛一個「明」標籤，兩天的行程排在一起才分得出來是哪一天的。
-    const tag=d.toDateString()===tomorrow?'<span class="dayTag">明</span>':'';
+    // 比對一定要用台北時間（tpeNow），不能直接對 d 呼叫 toDateString()——
+    // 那是裝置本地時區，裝置時區不是台北時就會跟 tomorrow（台北時間算出來的）對不起來，
+    // 標籤跟事件對到錯的一天。
+    const tag=tpeNow(ev.start).toDateString()===tomorrow?'<span class="dayTag">明</span>':'';
     return `<a href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${tag}${esc(ev.title)}</a>`;
   }).join('');
   const more=events.length>LIMIT?`<a class="more" href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">+${events.length-LIMIT} 項 ↗</a>`:'';
@@ -2218,13 +2221,15 @@ function renderOverview(){
   const box=document.getElementById('overviewCard');
   const c=state.context;
   renderHeroWeather(c&&c.weather);
-  const todayStr=new Date().toDateString();
+  const todayStr=tpeNow().toDateString();
   const tomorrowStr=tomorrowDateStr();
   // 今天＋明天一起顯示：晚上看的時候才知道明天一早有什麼要準備。
+  // 這裡也要用 tpeNow(ev.start) 而不是直接 new Date(ev.start).toDateString()，
+  // 理由跟 renderHeroSchedule 的「明」標籤一樣：裝置時區不是台北時就會判斷錯天。
   const twoDayEvents=c?(c.calendar||[])
     .filter(ev=>{
       if(isHolidayEvent(ev))return false;
-      const s=new Date(ev.start).toDateString();return s===todayStr||s===tomorrowStr;
+      const s=tpeNow(ev.start).toDateString();return s===todayStr||s===tomorrowStr;
     })
     .sort((a,b)=>new Date(a.start)-new Date(b.start)):[];
   renderHeroSchedule(twoDayEvents);
