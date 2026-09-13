@@ -623,11 +623,18 @@ function fmtDayLabel(d){
   return (t.getMonth()+1)+'/'+t.getDate()+'('+WD_NAMES[t.getDay()]+')';
 }
 // 往後 n 天的日期對照表。給得夠遠，「下下禮拜三」也查得到。
+// 注意：這裡故意不能先呼叫 tpeNow() 拿到「假裝本地時間＝台北時間」的 base，
+// 再用 fmtDayLabel(d)（內部會再呼叫一次 tpeNow(d)）去格式化——tpeNow 疊兩次
+// 等於把裝置時區的偏移量修正了兩次，裝置時區只要不是台北，算出來的整張
+// 對照表都會整批多位移一天（實測 America/Los_Angeles 會把「今天」多算成
+// 明天）。要一直位移到「明天」才會被吃掉，所以曾經在裝置時區不是台北時，
+// 讓 AI 拿到的整張星期對照表本身就是錯的，AI 再怎麼照抄也還是錯。
+// 正確做法：每一天都直接從「真實現在時間」往後加整數天數，再呼叫一次
+// （只有一次）tpeNow 轉換成台北時間格式化。
 function buildDateRef(days){
-  const out=[],base=tpeNow();
-  if(isNaN(base))return '';
+  const out=[],now=Date.now();
   for(let i=0;i<days;i++){
-    const d=new Date(base.getTime()+i*86400000);
+    const d=new Date(now+i*86400000);
     out.push(fmtDayLabel(d)+(i===0?'←今天':i===1?'←明天':''));
   }
   return out.join('、');
