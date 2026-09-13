@@ -236,6 +236,8 @@ textarea.fi{resize:vertical;min-height:56px;}
 .noteBody{flex:1;}
 .noteContent{font-size:.88rem;line-height:1.5;white-space:pre-wrap;}
 .noteContent.done{text-decoration:line-through;color:var(--tx3);}
+.ownerTag{display:inline-block;font-size:.68rem;background:var(--bg);border:1px solid var(--line);
+  color:var(--tx2);border-radius:6px;padding:1px 6px;margin-right:6px;white-space:nowrap;}
 .noteMeta{font-size:.72rem;color:var(--tx3);margin-top:3px;}
 .noteMeta.overdue{color:var(--bad);font-weight:700;}
 .typeTag{font-size:.66rem;padding:2px 8px;border-radius:8px;font-weight:700;margin-right:6px;}
@@ -400,6 +402,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span class="chip" data-f="todo" onclick="setFilter('todo')">✅ 待辦</span>
         <span class="chip" data-f="reminder" onclick="setFilter('reminder')">⏰ 提醒</span>
         <span class="chip" data-f="idea" onclick="setFilter('idea')">💡 心法</span>
+        <span class="chip" data-f="owned" onclick="setFilter('owned')">🤝 我交辦的</span>
       </div>
       <div id="noteList"></div>
     </div>
@@ -1464,8 +1467,10 @@ const MEETING_GUIDE=`以下是一場會議的逐字稿（語音轉文字，可�
 **需要我留意的**
 - 只列真正需要校長本人後續處理或追蹤的事，沒有就省略這一段。
 
-整理完之後，把「需要校長本人做」的待辦用動作指令加進待辦清單（其他人負責的不要加）。
-有明確期限的用 reminder 並填 dueAt，沒有的用 todo。最多五項，挑真正重要的。`;
+整理完之後用動作指令把待辦加進清單，兩種都要加：
+- 校長本人要做的：不要填 owner
+- 交辦給別人的：把那個人填進 owner（例如 "owner":"陳主任"），這樣校長才追得到進度
+有明確期限的用 reminder 並填 dueAt，沒有的用 todo。最多八項，挑真正重要的。`;
 
 // ── 靜音自動結束 ──
 // 「講完還要按一次停止」是這個流程最後一個多餘動作，改成聽到你講完就自己收掉。
@@ -1939,6 +1944,13 @@ async function transcribeWithOpenAI(blob,mime){
   return (d.text||'').trim();
 }
 initVoiceButton();
+// AI 很容易把「校長自己要做的事」也填上 owner:'校長'，那會讓「我交辦的」
+// 清單塞滿其實是自己的事，整個功能就失去意義。這裡把指自己的稱呼一律清掉。
+const SELF_WORDS=/^(我|自己|本人|校長|Young|young|我自己|校長本人)$/;
+function cleanOwner(v){
+  const t=String(v||'').trim();
+  return (!t||SELF_WORDS.test(t))?'':t;
+}
 let noteFilter='all';
 function setFilter(f){
   noteFilter=f;
@@ -2040,7 +2052,7 @@ function restoreNote(id){
 }
 // 修改既有筆記的欄位。只開放 content／dueAt／type 三個欄位，
 // 避免 AI 動到 id／createdAt／done 這些有其他邏輯在依賴的欄位。
-const EDITABLE_NOTE_FIELDS=['content','dueAt','type'];
+const EDITABLE_NOTE_FIELDS=['content','dueAt','type','owner'];
 function updateNoteFields(id,patch){
   const n=state.notes.find(x=>x.id===id&&!x.deleted);if(!n)return null;
   const before={};const applied={};
@@ -2050,7 +2062,9 @@ function updateNoteFields(id,patch){
     if(k==='type'){if(!NOTE_TYPES.includes(v))continue;}
     if(k==='dueAt')v=v&&!isNaN(new Date(v))?new Date(v).toISOString():'';
     if(k==='content'){v=String(v??'').trim();if(!v)continue;}
-    if(v===n[k])continue;
+    // owner 允許被改成空字串——「這件事我自己來」是合理的更新，不能當成沒填而跳過
+    if(k==='owner')v=cleanOwner(v);
+    if(v===(n[k]||''))continue;
     before[k]=n[k];applied[k]=v;n[k]=v;
   }
   if(!Object.keys(applied).length)return null;
@@ -2078,7 +2092,10 @@ const CHECKABLE_TYPES=['todo','reminder'];
 function liveNotes(){return state.notes.filter(n=>!n.deleted);}
 function renderNotes(){
   const list=document.getElementById('noteList');
-  let items=liveNotes().filter(n=>noteFilter==='all'||n.type===noteFilter);
+  // 「我交辦的」不是一種 type，是「有填負責人」的那些——交辦出去的事橫跨
+  // 待辦與提醒，用 type 分不出來。
+  let items=liveNotes().filter(n=>
+    noteFilter==='all'?true:(noteFilter==='owned'?!!String(n.owner||'').trim():n.type===noteFilter));
   items=items.slice().sort((a,b)=>{
     if(!!a.done!==!!b.done)return a.done?1:-1;
     return new Date(b.createdAt)-new Date(a.createdAt);
@@ -2092,7 +2109,7 @@ function renderNotes(){
     return `<div class="noteItem">
       ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
       <div class="noteBody">
-        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${TYPE_LABEL[n.type]}</span>${esc(n.content)}</div>
+        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${TYPE_LABEL[n.type]}</span>${n.owner?`<span class="ownerTag">🤝 ${esc(n.owner)}</span>`:''}${esc(n.content)}</div>
         ${dueTxt?`<div class="noteMeta ${overdue?'overdue':''}">${overdue?'🔴 已逾期 · ':'⏰ '}${dueTxt}</div>`:''}
       </div>
       <button class="delBtn" onclick="deleteNote('${n.id}')">✕</button>
@@ -2967,6 +2984,11 @@ function buildContextText(question){
   if(pendingReminders.length)lines.push('提醒事項：'+pendingReminders.map(n=>`${fmt(n)}（${n.dueAt?fmtDateTime(n.dueAt):''}）`).join('；'));
   if(notesOnly.length)lines.push('瑣事筆記：'+notesOnly.slice(0,50).map(fmt).join('；'));
   if(ideas.length)lines.push('想法與心法：'+ideas.slice(0,50).map(fmt).join('；'));
+  // 交辦出去的事單獨列一段：它們混在待辦裡看不出來，但「誰欠我什麼」正是
+  // 校長最需要問的事。已完成的不列，不然會蓋掉還沒交的。
+  const delegated=notes.filter(n=>String(n.owner||'').trim()&&!n.done&&n.type!=='note'&&n.type!=='idea');
+  if(delegated.length)lines.push('我交辦出去、還沒回報的事：'+delegated.map(n=>
+    `${n.owner}：${n.content}${n.dueAt?`（期限 ${fmtDateTime(n.dueAt)}）`:'（沒有講期限）'}`).join('；'));
   const knownLinks=state.links.filter(l=>l.name&&l.url);
   if(knownLinks.length)lines.push('使用者自建的其他 App：'+knownLinks.map(l=>`${l.name}(${l.url})`).join('；'));
   if(state.useSchoolDb){
@@ -3047,10 +3069,11 @@ async function execChatActions(actions){
         const content=(a.content||'').trim();
         if(!content)continue;
         const dueAt=a.dueAt&&!isNaN(new Date(a.dueAt))?new Date(a.dueAt).toISOString():'';
-        const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:''};
+        const owner=cleanOwner(a.owner);
+        const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:'',owner};
         state.notes.unshift(n);
         if(state.gasUrl)gasPost({action:'addNote',note:n}).catch(()=>{});
-        add(`➕ 已新增「${TYPE_LABEL[type]}」：${content}${dueAt?`（${fmtDateTime(dueAt)}）`:''}`,{op:'add_note',id:n.id});
+        add(`➕ 已新增「${TYPE_LABEL[type]}」${owner?`（交辦 ${owner}）`:''}：${content}${dueAt?`（${fmtDateTime(dueAt)}）`:''}`,{op:'add_note',id:n.id});
       }else if(a.op==='add_calendar_event'&&a.start){
         if(!state.gasUrl){add(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
         const r=await gasPost({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end});
@@ -3156,10 +3179,10 @@ async function sendChat(){
   const actionSpec=`\n\n如果使用者是在「下指令」要你做事（新增待辦/瑣事/提醒/心法、把某件事加入行事曆、把某個待辦標記完成、修改某筆內容或時間、刪除某個待辦或筆記），除了正常的自然語言回覆之外，請在回覆最後面另起一段附加動作指令，格式如下（單純問答、沒有要做事就完全不要附加這段）：
 <<<ACTION>>>
 {"actions":[
-  {"op":"add_note","type":"note|todo|reminder|idea","content":"...","dueAt":"ISO時間或null"},
+  {"op":"add_note","type":"note|todo|reminder|idea","content":"...","dueAt":"ISO時間或null","owner":"交辦給誰（自己要做的就不要放這個欄位）"},
   {"op":"add_calendar_event","title":"...","start":"ISO時間","end":"ISO時間"},
   {"op":"complete_note","id":"要標記完成的項目 id"},
-  {"op":"update_note","id":"要修改的項目 id","content":"新內容（不改就不要放這個欄位）","dueAt":"新時間","type":"新類型"},
+  {"op":"update_note","id":"要修改的項目 id","content":"新內容（不改就不要放這個欄位）","dueAt":"新時間","type":"新類型","owner":"改交辦對象，要收回自己做就給空字串"},
   {"op":"delete_note","id":"要刪除的項目 id"},
   {"op":"remember","text":"關於使用者、以後每次都適用的一句話"},
   {"op":"forget","id":"已經不成立的那條記憶 id"}
@@ -3171,6 +3194,7 @@ async function sendChat(){
 - add_note 的 type：note=瑣事筆記、todo=待辦、reminder=特定時間要提醒、idea=想法與心法（心得/原則/靈感，不是要去做的事）。
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
+- owner 是「這件事誰要去做」。使用者說「請陳主任處理」「交給總務」就填進去；他自己要做的就不要填。填了之後這筆會出現在「🤝 我交辦的」清單裡，提醒他去追進度——所以不要把自己的事也填上他的名字。
 - remember 用在「以後每次對話都用得到」的事：怎麼稱呼某個人、偏好多長的回答、固定的做事方式、職務與負責範圍、在意什麼。**不要**拿它記一次性的待辦、當下的心情、或這次問題的答案——那些本來就會進待辦和問答庫。一次對話最多記一件事，沒有真正新的就不要記。
 - 上面「關於使用者」那段每條前面的 [pxxxxx] 就是記憶 id。使用者說某條已經不成立了（換職務、改習慣），用 forget 指名刪掉。
 一次可以有多個 actions。
