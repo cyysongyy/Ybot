@@ -2255,11 +2255,13 @@ function renderHeroWeather(w){
     ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="row1"><span class="t">${w.temp}°</span><span class="d">${esc(w.desc||'')}</span></div>${hasRange?`<div class="hl">↑${w.tMax}° ↓${w.tMin}°</div>`:''}</div>`
     : `<a href="javascript:void(0)" onclick="useGpsLocation()" style="color:#c4b5fd;font-size:.72rem;">📍 定位天氣</a>`;
 }
-// 明天的日期字串。用 setDate 而不是加 86400000 毫秒，跨月、跨年、跨日光節約時間才會對。
-function tomorrowDateStr(){
-  const d=tpeNow();d.setHours(0,0,0,0);d.setDate(d.getDate()+1);
+// 往後 n 天（0＝今天）的日期字串。用 setDate 而不是加 86400000 毫秒，
+// 跨月、跨年、跨日光節約時間才會對。
+function dateStrPlusDays(n){
+  const d=tpeNow();d.setHours(0,0,0,0);d.setDate(d.getDate()+n);
   return d.toDateString();
 }
+function tomorrowDateStr(){return dateStrPlusDays(1);}
 // Google 內建的節日日曆（「台灣的節日」／「Holidays in Taiwan」之類）會塞進一堆
 // 軍人節、教師節這種全天事件，把真正的行程從首頁有限的版面擠掉。
 // 只在首頁行程列表濾掉它們，餵給 AI 的資料仍是完整日曆，問「今天什麼節日」照樣答得出來。
@@ -2272,18 +2274,19 @@ function renderHeroSchedule(events){
   const el=document.getElementById('heroScheduleMini');
   if(!el)return;
   if(!events||!events.length){
-    el.innerHTML=`<a href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">今明兩天沒有行程 ↗</a>`;
+    el.innerHTML=`<a href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">今明後天沒有行程 ↗</a>`;
     return;
   }
   const LIMIT=4;
-  const tomorrow=tomorrowDateStr();
+  const tomorrow=dateStrPlusDays(1),dayAfter=dateStrPlusDays(2);
   const items=events.slice(0,LIMIT).map(ev=>{
     const d=new Date(ev.start);
-    // 明天的行程掛一個「明」標籤，兩天的行程排在一起才分得出來是哪一天的。
+    // 明天/後天的行程各掛一個標籤，三天的行程排在一起才分得出來是哪一天的。
     // 比對一定要用台北時間（tpeNow），不能直接對 d 呼叫 toDateString()——
-    // 那是裝置本地時區，裝置時區不是台北時就會跟 tomorrow（台北時間算出來的）對不起來，
-    // 標籤跟事件對到錯的一天。
-    const tag=tpeNow(ev.start).toDateString()===tomorrow?'<span class="dayTag">明</span>':'';
+    // 那是裝置本地時區，裝置時區不是台北時就會跟 tomorrow/dayAfter（台北時間算出來的）
+    // 對不起來，標籤跟事件對到錯的一天。
+    const evDateStr=tpeNow(ev.start).toDateString();
+    const tag=evDateStr===tomorrow?'<span class="dayTag">明</span>':(evDateStr===dayAfter?'<span class="dayTag">後</span>':'');
     return `<a href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${tag}${esc(ev.title)}</a>`;
   }).join('');
   const more=events.length>LIMIT?`<a class="more" href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">+${events.length-LIMIT} 項 ↗</a>`:'';
@@ -2296,17 +2299,18 @@ function renderOverview(){
   const c=state.context;
   renderHeroWeather(c&&c.weather);
   const todayStr=tpeNow().toDateString();
-  const tomorrowStr=tomorrowDateStr();
-  // 今天＋明天一起顯示：晚上看的時候才知道明天一早有什麼要準備。
+  const tomorrowStr=dateStrPlusDays(1);
+  const dayAfterStr=dateStrPlusDays(2);
+  // 今天＋明天＋後天一起顯示：晚上看的時候才知道接下來兩天有什麼要準備。
   // 這裡也要用 tpeNow(ev.start) 而不是直接 new Date(ev.start).toDateString()，
-  // 理由跟 renderHeroSchedule 的「明」標籤一樣：裝置時區不是台北時就會判斷錯天。
-  const twoDayEvents=c?(c.calendar||[])
+  // 理由跟 renderHeroSchedule 的日期標籤一樣：裝置時區不是台北時就會判斷錯天。
+  const threeDayEvents=c?(c.calendar||[])
     .filter(ev=>{
       if(isHolidayEvent(ev))return false;
-      const s=tpeNow(ev.start).toDateString();return s===todayStr||s===tomorrowStr;
+      const s=tpeNow(ev.start).toDateString();return s===todayStr||s===tomorrowStr||s===dayAfterStr;
     })
     .sort((a,b)=>new Date(a.start)-new Date(b.start)):[];
-  renderHeroSchedule(twoDayEvents);
+  renderHeroSchedule(threeDayEvents);
   if(!c){
     box.style.display='block';
     box.innerHTML=`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
