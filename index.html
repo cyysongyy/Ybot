@@ -3033,8 +3033,18 @@ function buildContextText(question){
   const c=state.context;
   if(c){
     if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
-    if((c.calendar||[]).length)lines.push('未來行程（每筆後面的日期與星期已經算好，回答時原封不動照抄，不要自己重新計算或改寫成別的星期）：'+c.calendar.map(ev=>
-      `${ev.title}(${fmtDayLabel(ev.start)}${ev.allDay?'全天':' '+fmtDateTime(ev.start,{hour:'2-digit',minute:'2-digit'})})`).join('；'));
+    if((c.calendar||[]).length){
+      const evLabel=ev=>`${ev.title}(${fmtDayLabel(ev.start)}${ev.allDay?'全天':' '+fmtDateTime(ev.start,{hour:'2-digit',minute:'2-digit'})})`;
+      lines.push('未來行程（每筆後面的日期與星期已經算好，回答時原封不動照抄，不要自己重新計算或改寫成別的星期）：'+c.calendar.map(evLabel).join('；'));
+      // 「今天/明天的行程」是被問到最多次的問題，這裡直接用程式先篩好交給 AI，
+      // 不要讓它自己從 14 天的清單裡挑「哪些算明天」——篩選這一步跟格式化不一樣，
+      // AI 篩錯了會把不相干的行程蓋上錯的日期，比單純抄錯格式更難察覺。
+      const todayS=tpeNow().toDateString(),tomorrowS=tomorrowDateStr();
+      const todayEvents=c.calendar.filter(ev=>tpeNow(ev.start).toDateString()===todayS);
+      const tomorrowEvents=c.calendar.filter(ev=>tpeNow(ev.start).toDateString()===tomorrowS);
+      lines.push('今天的行程（僅列今天，就是上面對照表「←今天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(todayEvents.length?todayEvents.map(evLabel).join('；'):'（無）'));
+      lines.push('明天的行程（僅列明天，就是上面對照表「←明天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(tomorrowEvents.length?tomorrowEvents.map(evLabel).join('；'):'（無）'));
+    }
     if((c.gmail||[]).length)lines.push('未讀重要信件：'+c.gmail.map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
       const n=c.news;
@@ -3231,7 +3241,8 @@ async function sendChat(){
 遇到「明天」「下禮拜一」「這禮拜三」這類說法時，**一律查下面這張對照表**，不要自己推算星期——括號裡就是星期幾：
 ${buildDateRef(21)}
 「下禮拜X」指的是今天之後最近的那個星期X所在的那一週；如果今天就是週末，「下禮拜一」就是接下來那個星期一。
-回答行程時請照實引用上面「未來行程」裡有的項目，日期與星期要跟對照表一致，沒有的不要自己補。`;
+回答行程時請照實引用上面「未來行程」裡有的項目，日期與星期要跟對照表一致，沒有的不要自己補。
+使用者問「今天」或「明天」有什麼行程時，**直接用「今天的行程」或「明天的行程」那兩行現成的答案**，不要自己從「未來行程」的 14 天清單裡篩選——篩錯了會把別天的行程講成是今天或明天的。`;
   // 遇到壓力/情緒/人際這類問題時，用他自己那套鬆弛感架構回答，而不是隨便給雞湯。
   // 純資訊型問題（今天幾點開會）不需要這段，所以只在問題像是在談困擾時才帶上。
   // 談話準備比一般的鬆弛回應更具體，兩個都帶會互相打架，所以擇一。
