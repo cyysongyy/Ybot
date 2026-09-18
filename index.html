@@ -2316,6 +2316,27 @@ function renderHeroSchedule(events){
 }
 // 用真實本機／雲端資料組出小型儀表板（甜甜圈進度圈＋統計方塊），
 // 待辦完成率不需要雲端也能算；信件／新聞數量沒連雲端時顯示「—」。
+// 抓行程撞期：只比對有明確時間的行程，全天事件（含節日日曆）排除在外——
+// 一整天的活動跟某場會議「撞」在同一天不是真正的衝突。events 已經照時間
+// 排序過，一旦後面那筆的開始時間晚於前面那筆的結束時間，後面更晚的也不會
+// 跟前面重疊，可以直接跳出內層迴圈。
+function detectCalendarConflicts(events){
+  const timed=(events||[]).filter(ev=>!ev.allDay&&!isHolidayEvent(ev))
+    .map(ev=>({title:ev.title,start:new Date(ev.start),end:new Date(ev.end)}))
+    .filter(ev=>!isNaN(ev.start)&&!isNaN(ev.end))
+    .sort((a,b)=>a.start-b.start);
+  const conflicts=[];
+  for(let i=0;i<timed.length;i++){
+    for(let j=i+1;j<timed.length;j++){
+      if(timed[j].start>=timed[i].end)break;
+      conflicts.push([timed[i],timed[j]]);
+    }
+  }
+  return conflicts;
+}
+function fmtConflictEvent(ev){
+  return `${fmtTime(ev.start,{hour:'2-digit',minute:'2-digit'})}~${fmtTime(ev.end,{hour:'2-digit',minute:'2-digit'})} ${esc(ev.title)}`;
+}
 function renderOverview(){
   const box=document.getElementById('overviewCard');
   const c=state.context;
@@ -2361,7 +2382,16 @@ function renderOverview(){
     : `<div class="ovItem ovEmpty">暫無新聞資料</div>`;
 
   const newsArrow=state.newsCollapsed?'▸':'▾';
+  // 撞期用 14 天的完整行事曆資料（跟對話用的同一份），不像下面的「今明後天」
+  // 那樣只看三天——衝突通常是提前排的，越早發現越有時間喬開。
+  const conflicts=detectCalendarConflicts(c.calendar);
+  const conflictHtml=conflicts.length
+    ? `<div class="ovSection"><div class="ovLabel" style="color:#dc2626;">⚠️ 行程撞期（${conflicts.length}組，請確認）</div>`+
+      conflicts.map(([a,b])=>`<div class="ovItem">${esc(fmtDayLabel(a.start))} ${fmtConflictEvent(a)}<span class="ovSub"> 撞</span> ${fmtConflictEvent(b)}</div>`).join('')+
+      `</div>`
+    : '';
   box.innerHTML=
+    conflictHtml+
     `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
     ``;

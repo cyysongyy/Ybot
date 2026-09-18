@@ -448,6 +448,28 @@ function getCalendarDigest() {
   } catch (err) { return []; }
 }
 
+// 抓行程撞期：只比對有明確時間的行程，全天事件排除在外——一整天的活動
+// 跟某場會議「撞」在同一天不是真正的衝突。events 先照開始時間排序，一旦
+// 後面那筆的開始時間晚於前面那筆的結束時間，後面更晚的也不會跟前面重疊，
+// 可以直接跳出內層迴圈，不用兩兩全比對。
+function detectCalendarConflicts(events) {
+  const timed = (events || []).filter(function (ev) { return !ev.allDay; })
+    .map(function (ev) { return { title: ev.title, start: new Date(ev.start), end: new Date(ev.end) }; })
+    .filter(function (ev) { return !isNaN(ev.start) && !isNaN(ev.end); })
+    .sort(function (a, b) { return a.start - b.start; });
+  const conflicts = [];
+  for (let i = 0; i < timed.length; i++) {
+    for (let j = i + 1; j < timed.length; j++) {
+      if (timed[j].start >= timed[i].end) break;
+      conflicts.push([timed[i], timed[j]]);
+    }
+  }
+  return conflicts;
+}
+function fmtConflictEvent(ev) {
+  return tpeDateTimeStr(ev.start) + '~' + tpeFormat(ev.end, 'HH:mm') + ' ' + ev.title;
+}
+
 // 手動清除新聞快取用：改了新聞來源設定後，在 Apps Script 編輯器執行一次這個函式，
 // 不用等 30 分鐘快取自然過期就能立刻看到新設定的結果。
 function clearNewsCache() {
@@ -659,6 +681,16 @@ function dailyBrief() {
   if (ctx.weather) {
     const w = ctx.weather;
     lines.push(w.icon + ' ' + w.city + '天氣：' + w.desc + '，現在 ' + w.temp + '°C（今日 ' + w.tMin + '~' + w.tMax + '°C，降雨機率 ' + (w.rainChance ?? '—') + '%）');
+    lines.push('');
+  }
+  // 撞期用完整 14 天的行事曆資料，不像下面「未來一週行程」只列 7 天——
+  // 衝突通常是提前排的，越早發現越有時間喬開，不用等到剩不到一週才知道。
+  const conflicts = detectCalendarConflicts(ctx.calendar);
+  if (conflicts.length) {
+    lines.push('⚠️ 行程撞期（' + conflicts.length + ' 組，請確認）：');
+    conflicts.forEach(function (pair) {
+      lines.push('　' + fmtConflictEvent(pair[0]) + '　撞　' + fmtConflictEvent(pair[1]));
+    });
     lines.push('');
   }
   // context 給到 14 天是為了讓對話問得到「下禮拜」，但早上這封信不需要跟著
