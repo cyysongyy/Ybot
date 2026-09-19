@@ -11,6 +11,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ybot">
+<!-- 只有「Micro-politics 事件記錄」那個選填整合會用到，跟該 App 共用同一個
+     Firebase 專案（ck-schadmin）；讀取權限由 Firebase 資料庫規則限制在授權
+     帳戶，這裡的設定值本來就是公開的用戶端識別碼，不是密鑰。 -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
 :root{
   --pri:#6d28d9;--pri2:#4c1d95;
@@ -544,6 +550,20 @@ a.ovMailItem:hover{text-decoration:underline;}
     </div>
 
     <div class="card">
+      <div class="section-title">🏛️ Micro-politics 事件記錄</div>
+      <div class="hint" style="margin-bottom:8px;">資料存在 Firebase（跟 CK-SCHADMIN 不同，不是同網域快取），需要直接用 Google 帳戶登入才能讀取，僅限授權帳戶。</div>
+      <div id="mpAuthStatus" class="hint" style="margin-bottom:8px;"></div>
+      <button class="btn ghost" id="mpLoginBtn" onclick="mpLogin()">使用 Google 帳戶登入</button>
+      <button class="btn ghost" id="mpLogoutBtn" onclick="mpLogout()" style="display:none;">登出</button>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;margin-top:10px;">
+        <input type="checkbox" id="useMicroPolitics" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useMicroPolitics=this.checked;save();onMicroPoliticsToggle();">
+        對話時附上事件記錄給 AI 參考
+      </label>
+      <div id="mpDataStatus" class="hint" style="margin-top:8px;"></div>
+      <div class="hint" style="margin-top:8px;">內容含事件描述、老師／學生代碼（例如 T-W、S-W）、嚴重程度、分類，不受限制；代碼本身就是這套系統既有的去識別化方式，不會額外還原成真實姓名。這些資料會連同對話一起送給你設定的 AI 服務，且不會存進本機 localStorage——每次重新整理頁面都要重新讀取一次。</div>
+    </div>
+
+    <div class="card">
       <div class="section-title">🧩 我的其他 App 資料</div>
       <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;">
         <input type="checkbox" id="useAppsData" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useAppsData=this.checked;save();onAppsDataToggle();">
@@ -728,7 +748,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,useAppsData:false,speakReply:true,qa:[],qaSyncedAt:'',
+  useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],
   gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
@@ -902,8 +922,10 @@ function fillSettings(){
   document.getElementById('hltUrl').value=state.hltUrl;
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
+  document.getElementById('useMicroPolitics').checked=!!state.useMicroPolitics;
   renderAppsDataStatus();
   renderSchoolDbStatus();
+  renderMpAuthStatus();
   renderPushStatus();
   checkBackendLock();
   populateHourSelects();
@@ -2668,6 +2690,137 @@ function buildSchoolDbContext(){
   if(rotation)lines.push(rotation);
   return lines.join('\n');
 }
+
+// ── Micro-politics 事件記錄：跟該 App 共用同一個 Firebase 專案，直接讀取
+// microPolitics/events。跟上面 CK-SCHADMIN 那種同網域 localStorage 快取不同——
+// 這裡資料存在 Firebase，一定要用 Google 帳戶登入、通過該專案的資料庫規則
+// 才讀得到，不是打開過那個 App 就自動有快取。故意不存進 localStorage：
+// 每次重新整理頁面都要重新讀取一次，事件內容不留在本機。
+// 這裡的設定值是公開的用戶端識別碼（Firebase 的存取控制是資料庫規則+登入
+// 身分，不是靠隱藏這組設定值），不是密鑰，可以放心寫進原始碼。
+const MP_FB_CONFIG={
+  apiKey:"AIzaSyAj1xigGCfdDFr4UQ_NtEaINoH5jj6sTIA",
+  authDomain:"ck-schadmin.firebaseapp.com",
+  projectId:"ck-schadmin",
+  storageBucket:"ck-schadmin.firebasestorage.app",
+  messagingSenderId:"661490879869",
+  appId:"1:661490879869:web:9fe0b1753b0101b9309014",
+  databaseURL:"https://ck-schadmin-default-rtdb.firebaseio.com"
+};
+let mpFbApp=null,mpAuthUser=null,mpEvents=null,mpFetching=false;
+function mpFbEnsureInit(){
+  if(mpFbApp)return mpFbApp;
+  if(!(window.firebase&&firebase.initializeApp))return null;
+  try{
+    mpFbApp=(firebase.apps&&firebase.apps.length)?firebase.app():firebase.initializeApp(MP_FB_CONFIG);
+    firebase.auth().onAuthStateChanged(user=>{
+      mpAuthUser=user;
+      renderMpAuthStatus();
+      if(user&&state.useMicroPolitics)refreshMicroPoliticsEvents();
+      else renderMpDataStatus();
+    });
+    // 整頁跳轉（redirect）登入回來後，把真正的錯誤顯示出來，不要默默失敗。
+    firebase.auth().getRedirectResult().catch(err=>{
+      const st=document.getElementById('mpAuthStatus');
+      if(st&&err&&err.code)st.textContent='❌ 登入失敗（'+err.code+'）：'+(err.message||'');
+    });
+  }catch(e){}
+  return mpFbApp;
+}
+function mpIsMobile(){
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1);
+}
+// 手機（尤其 iOS Safari/Chrome）彈出視窗登入不穩，跟 micro-politics 本身
+// 的做法一樣：手機一律直接用整頁跳轉登入，桌機才用彈出視窗。
+function mpLogin(){
+  if(!mpFbEnsureInit()){alert('Firebase 載入失敗，請檢查網路連線後重新整理頁面');return;}
+  const provider=new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({prompt:'select_account'});
+  const status=document.getElementById('mpAuthStatus');
+  if(status)status.textContent='登入中…';
+  if(mpIsMobile()){
+    firebase.auth().signInWithRedirect(provider).catch(err=>{
+      if(status)status.textContent='❌ 登入失敗：'+(err&&err.message||err);
+    });
+    return;
+  }
+  firebase.auth().signInWithPopup(provider).catch(err=>{
+    const code=err&&err.code;
+    if(code==='auth/popup-blocked'||code==='auth/cancelled-popup-request'||code==='auth/operation-not-supported-in-this-environment'){
+      firebase.auth().signInWithRedirect(provider).catch(e2=>{
+        if(status)status.textContent='❌ 登入失敗：'+(e2&&e2.message||e2);
+      });
+      return;
+    }
+    if(code==='auth/popup-closed-by-user'){if(status)status.textContent='';return;}
+    if(status)status.textContent='❌ 登入失敗：'+(err&&err.message||err);
+  });
+}
+function mpLogout(){
+  if(!mpFbEnsureInit())return;
+  firebase.auth().signOut();
+  mpEvents=null;
+  renderMpDataStatus();
+}
+function renderMpAuthStatus(){
+  const st=document.getElementById('mpAuthStatus');
+  const loginBtn=document.getElementById('mpLoginBtn');
+  const logoutBtn=document.getElementById('mpLogoutBtn');
+  if(!st)return;
+  if(mpAuthUser){
+    st.textContent='✅ 已登入：'+(mpAuthUser.email||'');
+    if(loginBtn)loginBtn.style.display='none';
+    if(logoutBtn)logoutBtn.style.display='inline-flex';
+  }else{
+    st.textContent='尚未登入。';
+    if(loginBtn)loginBtn.style.display='inline-flex';
+    if(logoutBtn)logoutBtn.style.display='none';
+  }
+  renderMpDataStatus();
+}
+// 打開開關時立刻去讀一次，不用等下一輪 15 分鐘定期重整。
+function onMicroPoliticsToggle(){
+  if(!state.useMicroPolitics)return;
+  mpFbEnsureInit();
+  if(mpAuthUser)refreshMicroPoliticsEvents();
+}
+async function refreshMicroPoliticsEvents(){
+  if(mpFetching)return;
+  mpFetching=true;
+  const st=document.getElementById('mpDataStatus');
+  if(st)st.textContent='讀取中…';
+  try{
+    const snap=await firebase.database().ref('microPolitics/events').once('value');
+    const val=snap.val()||{};
+    mpEvents=Object.keys(val).map(k=>Object.assign({id:k},val[k]));
+    if(st)st.textContent=`✅ 已讀取 ${mpEvents.length} 筆事件（${fmtDateTime(new Date(),{hour:'2-digit',minute:'2-digit'})} 更新）`;
+  }catch(e){
+    mpEvents=null;
+    if(st)st.textContent='❌ 讀取失敗（可能未獲授權存取或尚未登入）：'+e.message;
+  }finally{
+    mpFetching=false;
+  }
+}
+function renderMpDataStatus(){
+  const st=document.getElementById('mpDataStatus');
+  if(!st)return;
+  if(!mpAuthUser){st.textContent='';return;}
+  if(mpFetching)return;  // 讀取中的訊息不要被這裡蓋掉
+  st.textContent=mpEvents?`共 ${mpEvents.length} 筆事件已讀取。`:'尚未讀取，開啟上面「對話時附上事件記錄」開關即可。';
+}
+// 只列最近 80 筆：事件是持續累積的紀錄，太久遠的對「最近狀況」問答用處不大，
+// 也避免每次對話都把整個歷史塞進去。老師/學生一律用系統既有的代碼呈現
+// （例如 T-W、S-W），不額外還原成真實姓名——代碼本身就是這套系統的
+// 去識別化方式，維持原樣才符合它原本的設計。
+function buildMicroPoliticsContext(){
+  if(!Array.isArray(mpEvents)||!mpEvents.length)return '';
+  const recent=mpEvents.slice()
+    .sort((a,b)=>String(b.created_at||b.time||'').localeCompare(String(a.created_at||a.time||'')))
+    .slice(0,80);
+  return 'Micro-politics 事件記錄（校園人際/管理事件，老師/學生用代碼表示，共'+mpEvents.length+'筆，僅列最近80筆）：'+
+    recent.map(e=>`[${e.severity||'—'}]${e.time||e.created_at||''} 老師${e.teacher||'—'} 學生${e.students||'—'}${e.category?'('+e.category+')':''} ${e.desc||''}`).join('；');
+}
+
 // ── 讀取同一個 cyysongyy.github.io 網域底下、使用者自己其他 App 的資料 ──
 // localStorage 以網域為單位共用、不分路徑，所以這裡不用任何網路請求、不用後台、
 // 不用授權，直接唯讀撈其他 App 已經存在本機的快取。前提是那些 App 要在
@@ -3150,6 +3303,10 @@ function buildContextText(question){
   if(state.useAppsData){
     const appsCtx=buildMyAppsContext(question);
     if(appsCtx)lines.push(appsCtx);
+  }
+  if(state.useMicroPolitics){
+    const mpCtx=buildMicroPoliticsContext();
+    if(mpCtx)lines.push(mpCtx);
   }
   const qaCtx=buildQaContext(question);
   if(qaCtx)lines.push(qaCtx);
@@ -3637,6 +3794,9 @@ tryAutoLocate();
 if(state.useAppsData)refreshTimetableCache();
 // 圍圈輪值名單同樣在背景補齊（寫死在校務系統原始碼裡，localStorage 撈不到）。
 if(state.useSchoolDb)refreshSelRotationCache();
+// 一開頁就把 Firebase auth 監聽器接上，這樣上次登入過的話會自動恢復登入狀態
+// （Firebase 預設會記住登入），不用每次重開 App 都手動再登入一次。
+mpFbEnsureInit();
 maybeStartQuickRec();
 registerSW();
 // 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。
@@ -3650,6 +3810,8 @@ window.addEventListener('online',()=>{
 // 頁面開著不動也會定期背景重新整理雲端資料（天氣／新聞／行程等），
 // 不用手動按「重新整理資料」或重新整理整個頁面才看得到最新內容。
 setInterval(()=>{if(state.gasUrl)refreshContext();},15*60000);
+// Micro-politics 事件記錄同樣定期背景重抓，事件通常是上課時間陸續發生的。
+setInterval(()=>{if(state.useMicroPolitics&&mpAuthUser)refreshMicroPoliticsEvents();},15*60000);
 // 主動通知：每分鐘檢查一次到點提醒／重要信件，重新整理完雲端資料後也立刻檢查一次。
 checkProactiveNotifications();
 setInterval(checkProactiveNotifications,60000);
