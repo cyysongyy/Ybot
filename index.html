@@ -433,6 +433,16 @@ a.ovMailItem:hover{text-decoration:underline;}
     </div>
 
     <div class="card">
+      <div class="section-title">📖 Young 的文集／心靈語料</div>
+      <div class="hint" style="margin-top:0;">Young 自己的文章、思考、創作——讓 Ybot 更了解他的文字靈魂與教育哲學。問到相關主題時，Ybot 會參考這裡的筆調與觀點來回答，不是死板地照搬。可以定期繼續貼新的文章進來。</div>
+      <input id="soulTitleInput" class="fi" placeholder="標題（選填）" style="margin:8px 0 6px;">
+      <textarea id="soulContentInput" class="fi" placeholder="貼上文章內容…" style="min-height:100px;margin-bottom:6px;"></textarea>
+      <button class="btn ghost" onclick="addSoulFromInput()">加入文集</button>
+      <div id="soulStatus" class="hint" style="margin:6px 0 0;"></div>
+      <div id="soulList" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
       <div class="section-title">📚 我的問答資料庫</div>
       <div class="hint" id="qaSummary" style="margin-top:0;"></div>
       <input id="qaSearch" class="fi" placeholder="搜尋問過的問題或答案…" oninput="renderQaList()" style="margin:8px 0;">
@@ -836,7 +846,7 @@ function switchTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='notes')renderNotes();
-  if(name==='settings'){fillSettings();renderQaList();renderProfileList();}
+  if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
 }
 
 // ── 設定 ────────────────────────────────
@@ -3057,6 +3067,98 @@ function addProfileFromInput(){
   }
 }
 
+// ── Young 自己的文集／心靈語料 ──────────────────────────
+// Young 是教育工作者、批判教育哲學家，也是文人——這裡收他自己寫的文章，
+// 讓 Ybot 談教育理念、文字創作、人生體悟這類話題時，能貼近他自己的筆觸
+// 與觀點，不是通用的罐頭回答。他會定期繼續餵養，所以這裡是長期累積的
+// 資料庫，不是一次性塞好就結束。
+// 借用問答庫那張表存雲端（kind='soul'），後台不用改也不用重新部署——
+// 跟下面的「長期記憶」（kind='profile'）是同一招。
+const SOUL_MAX=200;
+function soulList(){return Array.isArray(state.soul)?state.soul:[];}
+function soulAdd(title,content){
+  const t=String(title||'').trim(),c=String(content||'').trim();
+  if(!c)return null;
+  if(!Array.isArray(state.soul))state.soul=[];
+  const rec={id:'s'+Date.now()+Math.random().toString(36).slice(2,7),
+    title:t||'(無標題)',content:c,at:new Date().toISOString()};
+  state.soul.unshift(rec);
+  if(state.soul.length>SOUL_MAX)state.soul.length=SOUL_MAX;
+  save();
+  if(state.gasUrl){
+    gasPost({action:'addQa',qa:soulToQa(rec)}).catch(()=>{});
+  }
+  return rec;
+}
+function soulDelete(id){
+  if(!Array.isArray(state.soul))return;
+  state.soul=state.soul.filter(x=>x.id!==id);
+  save();renderSoulList();
+  if(state.gasUrl){
+    gasPost({action:'deleteQa',id}).catch(()=>{});
+  }
+}
+// 雲端那張表的欄位是 q/a/kind/at，文章就放標題進 q、內容進 a。
+function soulToQa(r){
+  return {id:r.id,q:r.title||'(無標題)',a:r.content,kind:'soul',at:r.at};
+}
+function qaToSoul(r){
+  return {id:r.id,title:String(r.q||'').trim()||'(無標題)',content:String(r.a||'').trim(),at:r.at||new Date().toISOString()};
+}
+function renderSoulList(){
+  const box=document.getElementById('soulList');
+  if(!box)return;
+  const list=soulList();
+  if(!list.length){
+    box.innerHTML='<div class="empty">還沒有收錄任何文章。貼上你的文字，Ybot 會慢慢養成你的筆調與觀點。</div>';
+    return;
+  }
+  box.innerHTML=list.map(r=>`<details class="qaItem">
+    <summary><span class="qaWhen">${fmtDate(r.at)}</span><span class="qaQ">${esc(r.title)}</span><span class="qaCaret">▶</span></summary>
+    <div class="qaA">${esc(r.content)}</div>
+    <button class="qaDel" onclick="soulDelete('${r.id}')">刪除這篇</button>
+  </details>`).join('');
+}
+function addSoulFromInput(){
+  const titleEl=document.getElementById('soulTitleInput'),contentEl=document.getElementById('soulContentInput');
+  if(!titleEl||!contentEl)return;
+  const title=titleEl.value.trim(),content=contentEl.value.trim();
+  const st=document.getElementById('soulStatus');
+  if(!content){
+    if(st){st.textContent='請貼上文章內容。';setTimeout(()=>{st.textContent='';},2500);}
+    return;
+  }
+  soulAdd(title,content);
+  titleEl.value='';contentEl.value='';
+  renderSoulList();
+  if(st){st.textContent='✅ 已加入文集。';setTimeout(()=>{st.textContent='';},2500);}
+}
+// 跟問答庫同一套 n-gram 比對邏輯：標題命中權重高，內容命中權重低。
+const SOUL_MIN_SCORE=6;
+const SOUL_RECALL=2;   // 文章比問答長很多，一次帶太多篇會排擠其他 context
+function soulSearch(query,limit){
+  const list=soulList();
+  if(!list.length)return [];
+  const terms=paQueryTerms(query);
+  if(!terms.length)return [];
+  return list.map(r=>{
+    const title=r.title||'', content=r.content||'';
+    let score=0;
+    for(const t of terms){
+      if(title.includes(t))score+=3;
+      if(content.includes(t))score+=1;
+    }
+    return {r,score};
+  }).filter(x=>x.score>=SOUL_MIN_SCORE).sort((a,b)=>b.score-a.score)
+    .slice(0,limit||SOUL_RECALL).map(x=>x.r);
+}
+function buildSoulContext(question){
+  const hits=soulSearch(question);
+  if(!hits.length)return '';
+  const fmt=r=>`《${r.title}》\n${r.content}`;
+  return 'Young 自己寫的文章（他是文人、批判教育哲學家，這是他的文字靈魂——回答的筆調、譬喻、觀點可以參考，但不要照抄或逐字複誦）：\n'+hits.map(fmt).join('\n\n');
+}
+
 const QA_MAX=500;          // 上限，滿了就丟最舊的，避免 localStorage 撐爆
 const QA_MIN_SCORE=6;      // 跟工作記錄同一套門檻：至少兩段 n-gram 重疊才算相關
 const QA_RECALL=3;         // 一次最多召回幾則，太多會排擠其他 context
@@ -3106,12 +3208,14 @@ async function qaSync(opts){
       return;
     }
     const all=Array.isArray(d.qa)?d.qa.filter(x=>x&&x.id):[];
-    // 長期記憶借住在同一張表（kind='profile'），拉回來要分流，
-    // 不然它會混進問答庫被搜尋到、也會被 QA_MAX 擠掉。
-    const remote=all.filter(x=>x.kind!=='profile');
+    // 長期記憶（kind='profile'）跟文集（kind='soul'）都借住在同一張表，拉回來要分流，
+    // 不然會混進問答庫被搜尋到、也會被 QA_MAX 擠掉。
+    const remote=all.filter(x=>x.kind!=='profile'&&x.kind!=='soul');
     const remoteProfile=all.filter(x=>x.kind==='profile');
+    const remoteSoul=all.filter(x=>x.kind==='soul');
     if(!Array.isArray(state.qa))state.qa=[];
     if(!Array.isArray(state.profile))state.profile=[];
+    if(!Array.isArray(state.soul))state.soul=[];
     const localIds=new Set(state.qa.map(x=>x.id));
     const pulled=remote.filter(x=>!localIds.has(x.id));
     if(pulled.length){
@@ -3130,17 +3234,30 @@ async function qaSync(opts){
         .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
       if(state.profile.length>PROFILE_MAX)state.profile.length=PROFILE_MAX;
     }
+    const localSids=new Set(state.soul.map(x=>x.id));
+    const pulledSoul=remoteSoul
+      .filter(x=>!localSids.has(x.id))
+      .map(qaToSoul)
+      .filter(x=>x.content);
+    if(pulledSoul.length){
+      state.soul=state.soul.concat(pulledSoul)
+        .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
+      if(state.soul.length>SOUL_MAX)state.soul.length=SOUL_MAX;
+    }
     const remoteIds=new Set(all.map(x=>x.id));
     const toPush=state.qa.filter(x=>!remoteIds.has(x.id));
     const toPushProfile=state.profile.filter(x=>!remoteIds.has(x.id)).map(profileToQa);
-    if(toPush.length||toPushProfile.length){
-      await gasPost({action:'syncQa',qa:toPush.concat(toPushProfile)});
+    const toPushSoul=state.soul.filter(x=>!remoteIds.has(x.id)).map(soulToQa);
+    if(toPush.length||toPushProfile.length||toPushSoul.length){
+      await gasPost({action:'syncQa',qa:toPush.concat(toPushProfile).concat(toPushSoul)});
     }
     state.qaSyncedAt=new Date().toISOString();
-    save();renderQaList();renderProfileList();
+    save();renderQaList();renderProfileList();renderSoulList();
     const memNote=(pulledProfile.length||toPushProfile.length)
       ? `　長期記憶：拉回 ${pulledProfile.length} 條、上傳 ${toPushProfile.length} 條。` : '';
-    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。${memNote}`);
+    const soulNote=(pulledSoul.length||toPushSoul.length)
+      ? `　文集：拉回 ${pulledSoul.length} 篇、上傳 ${toPushSoul.length} 篇。` : '';
+    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。${memNote}${soulNote}`);
   }catch(err){
     say('⚠️ 同步失敗：'+gasErrText(err)+'（本機資料沒有動）');
   }finally{
@@ -3312,6 +3429,8 @@ function buildContextText(question){
   }
   const qaCtx=buildQaContext(question);
   if(qaCtx)lines.push(qaCtx);
+  const soulCtx=buildSoulContext(question);
+  if(soulCtx)lines.push(soulCtx);
   const c=state.context;
   if(c){
     if(c.weather)lines.push(`今日天氣：${c.weather.city} ${c.weather.desc}，現在${c.weather.temp}°C，今日${c.weather.tMin}~${c.weather.tMax}°C，降雨機率${c.weather.rainChance??'—'}%`);
@@ -3542,7 +3661,7 @@ ${buildDateRef(21)}
   const prepping=looksLikeTalkPrep(text);
   const prepNote=prepping?`\n\n${TALK_PREP_GUIDE}\n\n底下這套是 Young 自己在用的方法，準備的內容要與它一致（尤其「不帶敵意的堅決」），但不要照抄綱要：\n${ZEN_OUTLINE}`:'';
   const zenNote=(!prepping&&looksLikeStressQuestion(text))?`\n\n這個問題聽起來跟壓力、情緒或人際有關。請像一個懂他的朋友在跟他講話那樣回答，不要像報告或表單：可以順著他的話接下去、可以先確認你聽懂了什麼，句型不要每次都一樣。內容依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，也不要一段講一項，自然地帶進去就好。給建議時要具體到他可以直接照做，需要他說話時就把那幾句話寫出來。最後用一句跟他這件事直接有關的具體問題把球丟回給他，不要問「你覺得呢」這種空泛的問句。\n${ZEN_OUTLINE}`:'';
-  const prompt=`你是 Young 的個人助理 Ybot，個性溫暖、直接、有條理。請用繁體中文回答，簡潔但完整，需要條列時再條列。${imgNote}${prepNote}${zenNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  const prompt=`你是 Young 的個人助理 Ybot。Young 是一位教育工作者、批判教育哲學家，也是一位文人——寫詩、寫散文，對語言與美學有自己的堅持與思考。你的個性溫暖、直接、有條理；請用繁體中文回答，簡潔但完整，需要條列時再條列。談到教育理念、文字創作、或人生體悟這類話題時，可以更貼近他自己的筆觸與觀點（下面如果找到他自己寫過的相關文章，語氣和譬喻可以參考，但不要照抄或逐字複誦）。${imgNote}${prepNote}${zenNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image,prepping?{maxTokens:RELAX_MAX_TOKENS}:null);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
