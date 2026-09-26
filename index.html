@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ybot">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Klee+One:wght@600&text=AI%C3%97%E6%95%99%E8%82%B2%E8%AE%93%E6%AF%8F%E5%80%8B%E5%AD%A9%E5%AD%90%E6%9B%B4%E5%A5%BD%EF%BC%81&display=swap">
 <!-- 只有「Micro-politics 事件記錄」那個選填整合會用到，跟該 App 共用同一個
      Firebase 專案（ck-schadmin）；讀取權限由 Firebase 資料庫規則限制在授權
      帳戶，這裡的設定值本來就是公開的用戶端識別碼，不是密鑰。 -->
@@ -21,7 +22,7 @@
 :root{
   --pri:#6d28d9;--pri2:#4c1d95;
   --tx:#0f172a;--tx2:#475569;--tx3:#94a3b8;
-  --bg:#f1f5f9;--card:#ffffff;--line:#e2e8f0;--bub:#ede9fe;
+  --bg:#eef3fb;--card:#ffffff;--line:#e2e8f0;--bub:#ede9fe;
   --ok:#059669;--warn:#d97706;--bad:#dc2626;
   --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
   --shadow-md:0 10px 28px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.05);
@@ -35,7 +36,7 @@
 :root[data-theme="dark"]{--tx:#f1f5f9;--tx2:#cbd5e1;--tx3:#94a3b8;--bg:#0b1220;--card:#111a2e;--line:#1e293b;--bub:#2e1a63;
   --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
   --shadow-md:0 12px 32px rgba(0,0,0,.5),0 2px 10px rgba(0,0,0,.35);}
-:root[data-theme="light"]{--tx:#0f172a;--tx2:#475569;--tx3:#94a3b8;--bg:#f1f5f9;--card:#ffffff;--line:#e2e8f0;--bub:#ede9fe;
+:root[data-theme="light"]{--tx:#0f172a;--tx2:#475569;--tx3:#94a3b8;--bg:#eef3fb;--card:#ffffff;--line:#e2e8f0;--bub:#ede9fe;
   --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
   --shadow-md:0 10px 28px rgba(15,23,42,.10),0 2px 8px rgba(15,23,42,.05);}
 html{font-size:calc(clamp(0.9rem,0.78rem + 0.6vw,1.15rem) * var(--font-scale,1));}
@@ -47,73 +48,156 @@ button,input,textarea{font-family:inherit;}
 button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:8px;}
 .wrap{max-width:760px;margin:0 auto;padding:16px 14px 60px;transition:max-width .2s;}
 @media(min-width:860px){.wrap{max-width:1080px;}}
-.hero{position:relative;overflow:hidden;border-radius:20px;padding:20px 20px 22px;margin-bottom:16px;
-  background:radial-gradient(circle at 50% 30%,rgba(139,92,246,.30),transparent 60%),
-             radial-gradient(circle at 6% 100%,rgba(76,29,149,.28),transparent 55%),
-             linear-gradient(160deg,#0a0e1f,#0d1226 55%,#160b2e);
-  color:#f1f5f9;box-shadow:0 18px 44px rgba(0,0,0,.32);}
-.heroDeco{position:absolute;width:56px;height:56px;border:1px solid rgba(148,163,184,.3);pointer-events:none;}
-.heroDeco.tl{top:-1px;left:-1px;border-right:none;border-bottom:none;border-radius:20px 0 0 0;}
-.heroDeco.tr{top:-1px;right:-1px;border-left:none;border-bottom:none;border-radius:0 20px 0 0;}
-.heroTop{display:flex;justify-content:space-between;align-items:flex-start;padding-right:44px;gap:10px;}
-.heroWeatherMini{display:flex;align-items:center;gap:5px;font-size:.78rem;color:#e2e8f0;flex-shrink:0;}
-.heroWeatherMini .icon{font-size:1.15rem;line-height:1;}
-.heroWeatherMini .lines{display:flex;flex-direction:column;gap:1px;}
-.heroWeatherMini .row1{display:flex;align-items:baseline;gap:5px;}
-.heroWeatherMini .t{font-weight:800;font-size:.95rem;color:#fff;}
-.heroWeatherMini .hl{color:#cbd5e1;font-size:.68rem;}
-.heroWeatherMini .d{color:#94a3b8;font-size:.68rem;}
-.heroClock{font-size:1.02rem;color:#cbd5e1;text-align:right;line-height:1.4;user-select:none;flex-shrink:0;}
-.heroClock .clockTime{font-weight:700;color:#fff;}
-.heroClock .clockLunar{color:#94a3b8;}
-.heroBadgeRow{display:flex;align-items:flex-start;gap:16px;margin-top:10px;}
-.heroScheduleMini{flex:1;min-width:0;font-size:.85rem;text-align:left;padding-top:8px;}
-.heroScheduleMini a{color:#e2e8f0;text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;}
-.heroScheduleMini a:hover{color:#c4b5fd;}
-.heroScheduleMini .more{color:#a78bfa;font-size:.78rem;}
-.heroScheduleMini .dayTag{display:inline-block;font-size:.66rem;font-weight:700;color:#c4b5fd;
-  border:1px solid rgba(196,181,253,.45);border-radius:4px;padding:0 3px;margin-right:4px;vertical-align:1px;}
-
-/* 全息投影風格 Logo：外圈軌道＋粒子點＋發光核心＋投影光束與底座光暈，取代文字 Logo，置於左上角 */
-.heroOrbGroup{display:flex;flex-direction:column;align-items:center;width:fit-content;flex-shrink:0;}
-.heroOrbWrap{position:relative;width:75px;height:75px;flex-shrink:0;}
-.heroOrbRing{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(167,139,250,.28);}
-.heroOrbRing.outer{animation:heroSpin 34s linear infinite;}
-.heroOrbRing.mid{inset:9.5px;border-style:dashed;border-color:rgba(167,139,250,.32);animation:heroSpin 22s linear infinite reverse;}
-.heroOrbDot{position:absolute;width:3px;height:3px;border-radius:50%;background:#c4b5fd;box-shadow:0 0 5px #c4b5fd,0 0 1px #fff;}
-.heroOrbDot.d1{top:-1.5px;left:50%;margin-left:-1.5px;}
-.heroOrbDot.d2{top:18%;right:-1.5px;}
-.heroOrbDot.d3{bottom:12%;left:-1.5px;}
-.heroOrbCore{position:absolute;inset:15px;border-radius:50%;
-  background:radial-gradient(circle at 50% 50%,rgba(139,92,246,.18),rgba(10,14,31,.7) 72%);
-  border:1.5px solid rgba(233,213,255,.9);
-  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.56rem;letter-spacing:-.01em;
-  box-shadow:0 0 16px rgba(196,181,253,.85),0 0 32px rgba(139,92,246,.45),inset 0 0 10px rgba(196,181,253,.3);
-  text-shadow:0 0 8px rgba(196,181,253,.95),0 0 16px rgba(139,92,246,.6);
-  animation:heroPulse 3s ease-in-out infinite;}
-.heroOrbBeam{width:9px;height:19px;margin-top:-2px;
-  background:linear-gradient(180deg,rgba(196,181,253,.55),rgba(196,181,253,0));filter:blur(.5px);}
-.heroOrbBase{position:relative;width:75px;height:15px;margin-top:-2px;border-radius:50%;
-  background:radial-gradient(ellipse at center,rgba(167,139,250,.42),rgba(167,139,250,.1) 55%,transparent 75%);}
-.heroOrbBase::before,.heroOrbBase::after{content:'';position:absolute;border-radius:50%;border:1px solid rgba(167,139,250,.22);}
-.heroOrbBase::before{inset:-4px 11.5px;}
-.heroOrbBase::after{inset:-8px 20px;border-color:rgba(167,139,250,.13);}
-@keyframes heroPulse{
-  0%,100%{box-shadow:0 0 34px rgba(167,139,250,.8),0 0 64px rgba(139,92,246,.4),inset 0 0 16px rgba(255,255,255,.4);}
-  50%{box-shadow:0 0 48px rgba(167,139,250,1),0 0 84px rgba(139,92,246,.55),inset 0 0 20px rgba(255,255,255,.5);}
+/* ── 首頁：品牌列＋白天風景主視覺（依使用者給的設計圖） ── */
+.appHeader{position:relative;display:flex;align-items:center;gap:10px;margin:4px 0 14px;z-index:20;}
+.brand{display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;text-decoration:none;}
+.brandLogo{width:48px;height:48px;flex-shrink:0;filter:drop-shadow(0 3px 6px rgba(30,64,175,.25));}
+.brandName{font-size:1.75rem;font-weight:900;letter-spacing:.02em;line-height:1;color:#0b1f4d;}
+.brandTag{font-size:.64rem;font-weight:700;line-height:1.15;color:#3b6fb6;margin-top:3px;letter-spacing:.02em;}
+.brandSlogan{flex:0 1 auto;margin:0 auto;min-width:0;text-align:center;font-family:'Klee One','Kaiti TC','STKaiti',cursive;font-weight:600;
+  color:#1e3a8a;font-size:1.02rem;line-height:1.3;transform:rotate(-4deg);white-space:nowrap;position:relative;}
+.brandSlogan::after{content:'';display:block;height:3px;margin:3px auto 0;width:92%;border-radius:3px;
+  background:linear-gradient(90deg,transparent,#2563eb 18%,#2563eb 80%,transparent);transform:rotate(-1deg);opacity:.85;}
+.menuBtn{flex-shrink:0;width:42px;height:42px;border:none;background:none;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;border-radius:12px;color:#1e3a8a;}
+.menuBtn:hover{background:rgba(37,99,235,.08);}
+.menuPanel{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:190px;background:var(--card);
+  border:1px solid var(--line);border-radius:16px;padding:6px;box-shadow:var(--shadow-md);}
+.appHeader.open .menuPanel{display:block;}
+.menuPanel .tab{display:flex;align-items:center;gap:8px;padding:11px 12px;border-radius:11px;font-size:.9rem;font-weight:700;
+  color:var(--tx);cursor:pointer;user-select:none;border:none;background:none;width:100%;text-align:left;}
+.menuPanel .tab:hover{background:rgba(37,99,235,.07);}
+.menuPanel .tab.active{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;box-shadow:var(--shadow-pri);}
+.menuPanel .menuSep{height:1px;background:var(--line);margin:4px 6px;}
+@media(max-width:340px){.brandSlogan{display:none;}}
+/* 寬螢幕沒有擠的問題，分頁直接攤在品牌列右邊，不必藏進選單 */
+@media(min-width:860px){
+  .menuBtn{display:none;}
+  .menuPanel{display:flex;position:static;gap:4px;padding:5px;min-width:0;border-radius:14px;box-shadow:var(--shadow);}
+  .menuPanel .tab{width:auto;padding:9px 14px;font-size:.86rem;}
+  .menuPanel .menuSep{width:1px;height:auto;margin:6px 2px;}
 }
-@keyframes heroSpin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
-.theme-btn{background:var(--card);border:1px solid var(--line);color:var(--tx);width:38px;height:38px;
-  border-radius:50%;cursor:pointer;font-size:1.05rem;display:flex;align-items:center;justify-content:center;
-  box-shadow:var(--shadow);transition:box-shadow .15s,transform .15s;}
-.theme-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
-.tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px;margin:16px 0;box-shadow:var(--shadow);}
-.tab{flex:1;text-align:center;padding:9px 6px;border-radius:10px;font-size:.86rem;font-weight:700;color:var(--tx2);cursor:pointer;user-select:none;
-  transition:background-color .15s,color .15s,box-shadow .15s;}
-.tab.active{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;box-shadow:var(--shadow-pri);}
+:root[data-theme="dark"] .brandName{color:#e2e8f0;}
+:root[data-theme="dark"] .brandTag{color:#93c5fd;}
+:root[data-theme="dark"] .brandSlogan,:root[data-theme="dark"] .menuBtn{color:#bfdbfe;}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .brandName{color:#e2e8f0;}
+  :root:not([data-theme="light"]) .brandTag{color:#93c5fd;}
+  :root:not([data-theme="light"]) .brandSlogan,:root:not([data-theme="light"]) .menuBtn{color:#bfdbfe;}
+}
+
+.hero{position:relative;overflow:hidden;border-radius:26px;padding:16px 14px 14px;margin-bottom:16px;min-height:330px;
+  color:#fff;background:#4f9be8;box-shadow:0 14px 36px rgba(30,64,175,.22);isolation:isolate;container-type:inline-size;}
+.heroScene{position:absolute;inset:0;z-index:-1;}
+.heroScene svg{width:100%;height:100%;display:block;}
+.heroTop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
+  text-shadow:0 2px 10px rgba(15,50,120,.35);}
+.heroWeatherMini{display:flex;align-items:flex-start;gap:8px;flex-shrink:0;}
+.heroWeatherMini .icon{font-size:2rem;font-size:clamp(1.4rem,8.5cqw,2.4rem);line-height:1;filter:drop-shadow(0 3px 6px rgba(15,50,120,.25));}
+.heroWeatherMini .lines{display:flex;flex-direction:column;}
+.heroWeatherMini .t{font-weight:900;font-size:1.8rem;font-size:clamp(1.3rem,8cqw,2.2rem);line-height:1;letter-spacing:-.01em;}
+.heroWeatherMini .d{font-size:.95rem;font-weight:700;margin-top:4px;}
+.heroWeatherMini .hl{font-size:.88rem;font-weight:700;margin-top:3px;}
+.heroWeatherMini a{color:#fff;font-size:.85rem;font-weight:700;text-decoration:none;
+  background:rgba(255,255,255,.22);padding:5px 10px;border-radius:999px;}
+.heroClock{text-align:right;line-height:1.25;user-select:none;min-width:0;}
+.heroClock .clockTime{font-weight:900;font-size:1.3rem;font-size:clamp(.95rem,5.5cqw,1.6rem);letter-spacing:.01em;white-space:nowrap;}
+.heroClock .clockLunar{font-size:1.05rem;font-size:clamp(.82rem,4.3cqw,1.2rem);font-weight:700;margin-top:2px;white-space:nowrap;}
+.heroBadgeRow{display:flex;align-items:flex-end;gap:6px;margin-top:14px;}
+.heroMascot{position:relative;flex-shrink:0;width:100px;height:100px;margin:0 4px 8px 0;}
+.heroMascot .ring{position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.35),rgba(125,211,252,.28) 58%,rgba(59,130,246,.18) 70%);
+  border:3px solid rgba(255,255,255,.75);
+  box-shadow:0 0 22px rgba(125,211,252,.95),0 0 44px rgba(56,189,248,.5),inset 0 0 18px rgba(186,230,253,.8);}
+.heroMascot .bot{position:absolute;left:50%;top:50%;width:78px;height:78px;margin:-41px 0 0 -39px;
+  animation:botFloat 3.6s ease-in-out infinite;filter:drop-shadow(0 6px 8px rgba(15,50,120,.3));}
+.heroMascot .bubble{position:absolute;right:-10px;bottom:2px;padding:4px 10px;border-radius:13px;font-weight:900;font-size:.88rem;
+  color:#fff;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:2px solid rgba(255,255,255,.85);
+  box-shadow:0 4px 12px rgba(29,78,216,.45);text-shadow:none;}
+.heroMascot .bubble::after{content:'';position:absolute;left:10px;bottom:-7px;width:10px;height:10px;
+  background:#1d4ed8;border-right:2px solid rgba(255,255,255,.85);border-bottom:2px solid rgba(255,255,255,.85);transform:rotate(45deg);}
+@container (max-width:330px){
+  .heroMascot{width:74px;height:74px;margin-right:2px;}
+  .heroMascot .bot{width:56px;height:56px;margin:-30px 0 0 -28px;}
+  .heroMascot .bubble{font-size:.72rem;padding:2px 7px;right:-8px;}
+  .heroScheduleMini .sIcon{display:none;}
+  .heroScheduleMini .dayTag{min-width:28px;height:26px;font-size:.8rem;padding:0 4px;}
+}
+@keyframes botFloat{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+@media(prefers-reduced-motion:reduce){.heroMascot .bot{animation:none;}}
+.heroScheduleMini{flex:1;min-width:0;background:rgba(255,255,255,.9);border-radius:22px;padding:7px;
+  box-shadow:0 8px 24px rgba(15,50,120,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+.heroScheduleMini .sItem{display:flex;align-items:center;gap:7px;padding:7px 6px 7px 6px;margin-bottom:6px;border-radius:14px;
+  background:#fff;box-shadow:0 1px 4px rgba(15,23,42,.08);color:#0f172a;text-decoration:none;}
+.heroScheduleMini .sItem:hover{box-shadow:0 3px 10px rgba(37,99,235,.18);}
+.heroScheduleMini .sTitle{flex:1;min-width:0;font-size:.92rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.heroScheduleMini .sIcon{flex-shrink:0;width:20px;height:20px;color:#2563eb;}
+.heroScheduleMini .sChev{flex-shrink:0;color:#334155;font-size:1.1rem;line-height:1;font-weight:700;}
+.heroScheduleMini .dayTag{flex-shrink:0;min-width:32px;height:30px;padding:0 6px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-size:.9rem;font-weight:900;color:#fff;background:linear-gradient(135deg,#94a3b8,#64748b);}
+.heroScheduleMini .dayTag.d0{background:linear-gradient(135deg,#f59e0b,#ea580c);}
+.heroScheduleMini .dayTag.d1{background:linear-gradient(135deg,#14b8a6,#0d9488);}
+.heroScheduleMini .dayTag.d2{background:linear-gradient(135deg,#a855f7,#7c3aed);}
+.heroScheduleMini .dayTag.d3{background:linear-gradient(135deg,#3b82f6,#1d4ed8);}
+.heroScheduleMini .more,.heroScheduleMini .empty{display:block;padding:4px 8px 2px;color:#6d28d9;font-weight:800;font-size:.95rem;text-decoration:none;}
+.heroScheduleMini .empty{color:#334155;text-align:left;}
+
+/* 對話卡：大標題＋狀態列＋四格功能磚 */
+.chatHead{display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:12px;}
+.chatHeadIcon{width:50px;height:50px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#3b82f6,#1d4ed8);box-shadow:0 6px 14px rgba(37,99,235,.35);}
+.chatHeadText{flex:1;min-width:0;}
+.chatHeadTitle{font-size:1.45rem;font-weight:900;color:var(--tx);letter-spacing:.02em;line-height:1.2;}
+.chatHeadSub{font-size:.88rem;color:var(--tx2);margin-top:2px;}
+.chev{color:var(--tx2);font-size:1.5rem;line-height:1;flex-shrink:0;font-weight:400;}
+.ctxbar{display:flex;align-items:center;gap:8px;font-size:.84rem;color:var(--tx2);margin-bottom:10px;
+  background:var(--bg);border-radius:14px;padding:9px 12px;}
+.ctxbar #ctxStatus{flex:1 1 auto;min-width:0;font-size:.8rem;}
+.ctxbar .ctxGrp{white-space:nowrap;}
+.ctxbar .ctxActions{display:flex;gap:4px;flex-shrink:0;}
+.ctxbar button{background:none;border:none;cursor:pointer;font-size:1.05rem;padding:2px 3px;line-height:1;border-radius:8px;}
+.ctxbar button:hover{background:rgba(109,40,217,.1);}
+.chatInputRow{margin-top:10px;}
+#chatInput{width:100%;display:block;resize:none;border:1px solid var(--line);border-radius:14px;padding:11px 13px;font-size:.92rem;
+  background:var(--bg);color:var(--tx);font-family:inherit;min-height:46px;max-height:120px;transition:border-color .15s,box-shadow .15s;}
+#chatInput:focus{border-color:var(--pri);outline:none;box-shadow:0 0 0 3px rgba(109,40,217,.14);}
+.actionTiles{display:flex;gap:9px;margin-top:10px;}
+.tileBtn{flex:1 1 0;min-width:0;min-height:96px;border-radius:18px;border:1.5px solid;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:10px 4px;
+  font-family:inherit;font-weight:800;font-size:.95rem;line-height:1.2;text-align:center;
+  transition:transform .12s,box-shadow .12s;-webkit-tap-highlight-color:transparent;}
+.tileBtn:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);}
+.tileBtn:active{transform:scale(.97);}
+.tileBtn svg{width:34px;height:34px;flex-shrink:0;}
+.tileBtn.blue{background:#e8f2ff;border-color:#c9defa;color:#1d64c8;}
+.tileBtn.green{background:#eaf7e8;border-color:#cde8c8;color:#2f8a3a;}
+.tileBtn.purple{background:#f4ecff;border-color:#e2d3fb;color:#8b3fd9;}
+:root[data-theme="dark"] .tileBtn.blue{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.35);color:#93c5fd;}
+:root[data-theme="dark"] .tileBtn.green{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.32);color:#86efac;}
+:root[data-theme="dark"] .tileBtn.purple{background:rgba(168,85,247,.14);border-color:rgba(168,85,247,.35);color:#d8b4fe;}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .tileBtn.blue{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.35);color:#93c5fd;}
+  :root:not([data-theme="light"]) .tileBtn.green{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.32);color:#86efac;}
+  :root:not([data-theme="light"]) .tileBtn.purple{background:rgba(168,85,247,.14);border-color:rgba(168,85,247,.35);color:#d8b4fe;}
+}
+.sendBtn.tileBtn{flex:1.25 1 0;font-size:1.3rem;color:#fff;border-color:transparent;
+  background:linear-gradient(135deg,#8b5cf6,#5b21b6);box-shadow:0 8px 18px rgba(91,33,182,.38);}
+.sendBtn.tileBtn svg{width:30px;height:30px;}
+.sendBtn.tileBtn:disabled{opacity:.55;cursor:default;transform:none;box-shadow:none;}
+.sendBtn .sendRow{display:flex;align-items:center;gap:4px;white-space:nowrap;}
+.sendBtn .sendChev{font-size:1.4rem;font-weight:400;line-height:1;}
+
+/* 總覽（Email／新聞）區塊標題 */
+.ovHead{display:flex;align-items:center;gap:10px;margin-bottom:10px;color:var(--tx);text-decoration:none;}
+.ovHeadIcon{width:34px;height:34px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;}
+.ovHeadIcon svg{width:20px;height:20px;}
+.ovHeadIcon.mail{background:linear-gradient(135deg,#a855f7,#6d28d9);box-shadow:0 4px 10px rgba(109,40,217,.3);}
+.ovHeadIcon.news{background:linear-gradient(135deg,#fb923c,#ea580c);box-shadow:0 4px 10px rgba(234,88,12,.28);}
+.ovHeadIcon.warn{background:linear-gradient(135deg,#f87171,#dc2626);box-shadow:0 4px 10px rgba(220,38,38,.28);}
+.ovHeadTitle{flex:1;min-width:0;font-size:1.25rem;font-weight:900;letter-spacing:.03em;}
 .pane{display:none;}
 .pane.active{display:block;}
-.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow-md);transition:box-shadow .2s,transform .2s;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow-md);transition:box-shadow .2s,transform .2s;}
 
 /* 對話分頁：桌面/平板寬螢幕採 2×2 卡片網格排版，手機仍維持單欄堆疊 */
 @media(min-width:860px){
@@ -167,25 +251,11 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .chip{font-size:.76rem;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--tx2);cursor:pointer;
   transition:border-color .15s,color .15s,box-shadow .15s;}
 .chip:hover{border-color:var(--pri);color:var(--pri);box-shadow:var(--shadow);}
-.inputRow{display:flex;gap:6px;margin-top:10px;}
-/* 三顆工具鍵（📷 🌿 🎙️）各只放一個 emoji，用預設的按鈕內距會吃掉 150px，
-   在 320px 的機器上輸入框只剩 26px。縮窄它們，把空間讓給輸入框。 */
-.inputRow .btn.ghost{padding:8px 9px;flex:0 0 auto;}
-.inputRow #chatInput{flex:1 1 auto;min-width:0;}
 .imgPreview{display:flex;align-items:center;gap:8px;margin-top:10px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);}
 .imgPreview img{width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0;}
 .imgPreview span{font-size:.8rem;color:var(--tx2);}
 .imgPreview .rmImgBtn{margin-left:auto;background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;}
 .imgPreview .rmImgBtn:hover{color:var(--bad);}
-#chatInput{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.9rem;
-  background:var(--bg);color:var(--tx);font-family:inherit;min-height:44px;max-height:120px;
-  transition:border-color .15s,box-shadow .15s;}
-#chatInput:focus{border-color:var(--pri);outline:none;box-shadow:0 0 0 3px rgba(109,40,217,.14);}
-.sendBtn{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;border:none;border-radius:12px;
-  padding:0 18px;font-weight:800;cursor:pointer;font-size:.9rem;box-shadow:var(--shadow-pri);
-  transition:transform .12s,box-shadow .12s,opacity .15s;}
-.sendBtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,40,217,.34);}
-.sendBtn:disabled{opacity:.5;cursor:default;box-shadow:none;}
 .profileItem{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);
   border-radius:10px;padding:7px 9px;margin-bottom:6px;font-size:.82rem;color:var(--tx);}
 .profileItem .profileWhen{flex:0 0 auto;font-size:.72rem;padding-top:1px;}
@@ -208,13 +278,6 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .qaItem .qaA{font-size:.8rem;color:var(--tx2);line-height:1.6;margin-top:8px;white-space:pre-wrap;}
 .qaItem .qaDel{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.78rem;margin-top:6px;padding:0;}
 .qaItem .qaDel:hover{color:var(--bad);}
-.ctxbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:2px 12px;
-  font-size:.72rem;color:var(--tx3);margin-bottom:8px;}
-/* 狀態文字要能縮，但不能被壓到一字一行——擠不下時整組按鈕換到下一行。 */
-.ctxbar #ctxStatus{flex:1 1 auto;min-width:150px;}
-.ctxbar .ctxActions{display:flex;gap:12px;flex-wrap:wrap;flex-shrink:0;}
-.ctxbar button{background:none;border:none;color:var(--pri);font-weight:700;cursor:pointer;font-size:.72rem;
-  padding:2px 0;white-space:nowrap;}
 
 /* Notes */
 .typeSel{display:flex;gap:6px;margin-bottom:10px;}
@@ -277,7 +340,6 @@ textarea.fi{resize:vertical;min-height:56px;}
 .linkChips a.chip{text-decoration:none;}
 
 /* Overview */
-#overviewCard{background-image:linear-gradient(180deg,rgba(109,40,217,.07),transparent 45%);}
 .ovMono{font-family:'SF Mono','Roboto Mono',ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
 
 .ovSection{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line);}
@@ -296,7 +358,7 @@ textarea.fi{resize:vertical;min-height:56px;}
 .newsSpeakBtn{margin-left:auto;font-size:.72rem;font-weight:700;letter-spacing:0;text-transform:none;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--pri);cursor:pointer;}
 .newsSpeakBtn:hover{border-color:var(--pri);}
 
-.ovMailItem{display:flex;align-items:flex-start;gap:8px;padding:2px 0;}
+.ovMailItem{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;border-radius:12px;background:var(--bg);font-size:.9rem;}
 a.ovMailItem{color:inherit;text-decoration:none;}
 a.ovMailItem:hover{text-decoration:underline;}
 .ovMailBadge{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:rgba(217,119,6,.14);
@@ -306,59 +368,162 @@ a.ovMailItem:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
-<button class="theme-btn" id="themeBtn" style="position:fixed;top:16px;right:16px;z-index:9;" onclick="toggleTheme()">🌓</button>
-
 <div class="wrap">
-  <div class="tabs">
-    <div class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</div>
-    <div class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</div>
-    <div class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</div>
-  </div>
+  <header class="appHeader" id="appHeader">
+    <div class="brand" onclick="switchTab('chat')" title="回到首頁">
+      <svg class="brandLogo" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="lgHead" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient>
+          <linearGradient id="lgVisor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e3a8a"/><stop offset="1" stop-color="#0b1533"/></linearGradient>
+        </defs>
+        <line x1="32" y1="6" x2="32" y2="13" stroke="#1d4ed8" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="32" cy="6" r="4" fill="#60a5fa" stroke="#1d4ed8" stroke-width="2"/>
+        <rect x="3" y="27" width="8" height="17" rx="4" fill="#1d4ed8"/>
+        <rect x="53" y="27" width="8" height="17" rx="4" fill="#1d4ed8"/>
+        <rect x="8" y="13" width="48" height="44" rx="19" fill="url(#lgHead)"/>
+        <rect x="12" y="17" width="40" height="36" rx="16" fill="#fff"/>
+        <rect x="16" y="22" width="32" height="26" rx="12" fill="url(#lgVisor)"/>
+        <path d="M22 37q4-6 8 0M34 37q4-6 8 0" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <div class="brandText"><div class="brandName">YBOT</div><div class="brandTag">Your Better<br>Outcomes Today</div></div>
+    </div>
+    <div class="brandSlogan">AI × 教育<br>讓每個孩子更好！</div>
+    <button class="menuBtn" onclick="toggleMenu(event)" aria-label="選單" aria-expanded="false" id="menuBtn">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 7h20M4 14h20M4 21h20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+    </button>
+    <nav class="menuPanel" id="menuPanel">
+      <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</button>
+      <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</button>
+      <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
+      <div class="menuSep"></div>
+      <button class="tab" id="themeBtn" onclick="toggleTheme()">🌓 深淺色</button>
+    </nav>
+  </header>
 
   <!-- 💬 對話 -->
   <div class="pane active" id="pane-chat">
     <div class="hero" id="heroCard">
-      <div class="heroDeco tl"></div>
-      <div class="heroDeco tr"></div>
+      <div class="heroScene" aria-hidden="true">
+        <svg viewBox="0 0 400 320" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <linearGradient id="hsSky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1765d1"/><stop offset=".42" stop-color="#4a98e8"/>
+              <stop offset=".62" stop-color="#9ccdf4"/><stop offset=".72" stop-color="#dff0ff"/>
+            </linearGradient>
+            <radialGradient id="hsGlow" cx="0.5" cy="0.5" r="0.5">
+              <stop offset="0" stop-color="#fffbe6"/><stop offset=".25" stop-color="#fff1b8" stop-opacity=".85"/>
+              <stop offset="1" stop-color="#ffe7a0" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="hsFar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7aa3dc"/><stop offset="1" stop-color="#a9c9ee"/></linearGradient>
+            <linearGradient id="hsMtn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f5ea6"/><stop offset="1" stop-color="#5f8fcf"/></linearGradient>
+            <linearGradient id="hsField" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b9de6d"/><stop offset="1" stop-color="#78bb45"/></linearGradient>
+            <linearGradient id="hsField2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8dc84c"/><stop offset="1" stop-color="#3f8f33"/></linearGradient>
+            <linearGradient id="hsLeaf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5cc36a"/><stop offset="1" stop-color="#1c7a38"/></linearGradient>
+            <linearGradient id="hsLeaf2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8bd66c"/><stop offset="1" stop-color="#2e8f3e"/></linearGradient>
+            <filter id="hsSoft" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+          </defs>
+          <rect width="400" height="320" fill="url(#hsSky)"/>
+          <g fill="#fff" filter="url(#hsSoft)" opacity=".9">
+            <ellipse cx="70" cy="62" rx="52" ry="12"/><ellipse cx="102" cy="54" rx="30" ry="14"/>
+            <ellipse cx="300" cy="44" rx="62" ry="11"/><ellipse cx="338" cy="37" rx="28" ry="12"/>
+            <ellipse cx="190" cy="92" rx="44" ry="8" opacity=".7"/><ellipse cx="370" cy="110" rx="40" ry="7" opacity=".6"/>
+          </g>
+          <circle cx="262" cy="176" r="120" fill="url(#hsGlow)"/>
+          <circle cx="262" cy="170" r="17" fill="#fff6c9"/>
+          <path d="M0 196L32 178L70 186L112 164L150 178L188 170L226 150L258 162L292 140L330 160L372 150L400 158V230H0Z" fill="url(#hsFar)"/>
+          <path d="M150 214Q196 184 226 154Q246 134 266 152Q300 184 346 200Q376 208 400 204V240H150Z" fill="url(#hsMtn)"/>
+          <path d="M226 154Q246 134 266 152L256 150L246 158L238 150Z" fill="#dbe9fb" opacity=".7"/>
+          <path d="M0 214Q100 192 200 212T400 206V320H0Z" fill="url(#hsField)"/>
+          <g fill="#2f7d3a">
+            <circle cx="18" cy="208" r="7"/><circle cx="30" cy="205" r="9"/><circle cx="44" cy="209" r="6"/>
+            <circle cx="300" cy="206" r="6"/><circle cx="312" cy="203" r="8"/><circle cx="326" cy="206" r="6"/><circle cx="372" cy="203" r="7"/><circle cx="384" cy="205" r="5"/>
+          </g>
+          <path d="M0 250Q120 224 240 246T400 238V320H0Z" fill="url(#hsField2)"/>
+          <g>
+            <path d="M-10 320Q10 250 78 222Q60 270 -10 320Z" fill="url(#hsLeaf)"/>
+            <path d="M-10 320Q42 270 78 222" stroke="#a7e3a0" stroke-width="1.5" fill="none" opacity=".7"/>
+            <path d="M20 320Q46 262 118 250Q84 292 20 320Z" fill="url(#hsLeaf2)"/>
+            <path d="M20 320Q70 282 118 250" stroke="#c9f0b8" stroke-width="1.2" fill="none" opacity=".7"/>
+            <path d="M-6 290Q4 236 40 200Q40 250 -6 290Z" fill="url(#hsLeaf2)"/>
+            <path d="M60 320Q96 286 150 284Q112 312 60 320Z" fill="url(#hsLeaf)"/>
+            <path d="M-10 250Q30 210 90 196Q52 238 -10 250Z" fill="url(#hsLeaf)" opacity=".95"/>
+            <path d="M-10 250Q40 224 90 196" stroke="#b9ecb0" stroke-width="1.2" fill="none" opacity=".6"/>
+            <path d="M8 320Q0 262 30 218Q44 272 8 320Z" fill="url(#hsLeaf)"/>
+            <path d="M100 320Q120 290 170 296Q140 318 100 320Z" fill="url(#hsLeaf2)"/>
+            <path d="M400 320Q390 268 346 250Q362 292 400 320Z" fill="url(#hsLeaf)"/>
+            <path d="M380 320Q352 286 306 282Q334 312 380 320Z" fill="url(#hsLeaf2)"/>
+          </g>
+        </svg>
+      </div>
       <div class="heroTop">
         <div class="heroWeatherMini" id="heroWeatherMini"></div>
         <div class="heroClock" id="clockBox"></div>
       </div>
       <div class="heroBadgeRow">
-        <div class="heroOrbGroup">
-          <div class="heroOrbWrap">
-            <div class="heroOrbRing outer"></div>
-            <div class="heroOrbRing mid"></div>
-            <span class="heroOrbDot d1"></span>
-            <span class="heroOrbDot d2"></span>
-            <span class="heroOrbDot d3"></span>
-            <div class="heroOrbCore">Ybot</div>
-          </div>
-          <div class="heroOrbBeam"></div>
-          <div class="heroOrbBase"></div>
+        <div class="heroMascot" aria-hidden="true">
+          <div class="ring"></div>
+          <svg class="bot" viewBox="0 0 120 124">
+            <defs>
+              <linearGradient id="botShell" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe5f3"/></linearGradient>
+              <linearGradient id="botVisor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e3a8a"/><stop offset="1" stop-color="#0a1330"/></linearGradient>
+            </defs>
+            <line x1="60" y1="8" x2="60" y2="22" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="60" cy="8" r="6" fill="#e0f2fe" stroke="#93c5fd" stroke-width="2"/>
+            <rect x="8" y="42" width="14" height="30" rx="7" fill="url(#botShell)" stroke="#cbd5e1" stroke-width="1.5"/>
+            <rect x="98" y="42" width="14" height="30" rx="7" fill="url(#botShell)" stroke="#cbd5e1" stroke-width="1.5"/>
+            <rect x="11" y="49" width="6" height="16" rx="3" fill="#60a5fa"/>
+            <rect x="103" y="49" width="6" height="16" rx="3" fill="#60a5fa"/>
+            <rect x="18" y="20" width="84" height="70" rx="32" fill="url(#botShell)" stroke="#cbd5e1" stroke-width="1.5"/>
+            <rect x="28" y="32" width="64" height="44" rx="21" fill="url(#botVisor)"/>
+            <path d="M40 58q7-10 14 0M66 58q7-10 14 0" fill="none" stroke="#7dd3fc" stroke-width="4.5" stroke-linecap="round"/>
+            <ellipse cx="45" cy="40" rx="9" ry="3.5" fill="#fff" opacity=".18"/>
+            <path d="M34 94Q60 86 86 94L90 116Q60 124 30 116Z" fill="url(#botShell)" stroke="#cbd5e1" stroke-width="1.5"/>
+            <circle cx="60" cy="104" r="5" fill="#60a5fa"/>
+          </svg>
+          <div class="bubble">Ybot</div>
         </div>
         <div class="heroScheduleMini" id="heroScheduleMini"></div>
       </div>
     </div>
     <div class="card" id="chatCard">
-      <div class="section-title">💬 Ybot 對話</div>
+      <div class="chatHead" onclick="document.getElementById('chatInput').focus()">
+        <div class="chatHeadIcon">
+          <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><path d="M15 4C8.4 4 3 8.5 3 14c0 3 1.6 5.7 4.2 7.5L6 26l5.2-2.6c1.2.3 2.5.5 3.8.5 6.6 0 12-4.5 12-10S21.6 4 15 4z" fill="#fff"/><circle cx="10" cy="14" r="1.8" fill="#2563eb"/><circle cx="15" cy="14" r="1.8" fill="#2563eb"/><circle cx="20" cy="14" r="1.8" fill="#2563eb"/></svg>
+        </div>
+        <div class="chatHeadText"><div class="chatHeadTitle">YBOT 對話</div><div class="chatHeadSub">隨時為您提供協助與建議</div></div>
+        <span class="chev">›</span>
+      </div>
       <div class="ctxbar">
         <span id="ctxStatus">尚未載入雲端資料</span>
         <span class="ctxActions">
-          <button onclick="refreshContext()" title="重新抓取雲端資料（行事曆／信件／新聞）">🔄 更新</button>
-          <button onclick="clearChatOnly()" title="清除對話紀錄（不影響待辦與筆記）">🗑️ 清除</button>
-          <button id="speakToggle" onclick="toggleSpeak()" title="用說的問時，答案要不要念出來（鬆弛練習也適用）">🔊 朗讀</button>
+          <button onclick="refreshContext()" title="更新：重新抓取雲端資料（行事曆／信件／新聞）" aria-label="更新">🔄</button>
+          <button onclick="clearChatOnly()" title="清除對話紀錄（不影響待辦與筆記）" aria-label="清除對話">🗑️</button>
+          <button id="speakToggle" onclick="toggleSpeak()" title="用說的問時，答案要不要念出來（鬆弛練習也適用）" aria-label="朗讀">🔊</button>
         </span>
       </div>
       <div id="chatBox"></div>
       <div id="chatImagePreview" style="display:none;"></div>
-      <div class="inputRow">
-        <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
-        <button class="btn ghost" id="chatImageBtn" onclick="document.getElementById('chatImageInput').click()" style="flex:0 0 auto;" title="附加圖片，讓 Ybot 看圖辨識/回答">📷</button>
-        <button class="btn ghost" id="relaxBtn" onclick="openRelaxPractice()" style="flex:0 0 auto;display:none;" title="鬆弛練習：說出讓你緊繃的事，換一個看法">🌿</button>
-        <button class="btn ghost" id="askVoiceBtn" onclick="openVoiceAsk()" style="flex:0 0 auto;display:none;" title="用說的問 Ybot：講完自動送出，直接回答">🎙️</button>
-        <textarea id="chatInput" class="fi" placeholder="問 Ybot 任何事…（Enter 送出，Shift+Enter 換行）" style="margin-bottom:0;"></textarea>
-        <button class="sendBtn" id="sendBtn" onclick="sendChat()">送出</button>
+      <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
+      <div class="chatInputRow">
+        <textarea id="chatInput" placeholder="問 Ybot 任何事…" title="Enter 送出，Shift+Enter 換行"></textarea>
+      </div>
+      <div class="actionTiles">
+        <button class="tileBtn blue" id="chatImageBtn" onclick="document.getElementById('chatImageInput').click()" title="附加圖片，讓 Ybot 看圖辨識/回答">
+          <svg viewBox="0 0 36 36" aria-hidden="true"><path d="M5 12a3 3 0 013-3h4l2.2-3h7.6L24 9h4a3 3 0 013 3v14a3 3 0 01-3 3H8a3 3 0 01-3-3z" fill="currentColor"/><circle cx="18" cy="18.5" r="6" fill="#fff"/><circle cx="18" cy="18.5" r="3.6" fill="currentColor"/></svg>
+          <span>拍照<br>上傳</span>
+        </button>
+        <button class="tileBtn green" id="relaxBtn" onclick="openRelaxPractice()" style="display:none;" title="鬆弛練習：說出讓你緊繃的事，換一個看法">
+          <svg viewBox="0 0 36 36" aria-hidden="true"><path d="M18 32V17" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M18 19C18 11 12 6 4 6c0 8 6 13 14 13z" fill="currentColor"/><path d="M18 17c0-7 5-11 13-11 0 7-5 11-13 11z" fill="currentColor" opacity=".75"/></svg>
+          <span>鬆弛<br>練習</span>
+        </button>
+        <button class="tileBtn purple" id="askVoiceBtn" onclick="openVoiceAsk()" style="display:none;" title="用說的問 Ybot：講完自動送出，直接回答">
+          <svg viewBox="0 0 36 36" aria-hidden="true"><rect x="12" y="3" width="12" height="20" rx="6" fill="currentColor"/><path d="M7 16a11 11 0 0022 0" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M18 27v5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          <span>語音<br>提問</span>
+        </button>
+        <button class="sendBtn tileBtn" id="sendBtn" onclick="sendChat()">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M29 3L3 14l10 3.5L16.5 28z" fill="#fff"/><path d="M13 17.5L29 3" stroke="#7c3aed" stroke-width="2"/></svg>
+          <span class="sendRow"><span class="sendLabel">送出</span><span class="sendChev">›</span></span>
+        </button>
       </div>
     </div>
     <div class="card" id="overviewCard" style="display:none;"></div>
@@ -861,6 +1026,7 @@ function toggleTheme(){
   const sysDark=window.matchMedia('(prefers-color-scheme:dark)').matches;
   const now=state.theme||(sysDark?'dark':'light');
   state.theme=now==='dark'?'light':'dark';applyTheme(state.theme);save();
+  closeMenu();
 }
 if(state.theme)applyTheme(state.theme);
 
@@ -877,8 +1043,21 @@ function adjustFontScale(delta){
 applyFontScale();
 
 // ── Tabs ────────────────────────────────
+function toggleMenu(e){
+  if(e)e.stopPropagation();
+  const h=document.getElementById('appHeader');
+  const open=h.classList.toggle('open');
+  document.getElementById('menuBtn').setAttribute('aria-expanded',open?'true':'false');
+}
+function closeMenu(){
+  const h=document.getElementById('appHeader');
+  if(h&&h.classList.contains('open')){h.classList.remove('open');document.getElementById('menuBtn').setAttribute('aria-expanded','false');}
+}
+document.addEventListener('click',e=>{if(!e.target.closest('#appHeader'))closeMenu();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
 function switchTab(name){
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  closeMenu();
+  document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='notes')renderNotes();
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
@@ -1793,7 +1972,8 @@ function toggleSpeak(){
 function renderSpeakBtn(){
   const b=document.getElementById('speakToggle');
   if(!b)return;
-  b.textContent=state.speakReply?'🔊 朗讀':'🔇 靜音';
+  b.textContent=state.speakReply?'🔊':'🔇';
+  b.setAttribute('aria-label',state.speakReply?'朗讀：開':'朗讀：關');
   b.title=state.speakReply?'用說的問時答案會念出來，鬆弛練習也會（點一下關掉，也會停止正在念的）':'目前不念出來（點一下打開）';
 }
 
@@ -2429,7 +2609,11 @@ async function refreshContext(){
 function showCtxStatus(){
   const t=state.contextAt?fmtTime(state.contextAt,{hour:'2-digit',minute:'2-digit'}):'';
   const c=state.context;
-  document.getElementById('ctxStatus').textContent=c?`📡 ${t} 更新 · 📅 ${(c.calendar||[]).length} · 📬 ${(c.gmail||[]).length}`:'尚未載入雲端資料';
+  // 每一組各自不斷行，擠不下時只在組跟組之間換行，不會把「📬」跟數字拆開。
+  const g=x=>`<span class="ctxGrp">${x}</span>`;
+  document.getElementById('ctxStatus').innerHTML=c
+    ?[g(`📡 ${esc(t)} 更新`),g(`📅 ${(c.calendar||[]).length}`),g(`📬 ${(c.gmail||[]).length}`)].join(' • ')
+    :'尚未載入雲端資料';
 }
 
 function gcalDayUrl(d){
@@ -2442,8 +2626,8 @@ function renderHeroWeather(w){
   if(!el)return;
   const hasRange=w&&w.tMax!=null&&w.tMin!=null;
   el.innerHTML=w
-    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="row1"><span class="t">${w.temp}°</span><span class="d">${esc(w.desc||'')}</span></div>${hasRange?`<div class="hl">↑${w.tMax}° ↓${w.tMin}°</div>`:''}</div>`
-    : `<a href="javascript:void(0)" onclick="useGpsLocation()" style="color:#c4b5fd;font-size:.72rem;">📍 定位天氣</a>`;
+    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div><div class="d">${esc(w.desc||'')}</div>${hasRange?`<div class="hl">↑${w.tMax}°　↓${w.tMin}°</div>`:''}</div>`
+    : `<a href="javascript:void(0)" onclick="useGpsLocation()">📍 定位天氣</a>`;
 }
 // 往後 n 天（0＝今天）的日期字串。用 setDate 而不是加 86400000 毫秒，
 // 跨月、跨年、跨日光節約時間才會對。
@@ -2460,11 +2644,25 @@ const HOLIDAY_CAL_RE=/節日|節慶|假日|holiday/i;
 function isHolidayEvent(ev){
   return !!(ev&&ev.allDay&&ev.calendar&&HOLIDAY_CAL_RE.test(ev.calendar));
 }
+// 行程類別小圖示：照標題關鍵字猜，猜不到就用日曆。
+const HERO_ICONS={
+  doc:'<path d="M6 2h8l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" fill="currentColor"/><path d="M8 11h8M8 15h8M8 7h4" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>',
+  book:'<path d="M2 5c3-1.5 6-1.5 9 0v15c-3-1.5-6-1.5-9 0zM22 5c-3-1.5-6-1.5-9 0v15c3-1.5 6-1.5 9 0z" fill="currentColor"/>',
+  people:'<circle cx="12" cy="7" r="3.2" fill="currentColor"/><circle cx="5" cy="9" r="2.4" fill="currentColor"/><circle cx="19" cy="9" r="2.4" fill="currentColor"/><path d="M6 20c0-3.5 2.7-6 6-6s6 2.5 6 6zM0.5 19c0-2.6 1.8-4.5 4.5-4.5 1 0 1.8.2 2.5.7C6 16.5 5.4 17.7 5.3 19zM23.5 19c0-2.6-1.8-4.5-4.5-4.5-1 0-1.8.2-2.5.7 1.5 1.3 2.1 2.5 2.2 3.8z" fill="currentColor"/>',
+  cal:'<rect x="3" y="5" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 10h18" stroke="currentColor" stroke-width="2"/><path d="M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="14" r="1.2" fill="currentColor"/><circle cx="12" cy="14" r="1.2" fill="currentColor"/><circle cx="16" cy="14" r="1.2" fill="currentColor"/><circle cx="8" cy="17.5" r="1.2" fill="currentColor"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/>'
+};
+function heroEventIcon(title){
+  const t=String(title||'');
+  const k=/讀書|閱讀|書|繪本|圖書/.test(t)?'book'
+    :/連結|調查|表單|繳交|公文|報告|資料|填寫|申請|簽/.test(t)?'doc'
+    :/說明|研習|座談|工作坊|培訓|講座|會議|分享/.test(t)?'people':'cal';
+  return `<svg class="sIcon" viewBox="0 0 24 24" aria-hidden="true">${HERO_ICONS[k]}</svg>`;
+}
 function renderHeroSchedule(events){
   const el=document.getElementById('heroScheduleMini');
   if(!el)return;
   if(!events||!events.length){
-    el.innerHTML=`<a href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">近期沒有行程 ↗</a>`;
+    el.innerHTML=`<a class="empty" href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">近期沒有行程 ↗</a>`;
     return;
   }
   const LIMIT=4;
@@ -2472,19 +2670,18 @@ function renderHeroSchedule(events){
   // 慣用詞可以掛（近期如果剛好都沒行程，就會抓到比較遠的），直接顯示月/日
   // 比硬造新詞看得懂。比對一定要用台北時間（tpeNow），不能直接對 ev.start
   // 呼叫 toDateString()——那是裝置本地時區，裝置時區不是台北時就會判斷錯天。
-  const dayLabels=['','明','後','大後'];
+  const dayLabels=['今','明','後','大後'];
   const heroDayTag=ev=>{
     const t=tpeNow(ev.start);
     const evDateStr=t.toDateString();
-    for(let i=1;i<dayLabels.length;i++){
-      if(evDateStr===dateStrPlusDays(i))return `<span class="dayTag">${dayLabels[i]}</span>`;
+    for(let i=0;i<dayLabels.length;i++){
+      if(evDateStr===dateStrPlusDays(i))return `<span class="dayTag d${i}">${dayLabels[i]}</span>`;
     }
-    if(evDateStr===dateStrPlusDays(0))return '';
     return `<span class="dayTag">${t.getMonth()+1}/${t.getDate()}</span>`;
   };
   const items=events.slice(0,LIMIT).map(ev=>{
     const d=new Date(ev.start);
-    return `<a href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${heroDayTag(ev)}${esc(ev.title)}</a>`;
+    return `<a class="sItem" href="${gcalDayUrl(d)}" target="_blank" rel="noopener">${heroDayTag(ev)}<span class="sTitle">${esc(ev.title)}</span>${heroEventIcon(ev.title)}<span class="sChev">›</span></a>`;
   }).join('');
   const more=events.length>LIMIT?`<a class="more" href="https://calendar.google.com/calendar/" target="_blank" rel="noopener">+${events.length-LIMIT} 項 ↗</a>`:'';
   el.innerHTML=items+more;
@@ -2512,6 +2709,11 @@ function detectCalendarConflicts(events){
 function fmtConflictEvent(ev){
   return `${fmtTime(ev.start,{hour:'2-digit',minute:'2-digit'})}~${fmtTime(ev.end,{hour:'2-digit',minute:'2-digit'})} ${esc(ev.title)}`;
 }
+const OV_ICONS={
+  mail:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3" fill="#fff"/><path d="M3 7l9 6 9-6" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  news:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="#fff"/><path d="M6 8h7M6 12h12M6 16h12" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/><rect x="15" y="7" width="3" height="3" rx=".5" fill="#ea580c"/></svg>',
+  warn:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z" fill="#fff"/><path d="M12 10v5" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="18" r="1.3" fill="#dc2626"/></svg>'
+};
 function renderOverview(){
   const box=document.getElementById('overviewCard');
   const c=state.context;
@@ -2556,14 +2758,14 @@ function renderOverview(){
   // 那樣只看三天——衝突通常是提前排的，越早發現越有時間喬開。
   const conflicts=detectCalendarConflicts(c.calendar);
   const conflictHtml=conflicts.length
-    ? `<div class="ovSection"><div class="ovLabel" style="color:#dc2626;">⚠️ 行程撞期（${conflicts.length}組，請確認）</div>`+
+    ? `<div class="ovSection"><div class="ovHead"><span class="ovHeadIcon warn">${OV_ICONS.warn}</span><span class="ovHeadTitle" style="color:#dc2626;">行程撞期（${conflicts.length}組）</span></div>`+
       conflicts.map(([a,b])=>`<div class="ovItem">${esc(fmtDayLabel(a.start))} ${fmtConflictEvent(a)}<span class="ovSub"> 撞</span> ${fmtConflictEvent(b)}</div>`).join('')+
       `</div>`
     : '';
   box.innerHTML=
     conflictHtml+
-    `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
-    `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
+    `<div class="ovSection"><a class="ovHead" href="https://mail.google.com/mail/" target="_blank" rel="noopener"><span class="ovHeadIcon mail">${OV_ICONS.mail}</span><span class="ovHeadTitle">重要 EMAIL</span><span class="chev">›</span></a>${mailHtml}</div>`+
+    `<div class="ovSection" id="ovSectionNews"><div class="ovHead ovLabelToggle" onclick="toggleNewsCollapse()"><span class="ovHeadIcon news">${OV_ICONS.news}</span><span class="ovHeadTitle">今日新聞 <span class="ovToggleIcon">${newsArrow}</span></span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
     ``;
   box.style.display='block';
   // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
@@ -4155,6 +4357,10 @@ const TALK_PREP_GUIDE=`這一題是「等一下要跟某個人談某件事，幫
 // 也塞一大段方法論只是浪費 token，而且會讓回答變得很怪。
 const STRESS_HINTS=/緊繃|壓力|焦慮|累|疲憊|煩|生氣|憤怒|難過|沮喪|挫折|委屈|無力|無助|崩潰|睡不著|情緒|心情|放鬆|鬆弛|投訴|抱怨|衝突|對立|爭執|得罪|不爽|討厭|受不了|人際|同事|家長|上級|長官|部屬|主任|組長|老師|該怎麼面對|怎麼辦|好難|撐不住|想哭|失眠/;
 function looksLikeStressQuestion(t){return STRESS_HINTS.test(String(t||''));}
+function setSendLabel(t){
+  const s=document.querySelector('#sendBtn .sendLabel');
+  if(s)s.textContent=t;
+}
 async function sendChat(){
   const input=document.getElementById('chatInput');
   const text=input.value.trim();
@@ -4175,7 +4381,7 @@ async function sendChat(){
     save();
     return;
   }
-  const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;sendBtn.textContent='思考中…';
+  const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;setSendLabel('思考中…');
   const history=state.chat.slice(-8).map(m=>`${m.role==='user'?'使用者':'Ybot'}：${m.text}`).join('\n');
   const imgNote=image?'\n\n使用者這則訊息附加了一張圖片，請先仔細看圖片內容再回答（例如辨識文字、描述內容、回答關於圖片的問題；若圖片裡有多個待辦事項或行程，也可以一次全部整理成多個 add_note／add_calendar_event 動作）。':'';
   const actionSpec=`\n\n如果使用者是在「下指令」要你做事（新增待辦/瑣事/提醒/心法、把某件事加入行事曆、把某個待辦標記完成、修改某筆內容或時間、刪除某個待辦或筆記），除了正常的自然語言回覆之外，請在回覆最後面另起一段附加動作指令，格式如下（單純問答、沒有要做事就完全不要附加這段）：
@@ -4238,7 +4444,7 @@ ${buildDateRef(21)}
     save();renderChat();
   }finally{
     // 放在 finally，動作執行那段丟錯時送出鍵才不會永遠卡在「思考中…」。
-    sendBtn.disabled=false;sendBtn.textContent='送出';
+    sendBtn.disabled=false;setSendLabel('送出');
   }
 }
 document.getElementById('chatInput').addEventListener('keydown',e=>{
