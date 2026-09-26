@@ -1838,10 +1838,10 @@ function speakSegments(segs,onDone){
     speechSynthesis.speak(u);
   });
 }
-// AI 摘要會把國際新聞翻成中文，但原文也要聽得到（用英文語音念），接在摘要後面。
+// 國際新聞只念英文原文（使用者要的），不翻中文；接在 AI 的中文摘要後面。
 function newsEnglishSegments(h){
   if(!h.world.length)return [];
-  return [{text:'國際新聞英文原文。'}].concat(h.world.map(t=>({text:t+'.',lang:'en-US'})));
+  return [{text:'國際新聞。'}].concat(h.world.map(t=>({text:t+'.',lang:'en-US'})));
 }
 function newsFallbackSegments(h){
   const segs=[{text:'今天的新聞標題。'}];
@@ -1858,13 +1858,12 @@ async function newsScript(h){
   if(newsScriptCache.key===key)return newsScriptCache.text;   // 同一批新聞不重複叫 AI
   const hr=tpeNow().getHours();
   const greet=hr<11?'早安':hr<18?'午安':'晚安';
-  const list=[['國內',h.domestic],['國際（英文標題）',h.world],['教育',h.education]]
+  const list=[['國內',h.domestic],['教育',h.education]]
     .filter(([,l])=>l.length).map(([k,l])=>`${k}：\n`+l.map(t=>'- '+t).join('\n')).join('\n');
   const prompt=`你是 Young 的個人助理 Ybot，要把今天的新聞標題整理成一段念給他聽的口語新聞摘要。
 規則：
 - 只能根據標題本身，不可以補充標題沒有的細節、數字、原因或評論；標題看不懂的就照字面簡單說。
-- 英文標題翻成自然的中文。
-- 依國內、國際、教育的順序，每則一兩句，口語、好聽懂；不要念出媒體名稱。
+- 依國內、教育的順序，每則一兩句，口語、好聽懂；不要念出媒體名稱。
 - 開頭用「${greet}，」接一句簡短的開場，結尾不要客套話。
 - 純文字，不要任何符號、編號或條列，總長 250 字以內。
 
@@ -1882,7 +1881,8 @@ async function toggleNewsSpeak(){
   if(!h.domestic.length&&!h.world.length&&!h.education.length){alert('目前沒有新聞資料，先按上面的 🔄 更新。');return;}
   newsSpeakState='preparing';renderNewsSpeakBtn();
   let segs;
-  if(aiOrder().length){
+  // 國際新聞不經過 AI，所以只有國際新聞時也不用叫 AI。
+  if(aiOrder().length&&(h.domestic.length||h.education.length)){
     try{segs=[{text:await newsScript(h)}].concat(newsEnglishSegments(h));}catch(e){segs=null;}
   }
   if(newsSpeakState!=='preparing')return;   // 整理途中使用者按了停止
