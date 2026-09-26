@@ -104,26 +104,26 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroClock .clockTime{font-weight:900;font-size:1.3rem;font-size:clamp(.95rem,5.5cqw,1.6rem);letter-spacing:.01em;white-space:nowrap;}
 .heroClock .clockLunar{font-size:1.05rem;font-size:clamp(.82rem,4.3cqw,1.2rem);font-weight:700;margin-top:2px;white-space:nowrap;}
 .heroBadgeRow{display:flex;align-items:flex-end;gap:6px;margin-top:14px;}
-.heroMascot{position:relative;flex-shrink:0;width:100px;height:100px;margin:0 4px 8px 0;}
+.heroMascot{position:relative;flex-shrink:0;width:50px;height:50px;margin:0 6px 6px 0;}
 .heroMascot .ring{position:absolute;inset:0;border-radius:50%;
   background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.35),rgba(125,211,252,.28) 58%,rgba(59,130,246,.18) 70%);
-  border:3px solid rgba(255,255,255,.75);
-  box-shadow:0 0 22px rgba(125,211,252,.95),0 0 44px rgba(56,189,248,.5),inset 0 0 18px rgba(186,230,253,.8);}
-.heroMascot .bot{position:absolute;left:50%;top:50%;width:78px;height:78px;margin:-41px 0 0 -39px;
-  animation:botFloat 3.6s ease-in-out infinite;filter:drop-shadow(0 6px 8px rgba(15,50,120,.3));}
-.heroMascot .bubble{position:absolute;right:-10px;bottom:2px;padding:4px 10px;border-radius:13px;font-weight:900;font-size:.88rem;
-  color:#fff;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:2px solid rgba(255,255,255,.85);
-  box-shadow:0 4px 12px rgba(29,78,216,.45);text-shadow:none;}
-.heroMascot .bubble::after{content:'';position:absolute;left:10px;bottom:-7px;width:10px;height:10px;
-  background:#1d4ed8;border-right:2px solid rgba(255,255,255,.85);border-bottom:2px solid rgba(255,255,255,.85);transform:rotate(45deg);}
+  border:2px solid rgba(255,255,255,.75);
+  box-shadow:0 0 11px rgba(125,211,252,.95),0 0 22px rgba(56,189,248,.5),inset 0 0 9px rgba(186,230,253,.8);}
+.heroMascot .bot{position:absolute;left:50%;top:50%;width:39px;height:39px;margin:-21px 0 0 -19.5px;
+  animation:botFloat 3.6s ease-in-out infinite;filter:drop-shadow(0 3px 4px rgba(15,50,120,.3));}
+.heroMascot .bubble{position:absolute;right:-14px;bottom:-4px;padding:1px 6px;border-radius:8px;font-weight:900;font-size:.6rem;
+  color:#fff;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:1.5px solid rgba(255,255,255,.85);
+  box-shadow:0 2px 6px rgba(29,78,216,.45);text-shadow:none;}
+.heroMascot .bubble::after{content:'';position:absolute;left:6px;bottom:-4px;width:6px;height:6px;
+  background:#1d4ed8;border-right:1.5px solid rgba(255,255,255,.85);border-bottom:1.5px solid rgba(255,255,255,.85);transform:rotate(45deg);}
 @container (max-width:330px){
-  .heroMascot{width:74px;height:74px;margin-right:2px;}
-  .heroMascot .bot{width:56px;height:56px;margin:-30px 0 0 -28px;}
-  .heroMascot .bubble{font-size:.72rem;padding:2px 7px;right:-8px;}
+  .heroMascot{width:42px;height:42px;margin-right:4px;}
+  .heroMascot .bot{width:33px;height:33px;margin:-18px 0 0 -16.5px;}
+  .heroMascot .bubble{font-size:.55rem;padding:0 5px;right:-10px;}
   .heroScheduleMini .sIcon{display:none;}
   .heroScheduleMini .dayTag{min-width:28px;height:26px;font-size:.8rem;padding:0 4px;}
 }
-@keyframes botFloat{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+@keyframes botFloat{0%,100%{transform:translateY(0);}50%{transform:translateY(-2px);}}
 @media(prefers-reduced-motion:reduce){.heroMascot .bot{animation:none;}}
 .heroScheduleMini{flex:1;min-width:0;background:rgba(255,255,255,.9);border-radius:22px;padding:7px;
   box-shadow:0 8px 24px rgba(15,50,120,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
