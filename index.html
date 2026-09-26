@@ -439,7 +439,27 @@ a.ovMailItem:hover{text-decoration:underline;}
       <textarea id="soulContentInput" class="fi" placeholder="貼上文章內容…" style="min-height:100px;margin-bottom:6px;"></textarea>
       <button class="btn ghost" onclick="addSoulFromInput()">加入文集</button>
       <div id="soulStatus" class="hint" style="margin:6px 0 0;"></div>
-      <div id="soulList" style="margin-top:10px;"></div>
+
+      <div class="section-title" style="margin-top:14px;font-size:.9rem;">📘 從臉書整批匯入</div>
+      <input type="file" id="soulFbInput" accept=".zip,.json,application/zip,application/json" multiple style="display:none;"
+             onchange="importSoulFromFacebook(this.files);this.value='';">
+      <button class="btn ghost" onclick="document.getElementById('soulFbInput').click()">📘 選擇臉書備份檔（zip）</button>
+      <div id="soulImportStatus" class="hint" style="margin:6px 0 0;"></div>
+      <details class="hint" style="margin-top:6px;">
+        <summary style="cursor:pointer;">怎麼從臉書下載備份檔？</summary>
+        <ol style="margin:6px 0 0;padding-left:1.3em;line-height:1.6;">
+          <li>臉書 → 設定和隱私 → 設定 → 帳號管理中心 → 你的資訊和權限 → 下載你的資訊（臉書偶爾會改選單名稱，大致在這個位置）</li>
+          <li>選「部分資訊」，勾「貼文」；社團裡寫的文章也要的話，一起勾「社團」</li>
+          <li>日期範圍選「所有時間」，<b>格式一定要選 JSON</b>，媒體品質選「低」（照片用不到，檔案小很多）</li>
+          <li>臉書準備好檔案會通知你，下載 zip 後直接選進來，不用解壓縮。分成好幾個 zip 的話可以一次全選</li>
+        </ol>
+        <div style="margin-top:6px;">臉書匯入的文章只存在這台裝置，不會傳到雲端後台（幾千篇會把同步拖垮）。換手機或電腦時，在那台再匯入一次同一個檔案即可，重複匯入不會變成兩份。</div>
+      </details>
+
+      <div id="soulSummary" class="hint" style="margin:12px 0 0;"></div>
+      <input id="soulFilter" class="fi" placeholder="搜尋文集…" oninput="renderSoulList()" style="margin:6px 0;">
+      <div id="soulList"></div>
+      <button id="soulDelFbBtn" class="btn ghost" onclick="soulDeleteAllFb()" style="display:none;margin-top:8px;font-size:.8rem;">刪除所有臉書匯入的文章</button>
     </div>
 
     <div class="card">
@@ -3072,31 +3092,75 @@ function addProfileFromInput(){
 // 讓 Ybot 談教育理念、文字創作、人生體悟這類話題時，能貼近他自己的筆觸
 // 與觀點，不是通用的罐頭回答。他會定期繼續餵養，所以這裡是長期累積的
 // 資料庫，不是一次性塞好就結束。
-// 借用問答庫那張表存雲端（kind='soul'），後台不用改也不用重新部署——
-// 跟下面的「長期記憶」（kind='profile'）是同一招。
-const SOUL_MAX=200;
-function soulList(){return Array.isArray(state.soul)?state.soul:[];}
+//
+// 存在 IndexedDB，不放 state：整個 state 是一次寫進 localStorage 的（上限約 5MB），
+// 臉書整批匯入可能是幾千篇，塞進去會撐爆，撐爆之後連筆記都存不了。
+//
+// 雲端：手動貼的文章借用問答庫那張表（kind='soul'），後台不用改——跟「長期記憶」
+// 同一招。臉書匯入的（id 開頭 sfb）只留在本機：後台 syncQa 每筆都整張表重讀，
+// 幾千篇送上去會超過 Apps Script 的執行時間上限；而且問答庫每次同步都整張拉回來，
+// 會把每次同步都拖慢。臉書本身就是原稿，換裝置時再匯入一次同一個檔案即可，
+// id 由時間與內容決定，重複匯入不會變兩份。
+const SOUL_DB='ybot-soul',SOUL_STORE='essays';
+let soulData=[];
+function soulOpenDB(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(SOUL_DB,1);
+    r.onupgradeneeded=()=>{
+      const d=r.result;
+      if(!d.objectStoreNames.contains(SOUL_STORE))d.createObjectStore(SOUL_STORE,{keyPath:'id'});
+    };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error||new Error('IndexedDB 打不開'));
+  });
+}
+function soulDbWrite(puts,dels){
+  return soulOpenDB().then(d=>new Promise((res,rej)=>{
+    const tx=d.transaction(SOUL_STORE,'readwrite');
+    const st=tx.objectStore(SOUL_STORE);
+    (puts||[]).forEach(r=>st.put(r));
+    (dels||[]).forEach(id=>st.delete(id));
+    tx.oncomplete=()=>res(true);
+    tx.onerror=()=>rej(tx.error);
+    tx.onabort=()=>rej(tx.error||new Error('寫入中斷（可能是儲存空間不足）'));
+  }));
+}
+function soulSort(){soulData.sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));}
+const soulReady=soulOpenDB().then(d=>new Promise((res,rej)=>{
+  const tx=d.transaction(SOUL_STORE,'readonly');
+  const r=tx.objectStore(SOUL_STORE).getAll();
+  r.onsuccess=()=>res(r.result||[]);
+  tx.onerror=()=>rej(tx.error);
+})).then(list=>{soulData=list;soulSort();renderSoulList();}).catch(()=>{});
+function soulList(){return soulData;}
+function isFbSoul(r){return String(r&&r.id||'').startsWith('sfb');}
 function soulAdd(title,content){
   const t=String(title||'').trim(),c=String(content||'').trim();
   if(!c)return null;
-  if(!Array.isArray(state.soul))state.soul=[];
   const rec={id:'s'+Date.now()+Math.random().toString(36).slice(2,7),
     title:t||'(無標題)',content:c,at:new Date().toISOString()};
-  state.soul.unshift(rec);
-  if(state.soul.length>SOUL_MAX)state.soul.length=SOUL_MAX;
-  save();
+  soulData.unshift(rec);
+  soulDbWrite([rec]).catch(()=>{});
   if(state.gasUrl){
     gasPost({action:'addQa',qa:soulToQa(rec)}).catch(()=>{});
   }
   return rec;
 }
 function soulDelete(id){
-  if(!Array.isArray(state.soul))return;
-  state.soul=state.soul.filter(x=>x.id!==id);
-  save();renderSoulList();
-  if(state.gasUrl){
+  soulData=soulData.filter(x=>x.id!==id);
+  soulDbWrite(null,[id]).catch(()=>{});
+  renderSoulList();
+  if(state.gasUrl&&!id.startsWith('sfb')){
     gasPost({action:'deleteQa',id}).catch(()=>{});
   }
+}
+function soulDeleteAllFb(){
+  const ids=soulData.filter(isFbSoul).map(x=>x.id);
+  if(!ids.length)return;
+  if(!confirm(`要刪掉從臉書匯入的 ${ids.length} 篇嗎？手動貼的文章不受影響。`))return;
+  soulData=soulData.filter(x=>!isFbSoul(x));
+  soulDbWrite(null,ids).catch(()=>{});
+  renderSoulList();
 }
 // 雲端那張表的欄位是 q/a/kind/at，文章就放標題進 q、內容進 a。
 function soulToQa(r){
@@ -3105,19 +3169,30 @@ function soulToQa(r){
 function qaToSoul(r){
   return {id:r.id,title:String(r.q||'').trim()||'(無標題)',content:String(r.a||'').trim(),at:r.at||new Date().toISOString()};
 }
+const SOUL_LIST_SHOW=30;
 function renderSoulList(){
   const box=document.getElementById('soulList');
   if(!box)return;
-  const list=soulList();
-  if(!list.length){
-    box.innerHTML='<div class="empty">還沒有收錄任何文章。貼上你的文字，Ybot 會慢慢養成你的筆調與觀點。</div>';
+  const all=soulList();
+  const sum=document.getElementById('soulSummary');
+  const fbN=all.filter(isFbSoul).length;
+  if(sum)sum.textContent=all.length?`共 ${all.length} 篇（手動加入 ${all.length-fbN} 篇、臉書匯入 ${fbN} 篇）`:'';
+  const delBtn=document.getElementById('soulDelFbBtn');
+  if(delBtn)delBtn.style.display=fbN?'':'none';
+  if(!all.length){
+    box.innerHTML='<div class="empty">還沒有收錄任何文章。貼上你的文字，或整批匯入臉書備份，Ybot 會慢慢養成你的筆調與觀點。</div>';
     return;
   }
-  box.innerHTML=list.map(r=>`<details class="qaItem">
-    <summary><span class="qaWhen">${fmtDate(r.at)}</span><span class="qaQ">${esc(r.title)}</span><span class="qaCaret">▶</span></summary>
+  const qEl=document.getElementById('soulFilter');
+  const q=qEl?qEl.value.trim():'';
+  const list=q?all.filter(r=>(r.title||'').includes(q)||(r.content||'').includes(q)):all;
+  if(!list.length){box.innerHTML='<div class="empty">沒有符合的文章。</div>';return;}
+  const shown=list.slice(0,SOUL_LIST_SHOW);
+  box.innerHTML=shown.map(r=>`<details class="qaItem">
+    <summary><span class="qaWhen">${isFbSoul(r)?'📘 ':''}${fmtDate(r.at)}</span><span class="qaQ">${esc(r.title)}</span><span class="qaCaret">▶</span></summary>
     <div class="qaA">${esc(r.content)}</div>
     <button class="qaDel" onclick="soulDelete('${r.id}')">刪除這篇</button>
-  </details>`).join('');
+  </details>`).join('')+(list.length>shown.length?`<div class="hint">還有 ${list.length-shown.length} 篇沒列出來，用上面的搜尋框找。</div>`:'');
 }
 function addSoulFromInput(){
   const titleEl=document.getElementById('soulTitleInput'),contentEl=document.getElementById('soulContentInput');
@@ -3133,7 +3208,168 @@ function addSoulFromInput(){
   renderSoulList();
   if(st){st.textContent='✅ 已加入文集。';setTimeout(()=>{st.textContent='';},2500);}
 }
-// 跟問答庫同一套 n-gram 比對邏輯：標題命中權重高，內容命中權重低。
+
+// ── 臉書備份整批匯入 ──
+// 臉書「下載你的資訊」給的是 zip（JSON 格式）。這裡自己讀 zip，只讀貼文那幾個檔：
+// 含照片影片的完整備份可能好幾 GB，整包讀進記憶體手機會直接當掉，
+// 用 File.slice 只取目錄和需要的檔案就不會。
+async function zipEntries(file){
+  const size=file.size;
+  const tailLen=Math.min(size,65557);   // EOCD 22 bytes + 最長 65535 的註解
+  const tail=new DataView(await file.slice(size-tailLen).arrayBuffer());
+  let eocd=-1;
+  for(let i=tailLen-22;i>=0;i--){if(tail.getUint32(i,true)===0x06054b50){eocd=i;break;}}
+  if(eocd<0)throw new Error('這不是有效的 zip 檔');
+  let count=tail.getUint16(eocd+10,true),cdSize=tail.getUint32(eocd+12,true),cdOff=tail.getUint32(eocd+16,true);
+  // 超過 4GB 或檔案太多時是 zip64，真正的數字在另一段
+  if(count===0xFFFF||cdSize===0xFFFFFFFF||cdOff===0xFFFFFFFF){
+    const loc=eocd-20;
+    if(loc<0||tail.getUint32(loc,true)!==0x07064b50)throw new Error('zip64 格式讀不到目錄');
+    const z64=Number(tail.getBigUint64(loc+8,true));
+    const z=new DataView(await file.slice(z64,z64+56).arrayBuffer());
+    if(z.getUint32(0,true)!==0x06064b50)throw new Error('zip64 格式讀不到目錄');
+    count=Number(z.getBigUint64(32,true));cdSize=Number(z.getBigUint64(40,true));cdOff=Number(z.getBigUint64(48,true));
+  }
+  const cd=new DataView(await file.slice(cdOff,cdOff+cdSize).arrayBuffer());
+  const dec=new TextDecoder();
+  const out=[];
+  let p=0;
+  while(out.length<count&&p+46<=cd.byteLength&&cd.getUint32(p,true)===0x02014b50){
+    const method=cd.getUint16(p+10,true);
+    let csize=cd.getUint32(p+20,true),usize=cd.getUint32(p+24,true);
+    const nlen=cd.getUint16(p+28,true),xlen=cd.getUint16(p+30,true),clen=cd.getUint16(p+32,true);
+    let off=cd.getUint32(p+42,true);
+    const name=dec.decode(new Uint8Array(cd.buffer,cd.byteOffset+p+46,nlen));
+    let x=p+46+nlen;const xe=x+xlen;
+    while(x+4<=xe){
+      const id=cd.getUint16(x,true),len=cd.getUint16(x+2,true);
+      if(id===1){
+        let q=x+4;
+        if(usize===0xFFFFFFFF){usize=Number(cd.getBigUint64(q,true));q+=8;}
+        if(csize===0xFFFFFFFF){csize=Number(cd.getBigUint64(q,true));q+=8;}
+        if(off===0xFFFFFFFF){off=Number(cd.getBigUint64(q,true));q+=8;}
+      }
+      x+=4+len;
+    }
+    out.push({name,method,csize,off});
+    p=xe+clen;
+  }
+  return out;
+}
+async function zipReadText(file,e){
+  const lh=new DataView(await file.slice(e.off,e.off+30).arrayBuffer());
+  if(lh.getUint32(0,true)!==0x04034b50)throw new Error('zip 內容損壞');
+  const start=e.off+30+lh.getUint16(26,true)+lh.getUint16(28,true);
+  let stream=file.slice(start,start+e.csize).stream();
+  if(e.method===8)stream=stream.pipeThrough(new DecompressionStream('deflate-raw'));
+  else if(e.method!==0)throw new Error('不支援的壓縮方式');
+  return new Response(stream).text();
+}
+// 臉書匯出的 JSON 有個老毛病：中文被拆成一個 byte 一個字元（UTF-8 當 Latin-1 存），
+// 讀出來是「å°æ」這種亂碼。每個字元都 < 256 的字串就還原成 byte 再用 UTF-8 解一次。
+function fbFixText(s){
+  if(typeof s!=='string')return '';
+  if(!/[\u0080-ÿ]/.test(s)||/[^\u0000-ÿ]/.test(s))return s;
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(s,c=>c.charCodeAt(0)));}
+  catch(e){return s;}
+}
+// 不綁死檔名與層級（臉書改過好幾次），只認內容的形狀：
+//   貼文／社團貼文：{timestamp, data:[{post:'...'}]}
+//   網誌：{title, text, created_timestamp}
+function fbExtractPosts(json,out,stats){
+  const walk=v=>{
+    if(Array.isArray(v)){v.forEach(walk);return;}
+    if(!v||typeof v!=='object')return;
+    if(Array.isArray(v.data)&&v.timestamp){
+      const text=v.data.map(d=>d&&typeof d.post==='string'?fbFixText(d.post):'').filter(Boolean).join('\n\n').trim();
+      if(text){out.push({ts:v.timestamp,text});return;}
+      stats.empty++;return;
+    }
+    if(typeof v.text==='string'&&typeof v.title==='string'&&(v.created_timestamp||v.timestamp)){
+      const text=fbFixText(v.text).trim();
+      if(text){out.push({ts:v.created_timestamp||v.timestamp,text,title:fbFixText(v.title).trim()});return;}
+    }
+    Object.values(v).forEach(walk);
+  };
+  walk(json);
+}
+function soulHash(s){
+  let h=5381;
+  for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;
+  return (h>>>0).toString(36);
+}
+// 貼文沒有標題：第一行夠短就當標題（Young 的文章常常第一行就是題目），不然取開頭。
+function soulTitleFrom(text){
+  const first=text.split('\n').map(s=>s.trim()).find(Boolean)||'';
+  return first.length<=24?first:first.slice(0,20)+'…';
+}
+const soulNorm=s=>String(s||'').replace(/\s+/g,'');
+async function fbPostsFromFiles(files){
+  const posts=[],stats={empty:0,files:0,htmlOnly:false};
+  for(const f of files){
+    const name=f.name.toLowerCase();
+    if(name.endsWith('.json')){
+      stats.files++;
+      fbExtractPosts(JSON.parse(await f.text()),posts,stats);
+      continue;
+    }
+    if(!name.endsWith('.zip'))continue;
+    if(typeof DecompressionStream==='undefined')throw new Error('這個瀏覽器版本太舊，讀不了 zip。請更新瀏覽器，或先解壓縮再選裡面 posts 資料夾的 .json 檔。');
+    const entries=await zipEntries(f);
+    // 別人貼在他動態時報上的文字不是他寫的；編輯紀錄會是同一篇的舊版本。
+    const want=entries.filter(e=>/\.json$/i.test(e.name)&&/post|note/i.test(e.name)
+      &&!/other_people|others|edit/i.test(e.name));
+    if(!want.length&&entries.some(e=>/\.html?$/i.test(e.name)&&/post/i.test(e.name)))stats.htmlOnly=true;
+    for(const e of want){
+      stats.files++;
+      try{fbExtractPosts(JSON.parse(await zipReadText(f,e)),posts,stats);}catch(err){}
+    }
+  }
+  return {posts,stats};
+}
+async function importSoulFromFacebook(fileList){
+  const files=[...(fileList||[])];
+  if(!files.length)return;
+  const st=document.getElementById('soulImportStatus');
+  const say=t=>{if(st)st.textContent=t;};
+  say('讀取中…（檔案大的話要等一下）');
+  try{
+    await soulReady;
+    const {posts,stats}=await fbPostsFromFiles(files);
+    if(!posts.length){
+      say(stats.htmlOnly
+        ?'⚠️ 這份備份是 HTML 格式，Ybot 讀不懂。請回臉書重新下載，格式選「JSON」。'
+        :'⚠️ 檔案裡找不到貼文文字。請確認下載時有勾「貼文」、格式選「JSON」。');
+      return;
+    }
+    const haveIds=new Set(soulData.map(x=>x.id));
+    const haveText=new Set(soulData.map(x=>soulNorm(x.content)));
+    const recs=[];
+    let dup=0;
+    for(const p of posts){
+      const norm=soulNorm(p.text);
+      const id='sfb'+p.ts+'_'+soulHash(p.text);
+      if(haveIds.has(id)||haveText.has(norm)){dup++;continue;}
+      haveIds.add(id);haveText.add(norm);
+      recs.push({id,title:p.title||soulTitleFrom(p.text)||'(無標題)',content:p.text,
+        at:new Date(p.ts*1000).toISOString()});
+    }
+    if(recs.length){
+      await soulDbWrite(recs);
+      soulData=soulData.concat(recs);
+      soulSort();
+    }
+    renderSoulList();
+    const extra=[dup?`${dup} 篇已經在文集裡`:'',stats.empty?`${stats.empty} 則沒有文字（只有照片、連結或打卡）`:'']
+      .filter(Boolean).join('、');
+    say(`✅ 從臉書匯入 ${recs.length} 篇。${extra?'略過：'+extra+'。':''}`);
+  }catch(err){
+    say('⚠️ 匯入失敗：'+(err&&err.message||err));
+  }
+}
+
+// 比對跟問答庫同一套 n-gram，但內容只算 3 字詞：文集整批匯入後可能上千篇、篇篇都長，
+// 「我們」「今天」這種 2 字詞幾乎每篇都有，算進去的話隨便問什麼都會把長文拉進來。
 const SOUL_MIN_SCORE=6;
 const SOUL_RECALL=2;   // 文章比問答長很多，一次帶太多篇會排擠其他 context
 function soulSearch(query,limit){
@@ -3146,7 +3382,7 @@ function soulSearch(query,limit){
     let score=0;
     for(const t of terms){
       if(title.includes(t))score+=3;
-      if(content.includes(t))score+=1;
+      if(t.length>=3&&content.includes(t))score+=1;
     }
     return {r,score};
   }).filter(x=>x.score>=SOUL_MIN_SCORE).sort((a,b)=>b.score-a.score)
@@ -3215,7 +3451,7 @@ async function qaSync(opts){
     const remoteSoul=all.filter(x=>x.kind==='soul');
     if(!Array.isArray(state.qa))state.qa=[];
     if(!Array.isArray(state.profile))state.profile=[];
-    if(!Array.isArray(state.soul))state.soul=[];
+    await soulReady;   // 文集從 IndexedDB 讀是非同步的，沒讀完就比對會以為本機是空的
     const localIds=new Set(state.qa.map(x=>x.id));
     const pulled=remote.filter(x=>!localIds.has(x.id));
     if(pulled.length){
@@ -3234,20 +3470,20 @@ async function qaSync(opts){
         .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
       if(state.profile.length>PROFILE_MAX)state.profile.length=PROFILE_MAX;
     }
-    const localSids=new Set(state.soul.map(x=>x.id));
+    const localSids=new Set(soulData.map(x=>x.id));
     const pulledSoul=remoteSoul
       .filter(x=>!localSids.has(x.id))
       .map(qaToSoul)
       .filter(x=>x.content);
     if(pulledSoul.length){
-      state.soul=state.soul.concat(pulledSoul)
-        .sort((a,b)=>new Date(b.at||0)-new Date(a.at||0));
-      if(state.soul.length>SOUL_MAX)state.soul.length=SOUL_MAX;
+      soulData=soulData.concat(pulledSoul);
+      soulSort();
+      soulDbWrite(pulledSoul).catch(()=>{});
     }
     const remoteIds=new Set(all.map(x=>x.id));
     const toPush=state.qa.filter(x=>!remoteIds.has(x.id));
     const toPushProfile=state.profile.filter(x=>!remoteIds.has(x.id)).map(profileToQa);
-    const toPushSoul=state.soul.filter(x=>!remoteIds.has(x.id)).map(soulToQa);
+    const toPushSoul=soulData.filter(x=>!remoteIds.has(x.id)&&!isFbSoul(x)).map(soulToQa);
     if(toPush.length||toPushProfile.length||toPushSoul.length){
       await gasPost({action:'syncQa',qa:toPush.concat(toPushProfile).concat(toPushSoul)});
     }
