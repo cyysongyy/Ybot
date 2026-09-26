@@ -1838,6 +1838,11 @@ function speakSegments(segs,onDone){
     speechSynthesis.speak(u);
   });
 }
+// AI 摘要會把國際新聞翻成中文，但原文也要聽得到（用英文語音念），接在摘要後面。
+function newsEnglishSegments(h){
+  if(!h.world.length)return [];
+  return [{text:'國際新聞英文原文。'}].concat(h.world.map(t=>({text:t+'.',lang:'en-US'})));
+}
 function newsFallbackSegments(h){
   const segs=[{text:'今天的新聞標題。'}];
   if(h.domestic.length)segs.push({text:'國內：'+h.domestic.join('。')+'。'});
@@ -1878,7 +1883,7 @@ async function toggleNewsSpeak(){
   newsSpeakState='preparing';renderNewsSpeakBtn();
   let segs;
   if(aiOrder().length){
-    try{segs=[{text:await newsScript(h)}];}catch(e){segs=null;}
+    try{segs=[{text:await newsScript(h)}].concat(newsEnglishSegments(h));}catch(e){segs=null;}
   }
   if(newsSpeakState!=='preparing')return;   // 整理途中使用者按了停止
   if(!segs)segs=newsFallbackSegments(h);
