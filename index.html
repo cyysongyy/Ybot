@@ -194,17 +194,23 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 }
 .heroTop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
   text-shadow:0 2px 10px rgba(15,50,120,.35);}
-.heroWeatherMini{display:flex;align-items:flex-start;gap:8px;flex-shrink:0;}
+/* 天氣這邊改成可壓縮：右邊的時鐘是固定寬度的數字，擠到的時候該讓
+   天氣描述縮短（…），而不是把日期時間切掉一半。 */
+.heroWeatherMini{display:flex;align-items:flex-start;gap:8px;min-width:0;}
 .heroWeatherMini .icon{font-size:2rem;font-size:clamp(1.4rem,8.5cqw,2.4rem);line-height:1;filter:drop-shadow(0 3px 6px rgba(15,50,120,.25));}
 .heroWeatherMini .lines{display:flex;flex-direction:column;}
 .heroWeatherMini .t{font-weight:900;font-size:1.8rem;font-size:clamp(1.3rem,8cqw,2.2rem);line-height:1;letter-spacing:-.01em;}
-.heroWeatherMini .d{font-size:.95rem;font-weight:700;margin-top:4px;}
+.heroWeatherMini .lines{min-width:0;}
+.heroWeatherMini .d{font-size:.95rem;font-weight:700;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .heroWeatherMini .hl{font-size:.88rem;font-weight:700;margin-top:3px;}
 .heroWeatherMini a{color:#fff;font-size:.85rem;font-weight:700;text-decoration:none;
   background:rgba(255,255,255,.22);padding:5px 10px;border-radius:999px;}
-.heroClock{text-align:right;line-height:1.25;user-select:none;min-width:0;}
-.heroClock .clockTime{font-weight:900;font-size:1.3rem;font-size:clamp(.95rem,5.5cqw,1.6rem);letter-spacing:.01em;white-space:nowrap;}
-.heroClock .clockLunar{font-size:1.05rem;font-size:clamp(.82rem,4.3cqw,1.2rem);font-weight:700;margin-top:2px;white-space:nowrap;}
+/* 時間、日期、農曆各自一行。以前日期和時間擠在同一行，加上星期之後
+   在手機上會被卡片的 overflow:hidden 切掉右半邊，所以拆開排。 */
+.heroClock{text-align:right;line-height:1.2;user-select:none;flex-shrink:0;}
+.heroClock .clockTime{font-weight:900;font-size:1.5rem;font-size:clamp(1.15rem,6.4cqw,1.9rem);letter-spacing:.01em;white-space:nowrap;}
+.heroClock .clockDate{font-weight:800;font-size:1.05rem;font-size:clamp(.88rem,4.6cqw,1.25rem);margin-top:3px;white-space:nowrap;}
+.heroClock .clockLunar{font-size:.95rem;font-size:clamp(.8rem,4.1cqw,1.1rem);font-weight:700;margin-top:2px;white-space:nowrap;opacity:.92;}
 .heroBadgeRow{display:flex;align-items:flex-end;gap:6px;margin-top:14px;}
 @container (max-width:330px){
   .heroScheduleMini .dayTag{min-width:28px;height:26px;font-size:.8rem;padding:0 4px;}
@@ -4620,11 +4626,13 @@ const CN_MONTH=['正月','二月','三月','四月','五月','六月','七月','
 function updateClock(){
   const now=new Date();
   const t=tpeNow(now);
-  const dateStr=`${String(t.getMonth()+1).padStart(2,'0')}/${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+  const timeStr=`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+  const dateStr=`${t.getMonth()+1}/${t.getDate()}（${WD_NAMES[t.getDay()]}）`;
   const l=solar2lunar(t.getFullYear(),t.getMonth()+1,t.getDate());
   const lunarStr=l?`農曆${l.isLeap?'閏':''}${CN_MONTH[l.lMonth-1]}${CN_DAY[l.lDay-1]}`:'';
   document.getElementById('clockBox').innerHTML=
-    `<div class="clockTime">${dateStr}</div>`+(lunarStr?`<div class="clockLunar">${lunarStr}</div>`:'');
+    `<div class="clockTime">${timeStr}</div><div class="clockDate">${dateStr}</div>`+
+    (lunarStr?`<div class="clockLunar">${lunarStr}</div>`:'');
 }
 updateClock();
 setInterval(updateClock,30000);
