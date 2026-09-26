@@ -78,9 +78,120 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 }
 
 .hero{position:relative;overflow:hidden;border-radius:26px;padding:16px 14px 14px;margin-bottom:16px;min-height:330px;
-  color:#fff;background:#4f9be8;box-shadow:0 14px 36px rgba(30,64,175,.22);isolation:isolate;container-type:inline-size;}
+  color:#fff;background:var(--sky2);box-shadow:0 14px 36px rgba(30,64,175,.22);isolation:isolate;container-type:inline-size;}
 .heroScene{position:absolute;inset:0;z-index:-1;}
 .heroScene svg{width:100%;height:100%;display:block;}
+/* ── 天空跟著天氣走 ──────────────────────────────────────
+   skyMood() 把後台的天氣歸成 8 種，寫進 #heroCard 的 data-sky。
+   風景的形狀完全不動，只換這些變數的顏色，再決定雨／雪／霧那幾層要不要出現。
+   漸層的 stop 本來寫在 HTML 屬性裡，CSS 的 stop-color 優先權比屬性高，
+   所以屬性留著當 CSS 失效時的底色。 */
+.hero{
+  --sky1:#1765d1;--sky2:#4a98e8;--sky3:#9ccdf4;--sky4:#dff0ff;
+  --far1:#7aa3dc;--far2:#a9c9ee;--mtn1:#2f5ea6;--mtn2:#5f8fcf;
+  --fld1:#b9de6d;--fld2:#78bb45;--fldb1:#8dc84c;--fldb2:#3f8f33;
+  --lf1:#5cc36a;--lf2:#1c7a38;--lfb1:#8bd66c;--lfb2:#2e8f3e;
+  --bush:#2f7d3a;--sun:1;--cloudOp:.9;--cloudFill:#fff;
+}
+#hsSky stop:nth-child(1){stop-color:var(--sky1);}
+#hsSky stop:nth-child(2){stop-color:var(--sky2);}
+#hsSky stop:nth-child(3){stop-color:var(--sky3);}
+#hsSky stop:nth-child(4){stop-color:var(--sky4);}
+#hsFar stop:nth-child(1){stop-color:var(--far1);}
+#hsFar stop:nth-child(2){stop-color:var(--far2);}
+#hsMtn stop:nth-child(1){stop-color:var(--mtn1);}
+#hsMtn stop:nth-child(2){stop-color:var(--mtn2);}
+#hsField stop:nth-child(1){stop-color:var(--fld1);}
+#hsField stop:nth-child(2){stop-color:var(--fld2);}
+#hsField2 stop:nth-child(1){stop-color:var(--fldb1);}
+#hsField2 stop:nth-child(2){stop-color:var(--fldb2);}
+#hsLeaf stop:nth-child(1){stop-color:var(--lf1);}
+#hsLeaf stop:nth-child(2){stop-color:var(--lf2);}
+#hsLeaf2 stop:nth-child(1){stop-color:var(--lfb1);}
+#hsLeaf2 stop:nth-child(2){stop-color:var(--lfb2);}
+.hsBush{fill:var(--bush);}
+.hsSun,.hsGlowC{opacity:var(--sun);}
+.hsClouds{fill:var(--cloudFill);opacity:var(--cloudOp);}
+.hsFogBand,.hsRain,.hsSnow,.hsFlash{display:none;}
+
+/* 多雲：藍天還在，雲厚一點 */
+.hero[data-sky="cloudy"]{
+  --sky1:#2f77c4;--sky2:#5f9fdd;--sky3:#aacce9;--sky4:#e6eff6;
+  --far1:#8aa8cd;--far2:#b0c6de;--mtn1:#3c5f92;--mtn2:#6b8cb5;
+  --sun:.75;--cloudOp:1;--cloudFill:#f4f7fa;
+}
+/* 陰天：整片灰，太陽收掉 */
+.hero[data-sky="overcast"]{
+  --sky1:#69737f;--sky2:#8a949f;--sky3:#b2bac3;--sky4:#dbe0e5;
+  --far1:#8a949f;--far2:#aab3bb;--mtn1:#4b5564;--mtn2:#75808f;
+  --fld1:#9cb573;--fld2:#6f9455;--fldb1:#7fa257;--fldb2:#41703c;
+  --lf1:#5b9a63;--lf2:#23603a;--lfb1:#7cae6b;--lfb2:#336b41;
+  --bush:#3f6b45;--sun:0;--cloudOp:1;--cloudFill:#cfd6dd;
+}
+/* 霧：灰白、對比拉低，多一層霧帶 */
+.hero[data-sky="fog"]{
+  --sky1:#98a2aa;--sky2:#b0bac1;--sky3:#c9d1d6;--sky4:#e8edf0;
+  --far1:#b8c1c8;--far2:#d2d9de;--mtn1:#8b959e;--mtn2:#a9b2ba;
+  --fld1:#a9bd8d;--fld2:#84a069;--fldb1:#93ac72;--fldb2:#5e8154;
+  --lf1:#6fa176;--lf2:#3c7050;--lfb1:#8cb37e;--lfb2:#4a7a55;
+  --bush:#4d7352;--sun:0;--cloudOp:.55;--cloudFill:#e8edf0;
+}
+.hero[data-sky="fog"] .hsFogBand{display:block;}
+/* 陣雨：天色壓暗但還漏一點光，雨小一些 */
+.hero[data-sky="shower"]{
+  --sky1:#4a6d8f;--sky2:#6f8ea8;--sky3:#9aafc0;--sky4:#cbd6de;
+  --far1:#7d90a3;--far2:#a0b0bf;--mtn1:#41556d;--mtn2:#6a7d92;
+  --fld1:#94ad72;--fld2:#679054;--fldb1:#789e5a;--fldb2:#3e6c3c;
+  --lf1:#549262;--lf2:#215a39;--lfb1:#75a668;--lfb2:#2f6540;
+  --bush:#3c6543;--sun:.45;--cloudOp:1;--cloudFill:#c3ccd4;
+}
+/* 雨天：天空明顯陰暗 */
+.hero[data-sky="rain"]{
+  --sky1:#37485c;--sky2:#506379;--sky3:#78899b;--sky4:#a8b5c1;
+  --far1:#5d6e80;--far2:#7d8d9d;--mtn1:#333f52;--mtn2:#54637a;
+  --fld1:#728c5d;--fld2:#4e7143;--fldb1:#5c7d43;--fldb2:#2f5330;
+  --lf1:#3f7150;--lf2:#18452e;--lfb1:#588253;--lfb2:#234e34;
+  --bush:#31543a;--sun:0;--cloudOp:1;--cloudFill:#9aa5b1;
+}
+/* 雷雨：最暗，加上偶爾的閃電 */
+.hero[data-sky="storm"]{
+  --sky1:#222d3c;--sky2:#343f52;--sky3:#4b5769;--sky4:#6e7b8c;
+  --far1:#3f4a5b;--far2:#586373;--mtn1:#232c3b;--mtn2:#3c475a;
+  --fld1:#556b4a;--fld2:#395734;--fldb1:#425e34;--fldb2:#223f26;
+  --lf1:#2e573e;--lf2:#113323;--lfb1:#405f3f;--lfb2:#1a3b28;
+  --bush:#27432f;--sun:0;--cloudOp:1;--cloudFill:#6d7886;
+}
+/* 下雪：地面也跟著白 */
+.hero[data-sky="snow"]{
+  --sky1:#7b8896;--sky2:#9aa8b6;--sky3:#c0cad5;--sky4:#e8edf2;
+  --far1:#c9d3dc;--far2:#e2e9ef;--mtn1:#8794a4;--mtn2:#b6c2ce;
+  --fld1:#dfe8ec;--fld2:#bfcdd2;--fldb1:#cdd9dd;--fldb2:#9cadb2;
+  --lf1:#4e7a5c;--lf2:#24512f;--lfb1:#6f9668;--lfb2:#2f5c3c;
+  --bush:#e6edf1;--sun:0;--cloudOp:1;--cloudFill:#dbe3ea;
+}
+.hero[data-sky="shower"] .hsRain,
+.hero[data-sky="rain"] .hsRain,
+.hero[data-sky="storm"] .hsRain{display:block;}
+.hero[data-sky="shower"] .hsRain{opacity:.6;}
+.hero[data-sky="snow"] .hsSnow{display:block;}
+.hero[data-sky="storm"] .hsFlash{display:block;}
+/* 雨滴／雪花在垂直方向每 120／140 個單位重複一次，動畫剛好平移一個週期，
+   所以接回起點時看不出接縫。 */
+@keyframes hsRainFall{from{transform:translateY(-120px);}to{transform:translateY(0);}}
+@keyframes hsSnowFall{from{transform:translateY(-140px);}to{transform:translateY(0);}}
+@keyframes hsFlashK{0%,90%,100%{opacity:0;}91%{opacity:.5;}92%{opacity:.04;}93.5%{opacity:.4;}96%{opacity:0;}}
+.hsRain .c1{animation:hsRainFall .62s linear infinite;}
+.hsRain .c2{animation:hsRainFall .95s linear infinite;}
+.hsSnow .c1{animation:hsSnowFall 9s linear infinite;}
+.hsSnow .c2{animation:hsSnowFall 14s linear infinite;}
+.hero[data-sky="storm"] .hsRain .c1{animation-duration:.45s;}
+.hero[data-sky="storm"] .hsRain .c2{animation-duration:.7s;}
+.hsFlash{animation:hsFlashK 8s linear infinite;}
+@media(prefers-reduced-motion:reduce){
+  /* 不動的話雨還是要看得到，只是不掉下來；閃電整個拿掉 */
+  .hsRain .c1,.hsRain .c2,.hsSnow .c1,.hsSnow .c2{animation:none;}
+  .hero[data-sky="storm"] .hsFlash{display:none;}
+}
 .heroTop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
   text-shadow:0 2px 10px rgba(15,50,120,.35);}
 .heroWeatherMini{display:flex;align-items:flex-start;gap:8px;flex-shrink:0;}
@@ -392,20 +503,21 @@ a.ovMailItem:hover{text-decoration:underline;}
             <linearGradient id="hsLeaf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5cc36a"/><stop offset="1" stop-color="#1c7a38"/></linearGradient>
             <linearGradient id="hsLeaf2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8bd66c"/><stop offset="1" stop-color="#2e8f3e"/></linearGradient>
             <filter id="hsSoft" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+            <filter id="hsFog" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>
           </defs>
           <rect width="400" height="320" fill="url(#hsSky)"/>
-          <g fill="#fff" filter="url(#hsSoft)" opacity=".9">
+          <g class="hsClouds" fill="#fff" filter="url(#hsSoft)" opacity=".9">
             <ellipse cx="70" cy="62" rx="52" ry="12"/><ellipse cx="102" cy="54" rx="30" ry="14"/>
             <ellipse cx="300" cy="44" rx="62" ry="11"/><ellipse cx="338" cy="37" rx="28" ry="12"/>
             <ellipse cx="190" cy="92" rx="44" ry="8" opacity=".7"/><ellipse cx="370" cy="110" rx="40" ry="7" opacity=".6"/>
           </g>
-          <circle cx="262" cy="176" r="120" fill="url(#hsGlow)"/>
-          <circle cx="262" cy="170" r="17" fill="#fff6c9"/>
+          <circle class="hsGlowC" cx="262" cy="176" r="120" fill="url(#hsGlow)"/>
+          <circle class="hsSun" cx="262" cy="170" r="17" fill="#fff6c9"/>
           <path d="M0 196L32 178L70 186L112 164L150 178L188 170L226 150L258 162L292 140L330 160L372 150L400 158V230H0Z" fill="url(#hsFar)"/>
           <path d="M150 214Q196 184 226 154Q246 134 266 152Q300 184 346 200Q376 208 400 204V240H150Z" fill="url(#hsMtn)"/>
           <path d="M226 154Q246 134 266 152L256 150L246 158L238 150Z" fill="#dbe9fb" opacity=".7"/>
           <path d="M0 214Q100 192 200 212T400 206V320H0Z" fill="url(#hsField)"/>
-          <g fill="#2f7d3a">
+          <g class="hsBush">
             <circle cx="18" cy="208" r="7"/><circle cx="30" cy="205" r="9"/><circle cx="44" cy="209" r="6"/>
             <circle cx="300" cy="206" r="6"/><circle cx="312" cy="203" r="8"/><circle cx="326" cy="206" r="6"/><circle cx="372" cy="203" r="7"/><circle cx="384" cy="205" r="5"/>
           </g>
@@ -424,6 +536,27 @@ a.ovMailItem:hover{text-decoration:underline;}
             <path d="M400 320Q390 268 346 250Q362 292 400 320Z" fill="url(#hsLeaf)"/>
             <path d="M380 320Q352 286 306 282Q334 312 380 320Z" fill="url(#hsLeaf2)"/>
           </g>
+          <!-- 下面這幾層平常用 CSS 藏起來，只有對應的天氣才顯示 -->
+          <g class="hsFogBand" filter="url(#hsFog)">
+            <ellipse cx="120" cy="196" rx="170" ry="18" fill="#eef3f8" opacity=".85"/>
+            <ellipse cx="300" cy="226" rx="160" ry="16" fill="#e7edf4" opacity=".8"/>
+            <ellipse cx="200" cy="258" rx="200" ry="20" fill="#f2f6fa" opacity=".7"/>
+          </g>
+          <g class="hsRain" stroke="#e8f2ff" stroke-linecap="round" fill="none">
+            <g class="c1" stroke-width="2" opacity=".75">
+              <path d="M28 -110l-7 22M96 -110l-7 22M164 -110l-7 22M232 -110l-7 22M300 -110l-7 22M368 -110l-7 22M28 10l-7 22M96 10l-7 22M164 10l-7 22M232 10l-7 22M300 10l-7 22M368 10l-7 22M28 130l-7 22M96 130l-7 22M164 130l-7 22M232 130l-7 22M300 130l-7 22M368 130l-7 22M28 250l-7 22M96 250l-7 22M164 250l-7 22M232 250l-7 22M300 250l-7 22M368 250l-7 22"/>
+              <path d="M62 -50l-7 22M130 -50l-7 22M198 -50l-7 22M266 -50l-7 22M334 -50l-7 22M62 70l-7 22M130 70l-7 22M198 70l-7 22M266 70l-7 22M334 70l-7 22M62 190l-7 22M130 190l-7 22M198 190l-7 22M266 190l-7 22M334 190l-7 22M62 310l-7 22M130 310l-7 22M198 310l-7 22M266 310l-7 22M334 310l-7 22"/>
+            </g>
+            <g class="c2" stroke-width="1.3" opacity=".5">
+              <path d="M12 -90l-5 16M80 -90l-5 16M148 -90l-5 16M216 -90l-5 16M284 -90l-5 16M352 -90l-5 16M12 30l-5 16M80 30l-5 16M148 30l-5 16M216 30l-5 16M284 30l-5 16M352 30l-5 16M12 150l-5 16M80 150l-5 16M148 150l-5 16M216 150l-5 16M284 150l-5 16M352 150l-5 16M12 270l-5 16M80 270l-5 16M148 270l-5 16M216 270l-5 16M284 270l-5 16M352 270l-5 16"/>
+              <path d="M46 -30l-5 16M114 -30l-5 16M182 -30l-5 16M250 -30l-5 16M318 -30l-5 16M386 -30l-5 16M46 90l-5 16M114 90l-5 16M182 90l-5 16M250 90l-5 16M318 90l-5 16M386 90l-5 16M46 210l-5 16M114 210l-5 16M182 210l-5 16M250 210l-5 16M318 210l-5 16M386 210l-5 16M46 330l-5 16M114 330l-5 16M182 330l-5 16M250 330l-5 16M318 330l-5 16M386 330l-5 16"/>
+            </g>
+          </g>
+          <g class="hsSnow" fill="#fff">
+            <g class="c1" opacity=".92"><circle cx="40" cy="-120" r="3"/><circle cx="120" cy="-120" r="3"/><circle cx="200" cy="-120" r="3"/><circle cx="280" cy="-120" r="3"/><circle cx="356" cy="-120" r="3"/><circle cx="40" cy="20" r="3"/><circle cx="120" cy="20" r="3"/><circle cx="200" cy="20" r="3"/><circle cx="280" cy="20" r="3"/><circle cx="356" cy="20" r="3"/><circle cx="40" cy="160" r="3"/><circle cx="120" cy="160" r="3"/><circle cx="200" cy="160" r="3"/><circle cx="280" cy="160" r="3"/><circle cx="356" cy="160" r="3"/><circle cx="40" cy="300" r="3"/><circle cx="120" cy="300" r="3"/><circle cx="200" cy="300" r="3"/><circle cx="280" cy="300" r="3"/><circle cx="356" cy="300" r="3"/><circle cx="78" cy="-50" r="2.4"/><circle cx="160" cy="-50" r="2.4"/><circle cx="240" cy="-50" r="2.4"/><circle cx="320" cy="-50" r="2.4"/><circle cx="78" cy="90" r="2.4"/><circle cx="160" cy="90" r="2.4"/><circle cx="240" cy="90" r="2.4"/><circle cx="320" cy="90" r="2.4"/><circle cx="78" cy="230" r="2.4"/><circle cx="160" cy="230" r="2.4"/><circle cx="240" cy="230" r="2.4"/><circle cx="320" cy="230" r="2.4"/><circle cx="78" cy="370" r="2.4"/><circle cx="160" cy="370" r="2.4"/><circle cx="240" cy="370" r="2.4"/><circle cx="320" cy="370" r="2.4"/></g>
+            <g class="c2" opacity=".6"><circle cx="16" cy="-90" r="2"/><circle cx="96" cy="-90" r="2"/><circle cx="176" cy="-90" r="2"/><circle cx="256" cy="-90" r="2"/><circle cx="336" cy="-90" r="2"/><circle cx="16" cy="50" r="2"/><circle cx="96" cy="50" r="2"/><circle cx="176" cy="50" r="2"/><circle cx="256" cy="50" r="2"/><circle cx="336" cy="50" r="2"/><circle cx="16" cy="190" r="2"/><circle cx="96" cy="190" r="2"/><circle cx="176" cy="190" r="2"/><circle cx="256" cy="190" r="2"/><circle cx="336" cy="190" r="2"/><circle cx="16" cy="330" r="2"/><circle cx="96" cy="330" r="2"/><circle cx="176" cy="330" r="2"/><circle cx="256" cy="330" r="2"/><circle cx="336" cy="330" r="2"/><circle cx="58" cy="-20" r="1.6"/><circle cx="138" cy="-20" r="1.6"/><circle cx="218" cy="-20" r="1.6"/><circle cx="298" cy="-20" r="1.6"/><circle cx="378" cy="-20" r="1.6"/><circle cx="58" cy="120" r="1.6"/><circle cx="138" cy="120" r="1.6"/><circle cx="218" cy="120" r="1.6"/><circle cx="298" cy="120" r="1.6"/><circle cx="378" cy="120" r="1.6"/><circle cx="58" cy="260" r="1.6"/><circle cx="138" cy="260" r="1.6"/><circle cx="218" cy="260" r="1.6"/><circle cx="298" cy="260" r="1.6"/><circle cx="378" cy="260" r="1.6"/><circle cx="58" cy="400" r="1.6"/><circle cx="138" cy="400" r="1.6"/><circle cx="218" cy="400" r="1.6"/><circle cx="298" cy="400" r="1.6"/><circle cx="378" cy="400" r="1.6"/></g>
+          </g>
+          <rect class="hsFlash" width="400" height="320" fill="#f6fbff" opacity="0"/>
         </svg>
       </div>
       <div class="heroTop">
@@ -2576,8 +2709,36 @@ function gcalDayUrl(d){
   const t=tpeNow(d);
   return `https://calendar.google.com/calendar/r/day/${t.getFullYear()}/${t.getMonth()+1}/${t.getDate()}`;
 }
+// ── 天空跟著天氣走 ──────────────────────────────────────
+// 後台只送 icon（emoji）和 desc，沒送原始的 weather code，所以拿 emoji 當
+// 分類依據——它是後台 weatherCodeInfo 一對一對應出來的，比中文描述可靠：
+// 「毛毛雨」「短暫陣雨」「雷雨」裡都有「雨」字，用字串比對很容易分錯。
+// desc 只在 emoji 認不出來時當備援，而且順序要從最強的天氣往下比。
+const SKY_BY_ICON={'☀':'clear','🌤':'clear','⛅':'cloudy','☁':'overcast','🌫':'fog',
+  '🌦':'shower','🌧':'rain','🌨':'snow','⛈':'storm','🌡':'clear'};
+function skyMood(w){
+  if(!w)return 'clear';
+  // emoji 後面常帶變體選擇符（U+FE0F），比對前先拔掉
+  const icon=String(w.icon||'').replace(/[️‍]/g,'').trim();
+  if(SKY_BY_ICON[icon])return SKY_BY_ICON[icon];
+  const d=String(w.desc||'');
+  if(/雷/.test(d))return 'storm';
+  if(/雪|冰雹/.test(d))return 'snow';
+  if(/陣雨|毛毛/.test(d))return 'shower';
+  if(/雨/.test(d))return 'rain';
+  if(/霧/.test(d))return 'fog';
+  if(/陰/.test(d))return 'overcast';
+  if(/多雲/.test(d))return 'cloudy';
+  return 'clear';
+}
+function applySkyMood(w){
+  const hero=document.getElementById('heroCard');
+  if(!hero)return;
+  hero.dataset.sky=skyMood(w);
+}
 // ── 首頁主動總覽：今日行程／重要 Email／今日新聞 ──
 function renderHeroWeather(w){
+  applySkyMood(w);
   const el=document.getElementById('heroWeatherMini');
   if(!el)return;
   const hasRange=w&&w.tMax!=null&&w.tMin!=null;
