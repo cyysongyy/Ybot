@@ -293,6 +293,8 @@ textarea.fi{resize:vertical;min-height:56px;}
 .ovNewsGroup b{font-size:.78rem;color:var(--tx2);}
 .ovLabelToggle{cursor:pointer;display:flex;align-items:center;gap:4px;user-select:none;padding:4px 0;margin:-4px 0 2px;-webkit-tap-highlight-color:rgba(109,40,217,.15);}
 .ovToggleIcon{font-size:.68rem;color:var(--tx3);}
+.newsSpeakBtn{margin-left:auto;font-size:.72rem;font-weight:700;letter-spacing:0;text-transform:none;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--pri);cursor:pointer;}
+.newsSpeakBtn:hover{border-color:var(--pri);}
 
 .ovMailItem{display:flex;align-items:flex-start;gap:8px;padding:2px 0;}
 a.ovMailItem{color:inherit;text-decoration:none;}
@@ -1795,6 +1797,102 @@ function renderSpeakBtn(){
   b.title=state.speakReply?'用說的問時答案會念出來，鬆弛練習也會（點一下關掉，也會停止正在念的）':'目前不念出來（點一下打開）';
 }
 
+// ── 新聞摘要朗讀 ────────────────────────
+// 首頁「今日新聞」旁邊按一下，把標題整理成一段口語摘要念出來。
+// 後台只給標題（Google 新聞 RSS 沒有內文），所以 AI 只能改寫標題、不准補細節——
+// 念出來的東西聽起來像新聞，使用者不會回頭查證，編出來的數字比沒有更糟。
+// 沒有 AI Key 或 AI 失敗就直接念標題，英文標題換英文語音念，不讓中文語音硬拼英文。
+// 這是使用者明確按下去要聽的，所以不看 🔊 朗讀／🔇 靜音 那個開關。
+let newsSpeakState='idle';   // idle | preparing | speaking
+let newsScriptCache={key:'',text:''};
+function newsHeadlines(){
+  const n=(state.context&&state.context.news)||{};
+  // 標題結尾的「 - 媒體名稱」念出來很吵
+  const clean=t=>String(t||'').replace(/\s+[-–—]\s+[^-–—]{1,40}$/,'').trim();
+  const pick=list=>(list||[]).map(x=>clean(x&&x.title)).filter(Boolean);
+  return {domestic:pick(n.domestic),world:pick(n.world),education:pick(n.education)};
+}
+function pickEnVoice(){
+  let vs=[];
+  try{vs=speechSynthesis.getVoices()||[];}catch(e){return null;}
+  return vs.find(v=>/^en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;
+}
+// 長文一次丟給 speechSynthesis，有些瀏覽器念十幾秒就自己停了；切成句子排隊念。
+function speakSegments(segs,onDone){
+  speechSynthesis.cancel();
+  const zh=pickZhVoice(),en=pickEnVoice();
+  const parts=[];
+  for(const s of segs){
+    // 不用 lookbehind 切：iOS 16.3 以前不認得，會讓整支程式載入失敗。
+    (String(s.text||'').match(/[^。！？!?；;\n]+[。！？!?；;\n]*/g)||[]).map(x=>x.trim()).filter(Boolean)
+      .forEach(t=>parts.push({text:t,lang:s.lang||'zh-TW'}));
+  }
+  if(!parts.length){onDone&&onDone();return;}
+  parts.forEach((p,i)=>{
+    const u=new SpeechSynthesisUtterance(p.text.replace(/[*_#`>]/g,''));
+    u.lang=p.lang;
+    const v=/^en/i.test(p.lang)?en:zh;
+    if(v)u.voice=v;
+    u.rate=1;
+    if(i===parts.length-1){u.onend=()=>onDone&&onDone();u.onerror=()=>onDone&&onDone();}
+    speechSynthesis.speak(u);
+  });
+}
+function newsFallbackSegments(h){
+  const segs=[{text:'今天的新聞標題。'}];
+  if(h.domestic.length)segs.push({text:'國內：'+h.domestic.join('。')+'。'});
+  if(h.education.length)segs.push({text:'教育：'+h.education.join('。')+'。'});
+  if(h.world.length){
+    segs.push({text:'國際：'});
+    h.world.forEach(t=>segs.push({text:t+'.',lang:'en-US'}));
+  }
+  return segs;
+}
+async function newsScript(h){
+  const key=JSON.stringify(h);
+  if(newsScriptCache.key===key)return newsScriptCache.text;   // 同一批新聞不重複叫 AI
+  const hr=tpeNow().getHours();
+  const greet=hr<11?'早安':hr<18?'午安':'晚安';
+  const list=[['國內',h.domestic],['國際（英文標題）',h.world],['教育',h.education]]
+    .filter(([,l])=>l.length).map(([k,l])=>`${k}：\n`+l.map(t=>'- '+t).join('\n')).join('\n');
+  const prompt=`你是 Young 的個人助理 Ybot，要把今天的新聞標題整理成一段念給他聽的口語新聞摘要。
+規則：
+- 只能根據標題本身，不可以補充標題沒有的細節、數字、原因或評論；標題看不懂的就照字面簡單說。
+- 英文標題翻成自然的中文。
+- 依國內、國際、教育的順序，每則一兩句，口語、好聽懂；不要念出媒體名稱。
+- 開頭用「${greet}，」接一句簡短的開場，結尾不要客套話。
+- 純文字，不要任何符號、編號或條列，總長 250 字以內。
+
+${list}`;
+  const text=String(await callAI(prompt,null,{temperature:0.4})||'').trim();
+  if(!text)throw new Error('AI 沒有回傳內容');
+  newsScriptCache={key,text};
+  return text;
+}
+async function toggleNewsSpeak(){
+  if(newsSpeakState!=='idle'){newsSpeakState='idle';stopSpeaking();renderNewsSpeakBtn();return;}
+  if(!('speechSynthesis'in window)){alert('這個瀏覽器不支援朗讀。');return;}
+  ttsWarmUp();   // iOS：一定要在按下去的這一刻先暖機，等 AI 回來才念得出來
+  const h=newsHeadlines();
+  if(!h.domestic.length&&!h.world.length&&!h.education.length){alert('目前沒有新聞資料，先按上面的 🔄 更新。');return;}
+  newsSpeakState='preparing';renderNewsSpeakBtn();
+  let segs;
+  if(aiOrder().length){
+    try{segs=[{text:await newsScript(h)}];}catch(e){segs=null;}
+  }
+  if(newsSpeakState!=='preparing')return;   // 整理途中使用者按了停止
+  if(!segs)segs=newsFallbackSegments(h);
+  newsSpeakState='speaking';renderNewsSpeakBtn();
+  speakSegments(segs,()=>{if(newsSpeakState==='speaking'){newsSpeakState='idle';renderNewsSpeakBtn();}});
+}
+function newsSpeakLabel(){
+  return newsSpeakState==='preparing'?'⏳ 整理中…':newsSpeakState==='speaking'?'⏹ 停止':'🔊 念給我聽';
+}
+function renderNewsSpeakBtn(){
+  const b=document.getElementById('newsSpeakBtn');
+  if(b)b.textContent=newsSpeakLabel();
+}
+
 // ── 鬆弛感練習 ──────────────────────────
 // 四個支柱直接來自使用者給的那張圖，寫死在這裡而不是丟給 AI 自由發揮，
 // 練習才會每次都對齊同一套框架，而不是每次得到不同風格的心靈雞湯。
@@ -2460,7 +2558,7 @@ function renderOverview(){
   box.innerHTML=
     conflictHtml+
     `<div class="ovSection"><div class="ovLabel">📬 重要 Email</div>${mailHtml}</div>`+
-    `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span></div>${state.newsCollapsed?'':newsHtml}</div>`+
+    `<div class="ovSection" id="ovSectionNews"><div class="ovLabel ovLabelToggle" onclick="toggleNewsCollapse()">📰 今日新聞 <span class="ovToggleIcon">${newsArrow}</span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
     ``;
   box.style.display='block';
   // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
