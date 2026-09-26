@@ -463,6 +463,19 @@ a.ovMailItem:hover{text-decoration:underline;}
     </div>
 
     <div class="card">
+      <div class="section-title">🧭 我的核心信念與判斷原則</div>
+      <div class="hint" style="margin-top:0;">Ybot 讀完你的文集後整理出來的：你怎麼看教育、怎麼做判斷、在乎什麼、警惕什麼。每次回答都會附上，替你做判斷、給建議時以它為依據。整理得不對的地方直接改，按「儲存修改」。</div>
+      <div id="soulProfileInfo" class="hint" style="margin:8px 0 0;"></div>
+      <div class="row2" style="margin:8px 0;flex-wrap:wrap;gap:6px;">
+        <button id="soulDistillBtn" class="btn" onclick="soulDistill('update')" style="flex:0 0 auto;">🧭 開始整理</button>
+        <button id="soulRebuildBtn" class="btn ghost" onclick="soulRebuild()" style="display:none;flex:0 0 auto;">全部重新整理</button>
+      </div>
+      <div id="soulProfileStatus" class="hint" style="margin:0 0 6px;"></div>
+      <textarea id="soulProfileText" class="fi" style="min-height:220px;" placeholder="還沒整理。按上面的按鈕，Ybot 會讀完文集幫你整理；也可以自己寫。"></textarea>
+      <button class="btn ghost" onclick="saveSoulProfileEdit()">儲存修改</button>
+    </div>
+
+    <div class="card">
       <div class="section-title">📚 我的問答資料庫</div>
       <div class="hint" id="qaSummary" style="margin-top:0;"></div>
       <input id="qaSearch" class="fi" placeholder="搜尋問過的問題或答案…" oninput="renderQaList()" style="margin:8px 0;">
@@ -3138,7 +3151,7 @@ function soulAdd(title,content){
   const t=String(title||'').trim(),c=String(content||'').trim();
   if(!c)return null;
   const rec={id:'s'+Date.now()+Math.random().toString(36).slice(2,7),
-    title:t||'(無標題)',content:c,at:new Date().toISOString()};
+    title:t||'(無標題)',content:c,at:new Date().toISOString(),addedAt:new Date().toISOString()};
   soulData.unshift(rec);
   soulDbWrite([rec]).catch(()=>{});
   if(state.gasUrl){
@@ -3167,10 +3180,12 @@ function soulToQa(r){
   return {id:r.id,q:r.title||'(無標題)',a:r.content,kind:'soul',at:r.at};
 }
 function qaToSoul(r){
-  return {id:r.id,title:String(r.q||'').trim()||'(無標題)',content:String(r.a||'').trim(),at:r.at||new Date().toISOString()};
+  const at=r.at||new Date().toISOString();
+  return {id:r.id,title:String(r.q||'').trim()||'(無標題)',content:String(r.a||'').trim(),at,addedAt:at};
 }
 const SOUL_LIST_SHOW=30;
 function renderSoulList(){
+  renderSoulProfile();   // 文章增減會改變「還沒納入」的篇數
   const box=document.getElementById('soulList');
   if(!box)return;
   const all=soulList();
@@ -3352,7 +3367,7 @@ async function importSoulFromFacebook(fileList){
       if(haveIds.has(id)||haveText.has(norm)){dup++;continue;}
       haveIds.add(id);haveText.add(norm);
       recs.push({id,title:p.title||soulTitleFrom(p.text)||'(無標題)',content:p.text,
-        at:new Date(p.ts*1000).toISOString()});
+        at:new Date(p.ts*1000).toISOString(),addedAt:new Date().toISOString()});
     }
     if(recs.length){
       await soulDbWrite(recs);
@@ -3393,6 +3408,191 @@ function buildSoulContext(question){
   if(!hits.length)return '';
   const fmt=r=>`《${r.title}》\n${r.content}`;
   return 'Young 自己寫的文章（他是文人、批判教育哲學家，這是他的文字靈魂——回答的筆調、譬喻、觀點可以參考，但不要照抄或逐字複誦）：\n'+hits.map(fmt).join('\n\n');
+}
+
+// ── 從文集整理出來的核心信念與判斷原則 ──────────────────────
+// 文集本身只有在問題剛好撞到同樣字詞時才會被召回，大部分需要判斷的問題用不到它，
+// 等於只是存著。這裡讓 AI 把整個文集讀過一遍，整理成一份「Young 怎麼看事情」，
+// 每次回答都附上，替他做判斷、給建議時以它為依據。
+// 整理結果看得到、改得動——AI 對他的理解要是不能檢查也不能更正，那只是猜測。
+// 只有幾千字，所以放 state，並借問答庫那張表同步到雲端（id 固定 soulprofile），
+// 換裝置不必重新匯入臉書也有同一份判斷依據。
+const SOUL_CHUNK_CHARS=24000;   // 每批送給 AI 的字數，照顧 context 比較小的模型
+const JUDGE_NOTE='凡是需要判斷、評估、建議或做決定的問題（例如學校的事怎麼處理、某個做法好不好、怎麼回應某個人），要以下面資料中「Young 的核心信念與判斷原則」為依據推理，給出符合他價值觀的建議，必要時說明是依據他的哪個原則；一般的標準做法跟他的信念有衝突或張力時，要明白點出來，不要只給通用答案。';
+function soulProfile(){return state.soulProfile&&state.soulProfile.text?state.soulProfile:null;}
+// builtAt 之後才加進來的文章就是「還沒納入」的；沒有 builtAt（手寫的版本）就全部算。
+function soulPendingList(){
+  const p=soulProfile();
+  const t=p&&p.builtAt?new Date(p.builtAt).getTime():0;
+  if(!t)return soulData.slice();
+  return soulData.filter(r=>r.addedAt&&new Date(r.addedAt).getTime()>t);
+}
+function soulPack(pieces){
+  const out=[];let cur='';
+  for(let p of pieces){
+    if(p.length>SOUL_CHUNK_CHARS)p=p.slice(0,SOUL_CHUNK_CHARS);
+    if(cur&&cur.length+p.length+2>SOUL_CHUNK_CHARS){out.push(cur);cur='';}
+    cur+=(cur?'\n\n':'')+p;
+  }
+  if(cur)out.push(cur);
+  return out;
+}
+function soulChunks(list){
+  return soulPack(list
+    .filter(r=>String(r.content||'').replace(/\s/g,'').length>=30)   // 太短的日常貼文看不出觀點
+    .sort((a,b)=>new Date(a.at||0)-new Date(b.at||0))
+    .map(r=>`《${r.title}》（${fmtDate(r.at)}）\n${r.content}`));
+}
+// 整批會連續呼叫幾十次，免費額度很容易撞到每分鐘上限，撞到就等一下再試。
+// 額度給得比一般對話寬：一次讀兩萬多字，思考型模型光思考就會吃掉不少；
+// 有的模型不接受這麼大的 max_tokens，被拒就退回 4096。
+async function soulAI(prompt,maxTokens){
+  for(let i=0;;i++){
+    try{
+      const t=String(await callAI(prompt,null,{maxTokens,temperature:0.3})||'').trim();
+      if(t)return t;
+      throw new Error('AI 沒有回傳內容');
+    }catch(e){
+      const m=String(e&&e.message||e);
+      if(maxTokens>4096&&/max_tokens|max tokens|maximum/i.test(m)){maxTokens=4096;continue;}
+      if(i<3&&/429|quota|rate|exhaust|overload|503|沒有回傳|切掉/i.test(m)){
+        await new Promise(r=>setTimeout(r,20000*(i+1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+const SOUL_MAP_PROMPT=(i,n,text)=>`以下是 Young 自己寫的文章與貼文（第 ${i}/${n} 批）。Young 是教育工作者、批判教育哲學家，也是文人。
+請從這批文字整理出他的：
+1. 核心信念（對教育、孩子、學校、人、社會、科技、語言的看法）
+2. 判斷事情的原則（遇到決策、衝突、兩難時看重什麼、怎麼取捨）
+3. 他在乎、珍惜的事，以及他反對、警惕的事
+4. 思考與表達的習慣（常用的譬喻、意象、語氣）
+規則：只寫文字中有根據的，不要推測，也不要套用一般的教育常識；每點後面用括號標出處標題；條列、精簡，1000 字以內；繁體中文。
+
+${text}`;
+const SOUL_MERGE_PROMPT=notes=>`以下是從 Young 的文章分批整理出的幾份筆記（核心信念、判斷原則、在乎與警惕的事、表達習慣）。請合併成一份：重複的合併，保留出處標題，互相矛盾的兩者都留並註明脈絡。條列，2000 字以內，繁體中文。
+
+${notes}`;
+const SOUL_FINAL_PROMPT=(notes,prev)=>`你要為 Young 的個人助理整理一份「Young 的核心信念與判斷原則」。之後助理每次替他做判斷、給建議都會以這份為依據，所以要具體、可以直接拿來套用，不要空泛的形容詞。
+${prev
+  ?`這是原本的版本（可能有 Young 自己改過的地方，要保留，除非新資料明確修正它）：\n${prev}\n\n以下是從新文章整理出的筆記，請把新觀點併進去，修正或補強原本的內容：`
+  :'以下是從他全部文章分批整理出的筆記：'}
+${notes}
+
+請輸出以下四段，每段條列，每點一到兩句，後面括號附出處標題（最多兩個）：
+【核心信念】
+【判斷原則】（遇到決策、衝突、兩難時他怎麼想、優先看重什麼——寫成助理可以直接套用的原則）
+【在乎的／警惕的】
+【思考與表達的習慣】
+重複的觀點要合併；互相矛盾時兩者都寫並註明脈絡。全文 1500 字以內，繁體中文，不要前言與結語。`;
+let soulDistilling=false;
+async function soulDistill(mode){
+  if(soulDistilling)return;
+  const st=document.getElementById('soulProfileStatus');
+  const say=t=>{if(st)st.textContent=t;};
+  await soulReady;
+  const prev=mode==='full'?null:soulProfile();
+  const src=mode==='full'?soulData.slice():soulPendingList();
+  if(!src.length){say(soulData.length?'所有文章都已經納入了。':'文集還是空的，先加文章或匯入臉書。');return;}
+  if(!aiOrder().length){say('⚠️ 請先在設定填入至少一組 AI API Key。');return;}
+  const startedAt=new Date().toISOString();   // 整理途中新加的文章不算已納入
+  const chunks=soulChunks(src);
+  if(!chunks.length){
+    // 新加的都是短貼文，沒有觀點可整理；往前推 builtAt，不然它們永遠顯示「還沒納入」。
+    if(prev){state.soulProfile.builtAt=startedAt;save();renderSoulProfile();}
+    say('新文章都太短，沒有新的觀點可以整理。');
+    return;
+  }
+  soulDistilling=true;renderSoulProfile();
+  try{
+    let notes=[];
+    for(let i=0;i<chunks.length;i++){
+      say(`閱讀文章中… 第 ${i+1}/${chunks.length} 批（過程中請不要關掉 App）`);
+      notes.push(await soulAI(SOUL_MAP_PROMPT(i+1,chunks.length,chunks[i]),6000));
+    }
+    // 文章多的時候筆記加起來還是太長，分組先合併一輪再寫最終版。
+    for(let round=0;round<4&&notes.length>1&&notes.join('\n\n').length>SOUL_CHUNK_CHARS;round++){
+      const groups=soulPack(notes);
+      const merged=[];
+      for(let i=0;i<groups.length;i++){
+        say(`合併整理中… ${i+1}/${groups.length}`);
+        merged.push(await soulAI(SOUL_MERGE_PROMPT(groups[i]),8192));
+      }
+      notes=merged;
+    }
+    say('寫成最後版本…');
+    const text=await soulAI(SOUL_FINAL_PROMPT(notes.join('\n\n---\n\n'),prev&&prev.text),8192);
+    const now=new Date().toISOString();
+    state.soulProfile={text,builtAt:startedAt,updatedAt:now,
+      count:(prev?(prev.count||0):0)+src.length};
+    save();
+    soulProfilePush();
+    const box=document.getElementById('soulProfileText');
+    if(box)box.value=text;
+    say(`✅ 整理完成（這次讀了 ${src.length} 篇）。之後 Ybot 回答需要判斷的問題時，會以這份為依據。`);
+  }catch(err){
+    say('⚠️ 整理失敗：'+(err&&err.message||err)+'。已經整理好的舊版本沒有動。');
+  }finally{
+    soulDistilling=false;renderSoulProfile();
+  }
+}
+function soulRebuild(){
+  if(soulProfile()&&!confirm('會從全部文章重新整理，覆蓋目前的內容（包含你手動改過的地方）。確定嗎？'))return;
+  soulDistill('full');
+}
+function saveSoulProfileEdit(){
+  const el=document.getElementById('soulProfileText');
+  if(!el)return;
+  const p=state.soulProfile||{};
+  state.soulProfile={text:el.value.trim(),builtAt:p.builtAt||'',updatedAt:new Date().toISOString(),count:p.count||0};
+  save();
+  soulProfilePush();
+  renderSoulProfile();
+  const st=document.getElementById('soulProfileStatus');
+  if(st){st.textContent='✅ 已儲存。';setTimeout(()=>{if(st.textContent==='✅ 已儲存。')st.textContent='';},2500);}
+}
+// 雲端那張表是 q/a/kind/at：內容放 a，builtAt 與篇數塞在 q 裡。
+function soulProfileToQa(p){
+  return {id:'soulprofile',q:`__soulprofile__|${p.builtAt||''}|${p.count||0}`,a:p.text||'',kind:'soulprofile',at:p.updatedAt};
+}
+function qaToSoulProfile(r){
+  const parts=String(r.q||'').split('|');
+  return {text:String(r.a||'').trim(),builtAt:parts[1]||'',count:Number(parts[2])||0,
+    updatedAt:r.at||new Date().toISOString()};
+}
+function soulProfilePush(){
+  if(state.gasUrl&&state.soulProfile){
+    gasPost({action:'addQa',qa:soulProfileToQa(state.soulProfile)}).catch(()=>{});
+  }
+}
+function buildSoulProfileContext(){
+  const p=soulProfile();
+  if(!p)return '';
+  return `Young 的核心信念與判斷原則（從他自己${p.count?` ${p.count} 篇`:''}文章整理出來，是你替他做判斷、給建議的依據）：\n${p.text}`;
+}
+function renderSoulProfile(){
+  const info=document.getElementById('soulProfileInfo');
+  if(!info)return;
+  const p=soulProfile();
+  const pending=soulPendingList().length;
+  if(p){
+    const base=p.builtAt?`根據 ${p.count||0} 篇文章整理（${fmtDate(p.builtAt)}）`:'目前是你自己寫的版本';
+    info.textContent=base+(pending?`；之後新增了 ${pending} 篇還沒納入。`:'；已包含所有文章。');
+  }else{
+    info.textContent=soulData.length?`文集有 ${soulData.length} 篇，還沒整理。`:'文集還是空的，先加文章或匯入臉書。';
+  }
+  const btn=document.getElementById('soulDistillBtn');
+  if(btn){
+    btn.style.display=pending?'':'none';
+    btn.disabled=soulDistilling;
+    btn.textContent=soulDistilling?'整理中…':(p?`🧭 納入 ${pending} 篇新文章`:'🧭 開始整理');
+  }
+  const re=document.getElementById('soulRebuildBtn');
+  if(re){re.style.display=(p&&soulData.length)?'':'none';re.disabled=soulDistilling;}
+  const box=document.getElementById('soulProfileText');
+  if(box&&document.activeElement!==box)box.value=p?p.text:'';
 }
 
 const QA_MAX=500;          // 上限，滿了就丟最舊的，避免 localStorage 撐爆
@@ -3446,7 +3646,7 @@ async function qaSync(opts){
     const all=Array.isArray(d.qa)?d.qa.filter(x=>x&&x.id):[];
     // 長期記憶（kind='profile'）跟文集（kind='soul'）都借住在同一張表，拉回來要分流，
     // 不然會混進問答庫被搜尋到、也會被 QA_MAX 擠掉。
-    const remote=all.filter(x=>x.kind!=='profile'&&x.kind!=='soul');
+    const remote=all.filter(x=>x.kind!=='profile'&&x.kind!=='soul'&&x.kind!=='soulprofile');
     const remoteProfile=all.filter(x=>x.kind==='profile');
     const remoteSoul=all.filter(x=>x.kind==='soul');
     if(!Array.isArray(state.qa))state.qa=[];
@@ -3484,16 +3684,26 @@ async function qaSync(opts){
     const toPush=state.qa.filter(x=>!remoteIds.has(x.id));
     const toPushProfile=state.profile.filter(x=>!remoteIds.has(x.id)).map(profileToQa);
     const toPushSoul=soulData.filter(x=>!remoteIds.has(x.id)&&!isFbSoul(x)).map(soulToQa);
-    if(toPush.length||toPushProfile.length||toPushSoul.length){
-      await gasPost({action:'syncQa',qa:toPush.concat(toPushProfile).concat(toPushSoul)});
+    // 核心信念只有一份，比 updatedAt：雲端比較新就拿下來，本機比較新就送上去。
+    const remoteSP=all.find(x=>x.kind==='soulprofile');
+    const lsp=state.soulProfile;
+    const rT=remoteSP?new Date(remoteSP.at||0).getTime():-1;
+    const lT=lsp?new Date(lsp.updatedAt||0).getTime():-1;
+    let spPulled=false;
+    const toPushSP=[];
+    if(remoteSP&&rT>lT){state.soulProfile=qaToSoulProfile(remoteSP);spPulled=true;}
+    else if(lsp&&lT>rT)toPushSP.push(soulProfileToQa(lsp));
+    if(toPush.length||toPushProfile.length||toPushSoul.length||toPushSP.length){
+      await gasPost({action:'syncQa',qa:toPush.concat(toPushProfile,toPushSoul,toPushSP)});
     }
     state.qaSyncedAt=new Date().toISOString();
     save();renderQaList();renderProfileList();renderSoulList();
     const memNote=(pulledProfile.length||toPushProfile.length)
       ? `　長期記憶：拉回 ${pulledProfile.length} 條、上傳 ${toPushProfile.length} 條。` : '';
+    const spNote=spPulled?'　核心信念：已更新成雲端的版本。':(toPushSP.length?'　核心信念：已上傳。':'');
     const soulNote=(pulledSoul.length||toPushSoul.length)
       ? `　文集：拉回 ${pulledSoul.length} 篇、上傳 ${toPushSoul.length} 篇。` : '';
-    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。${memNote}${soulNote}`);
+    say(`✅ 同步完成：拉回 ${pulled.length} 筆、上傳 ${toPush.length} 筆，目前共 ${state.qa.length} 筆。${memNote}${soulNote}${spNote}`);
   }catch(err){
     say('⚠️ 同步失敗：'+gasErrText(err)+'（本機資料沒有動）');
   }finally{
@@ -3632,6 +3842,8 @@ function buildContextText(question){
   const lines=[];
   const profile=buildProfileContext();
   if(profile)lines.push(profile);
+  const beliefs=buildSoulProfileContext();
+  if(beliefs)lines.push(beliefs);
   const notes=liveNotes();
   // 每筆前面帶上 [id]，AI 要操作某筆時可以直接指名 id，不必再用關鍵字猜；
   // 先前只給內容，遇到相似的項目比對到多筆就只能放棄。
@@ -3897,7 +4109,7 @@ ${buildDateRef(21)}
   const prepping=looksLikeTalkPrep(text);
   const prepNote=prepping?`\n\n${TALK_PREP_GUIDE}\n\n底下這套是 Young 自己在用的方法，準備的內容要與它一致（尤其「不帶敵意的堅決」），但不要照抄綱要：\n${ZEN_OUTLINE}`:'';
   const zenNote=(!prepping&&looksLikeStressQuestion(text))?`\n\n這個問題聽起來跟壓力、情緒或人際有關。請像一個懂他的朋友在跟他講話那樣回答，不要像報告或表單：可以順著他的話接下去、可以先確認你聽懂了什麼，句型不要每次都一樣。內容依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，也不要一段講一項，自然地帶進去就好。給建議時要具體到他可以直接照做，需要他說話時就把那幾句話寫出來。最後用一句跟他這件事直接有關的具體問題把球丟回給他，不要問「你覺得呢」這種空泛的問句。\n${ZEN_OUTLINE}`:'';
-  const prompt=`你是 Young 的個人助理 Ybot。Young 是一位教育工作者、批判教育哲學家，也是一位文人——寫詩、寫散文，對語言與美學有自己的堅持與思考。你的個性溫暖、直接、有條理；請用繁體中文回答，簡潔但完整，需要條列時再條列。談到教育理念、文字創作、或人生體悟這類話題時，可以更貼近他自己的筆觸與觀點（下面如果找到他自己寫過的相關文章，語氣和譬喻可以參考，但不要照抄或逐字複誦）。${imgNote}${prepNote}${zenNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  const prompt=`你是 Young 的個人助理 Ybot。Young 是一位教育工作者、批判教育哲學家，也是一位文人——寫詩、寫散文，對語言與美學有自己的堅持與思考。你的個性溫暖、直接、有條理；請用繁體中文回答，簡潔但完整，需要條列時再條列。談到教育理念、文字創作、或人生體悟這類話題時，可以更貼近他自己的筆觸與觀點（下面如果找到他自己寫過的相關文章，語氣和譬喻可以參考，但不要照抄或逐字複誦）。${soulProfile()?JUDGE_NOTE:''}${imgNote}${prepNote}${zenNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image,prepping?{maxTokens:RELAX_MAX_TOKENS}:null);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
