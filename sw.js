@@ -12,7 +12,7 @@ const VERSION='ybot-v1';
 // 只放 App 本體。使用者資料在 localStorage / IndexedDB，不歸這裡管。
 // 封面圖也放進來：沒放的話，剛裝好就離線時標題列會只剩一行「YBOT」替代文字。
 // 只放手機用的那張 webp；寬螢幕的大張和 jpg 備援第一次看到時會自己被快取。
-const SHELL=['./','./index.html','./ybot-manifest.webmanifest','./ybot-icon.svg','./ybot-cover-1200.webp'];
+const SHELL=['./','./index.html','./ybot-manifest.webmanifest','./ybot-icon.svg','./ybot-cover-1200.webp','./ybot-logo.webp'];
 
 self.addEventListener('install',e=>{
   // 有任何一個檔案抓不到就整批不裝，免得裝出一個半殘的快取。
