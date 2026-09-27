@@ -63,18 +63,21 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .menuBtn:hover{background:rgba(255,255,255,.18);}
 .menuBtn:focus-visible{outline:3px solid #fff;outline-offset:-4px;box-shadow:inset 0 0 0 6px rgba(37,99,235,.55);}
 /* 語音摘要鍵：放在封面右下角，下緣跟封面的下緣切齊（使用者要求，原本一半凸出在圖外）。
-   整顆都在圖裡之後會碰到 YBOT 字：字的下緣大約在封面高度的 62%，所以鍵的上緣
-   不能高過 64%。封面高度＝寬度×725/2170，換算下來鍵高最多是內容寬度的 12%：
-   390px 的手機 40px 剛好，320px 的手機會縮成 35px。 */
-.briefBtn{position:absolute;right:14px;bottom:0;z-index:2;display:flex;align-items:center;gap:6px;
-  height:40px;height:min(40px,calc((100vw - 28px)*.12));
-  padding:0 14px 0 11px;border:2px solid #fff;border-radius:999px;cursor:pointer;font-size:.95rem;font-weight:800;
+   整顆都在圖裡之後要避開 YBOT 字：字的下緣大約在封面高度的 62%，使用者要求
+   跟字之間留出空隙，所以鍵的上緣壓到 70% 以下。封面高度＝寬度×725/2170，
+   換算下來鍵高最多是內容寬度的 9.5%：390px 的手機 32px，320px 的手機 28px。
+   字級也跟著封面寬度封頂：系統字級開很大時，放大的字塞不進這麼扁的鍵。 */
+.briefBtn{position:absolute;right:14px;bottom:0;z-index:2;display:flex;align-items:center;gap:5px;
+  height:32px;height:min(32px,calc((100vw - 28px)*.095));
+  padding:0 12px 0 9px;border:2px solid #fff;border-radius:999px;cursor:pointer;
+  font-size:.9rem;font-size:min(.9rem,calc((100vw - 28px)*.05));font-weight:800;
   white-space:nowrap;line-height:1;color:#fff;background:linear-gradient(135deg,var(--pri),var(--pri2));box-shadow:var(--shadow-pri);}
 .briefBtn:active{transform:scale(.97);}
-/* 窄手機上鍵變矮，看不見的點擊範圍往外多撐一點，手指一樣好按。
-   inset 是從白邊裡面算起的，扣掉 2px 白邊，實際往外多 6px（320px 手機：35+12＝47px 高）。 */
-.briefBtn::after{content:"";position:absolute;inset:-8px -6px;}
-.briefIcon{width:20px;height:20px;flex-shrink:0;}
+/* 鍵變扁之後，看不見的點擊範圍往下、往左右多撐一點，手指一樣好按。
+   不往上撐：上面緊鄰著疊在圖裡 ☰ 上的選單鍵，往上撐會搶走它下半部的點擊。
+   inset 從白邊裡面算起，扣掉 2px 白邊，實際往下多 8px、左右各多 6px。 */
+.briefBtn::after{content:"";position:absolute;inset:-2px -8px -10px;}
+.briefIcon{width:18px;height:18px;flex-shrink:0;}
 .briefBtn.busy{background:linear-gradient(135deg,#f59e0b,#ea580c);box-shadow:0 6px 16px rgba(234,88,12,.3);}
 .briefBtn.busy .briefIcon{animation:briefPulse 1s ease-in-out infinite;}
 @keyframes briefPulse{50%{opacity:.35;}}
