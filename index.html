@@ -718,6 +718,18 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="section-title">📲 安裝到主畫面</div>
       <div class="hint">iPhone：分享 → 加入主畫面｜Android：Chrome 會自動提示安裝</div>
     </div>
+    <div class="card" id="transferCard">
+      <div class="section-title">📋 把設定搬到另一個瀏覽器</div>
+      <div class="hint" style="margin-top:0;">Chrome、Safari、加入主畫面的 Ybot 各自存一份設定，互相看不到。在已經設定好的那邊按「複製全部設定」，到新的那邊按「貼上設定」，後台網址、通關密語、AI Key 和其他設定就一次搬過去。</div>
+      <div class="row2" style="margin-top:10px;">
+        <button class="btn" id="transferCopyBtn" onclick="copyAllSettings()">📋 複製全部設定</button>
+        <button class="btn ghost" id="transferPasteBtn" onclick="pasteSettingsFromClipboard()">📥 貼上設定</button>
+      </div>
+      <textarea id="transferBox" class="fi" style="display:none;min-height:90px;margin-top:10px;font-size:.8rem;" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+      <button id="transferApplyBtn" class="btn" style="display:none;" onclick="applySettingsText(document.getElementById('transferBox').value,false)">套用這段設定</button>
+      <div id="transferStatus" class="statusLine" style="display:none;"></div>
+      <div class="hint">⚠️ 複製出來的內容含通關密語和 AI Key，就像家裡的鑰匙：只在自己的手機上複製、貼上，不要傳給別人或貼到 LINE。貼上完成後會自動清空剪貼簿。</div>
+    </div>
     <div class="card">
       <div class="section-title">🧠 Ybot 記住我的事</div>
       <div class="hint" style="margin-top:0;">聊天時 Ybot 會自己把「以後每次都用得到」的事記下來（稱呼、偏好、做事方式），之後每次回答都會帶上。這裡看得到全部，也可以自己加或刪掉不對的。</div>
@@ -1483,6 +1495,134 @@ function tryAutoLocate(){
       if(status.state==='granted')go(); // 已授權過，不需要使用者手勢也能靜默更新
     }).catch(()=>{});
   }
+}
+// ── 把設定搬到另一個瀏覽器 ─────────────────────
+// 每個瀏覽器（Chrome、Safari、加入主畫面的 Ybot）的 localStorage 各自獨立，
+// 使用者在 Chrome 設好，換到 Safari 什麼都沒有（行事曆、天氣都是空的）。
+// 用剪貼簿搬：不做成網址或 QR code——裡面有通關密語和 AI Key，網址會留在
+// 瀏覽紀錄、被同步到別的裝置，也可能被誤傳出去。
+// 內容做成一行 base64：貼到備忘錄、被自動換行或多一個空白也還原得回來。
+const TRANSFER_PREFIX='YBOT-SETTINGS-1:';
+// 只搬「設定」和使用者自己的長期資料。刻意不搬的：
+// chat（對話紀錄）、notes（會從雲端同步回來）、context（快取，重抓就有）、
+// pushEnabled／pushed*（通知權限是跟著瀏覽器走的，新的那邊要自己重新允許）。
+const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply',
+  'gasUrl','gasToken','remUrl','hltUrl','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
+function transferEncode(obj){
+  const bytes=new TextEncoder().encode(JSON.stringify(obj));
+  let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+  return TRANSFER_PREFIX+btoa(bin);
+}
+function transferDecode(text){
+  const raw=String(text||'').replace(/\s+/g,'');
+  const i=raw.indexOf(TRANSFER_PREFIX);
+  if(i<0)throw new Error('這段文字不是 Ybot 的設定（開頭應該是 '+TRANSFER_PREFIX+'）');
+  let obj;
+  try{
+    const bin=atob(raw.slice(i+TRANSFER_PREFIX.length));
+    const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0));
+    obj=JSON.parse(new TextDecoder().decode(bytes));
+  }catch(e){throw new Error('設定內容不完整，可能只複製到一部分，請回原本的瀏覽器重新複製一次');}
+  if(!obj||typeof obj!=='object'||obj.v!==1)throw new Error('設定格式看不懂，請確認兩邊的 Ybot 都是最新版');
+  return obj;
+}
+function exportSettingsText(){
+  const o={v:1,at:new Date().toISOString(),
+    ai:{provider:state.ai.provider,gemini:state.ai.gemini,openai:state.ai.openai,nvidia:state.ai.nvidia}};
+  TRANSFER_FIELDS.forEach(k=>{if(state[k]!==undefined)o[k]=state[k];});
+  return transferEncode(o);
+}
+// 只收下型別對得上的欄位：貼進來的東西不能信，型別錯了寧可跳過，也不要把 App 弄壞。
+function sanitizeImported(obj){
+  const d=defaults(),out={},typeOf=v=>Array.isArray(v)?'array':v===null?'null':typeof v;
+  TRANSFER_FIELDS.forEach(k=>{
+    if(!(k in obj))return;
+    const want=k==='soulProfile'?'object':typeOf(d[k]);
+    const got=typeOf(obj[k]);
+    if(k==='soulProfile'&&(got==='object'||got==='null')){out[k]=obj[k];return;}
+    if(got===want)out[k]=obj[k];
+  });
+  if(out.gasUrl&&!/^https:\/\/script\.google(usercontent)?\.com\//.test(out.gasUrl))delete out.gasUrl;
+  if(out.links)out.links=out.links.filter(l=>l&&typeof l.id==='string'&&typeof l.name==='string'&&typeof l.url==='string');
+  if(out.profile)out.profile=out.profile.filter(p=>p&&typeof p==='object');
+  const ai={};
+  if(obj.ai&&typeof obj.ai==='object')['provider','gemini','openai','nvidia'].forEach(k=>{if(typeof obj.ai[k]==='string')ai[k]=obj.ai[k];});
+  return {fields:out,ai};
+}
+// kind：'ok' 綠色、'bad' 紅色、其他（只是說明下一步）用沒有顏色的樣式
+function showTransferStatus(msg,kind){
+  const el=document.getElementById('transferStatus');if(!el)return;
+  el.className='statusLine'+(kind==='ok'||kind==='bad'?' '+kind:'');el.textContent=msg;el.style.display='block';
+}
+function showTransferBox(value,placeholder){
+  const box=document.getElementById('transferBox'),btn=document.getElementById('transferApplyBtn');
+  box.style.display='block';box.value=value||'';box.placeholder=placeholder||'';
+  btn.style.display=value?'none':'block';
+  return box;
+}
+function hideTransferBox(){
+  const box=document.getElementById('transferBox');
+  if(box){box.value='';box.style.display='none';}
+  const btn=document.getElementById('transferApplyBtn');if(btn)btn.style.display='none';
+}
+async function copyAllSettings(){
+  saveSettings(false);   // 欄位裡改了還沒按儲存的，也一起帶走
+  const text=exportSettingsText();
+  try{
+    await navigator.clipboard.writeText(text);
+    hideTransferBox();
+    showTransferStatus('✅ 已複製。到另一個瀏覽器打開 Ybot → ☰ → 設定 → 按「📥 貼上設定」。','ok');
+  }catch(e){
+    // 有些瀏覽器不給寫剪貼簿：把內容放進框裡讓使用者自己拷貝
+    const box=showTransferBox(text,'');
+    box.focus();box.select();
+    showTransferStatus('瀏覽器不讓 Ybot 直接寫入剪貼簿。請長按上面框裡的文字 → 全選 → 拷貝，再到另一個瀏覽器貼上。','');
+  }
+}
+async function pasteSettingsFromClipboard(){
+  let text='';
+  try{text=await navigator.clipboard.readText();}catch(e){text='';}
+  if(!text||text.indexOf(TRANSFER_PREFIX)<0){
+    // 讀不到（沒給權限、瀏覽器不支援）或剪貼簿裡不是設定：改成手動貼上
+    const box=showTransferBox('','在這裡長按 → 貼上，再按下面的「套用這段設定」');
+    box.focus();
+    showTransferStatus(text?'剪貼簿裡的不是 Ybot 的設定。請先回原本的瀏覽器按「📋 複製全部設定」，再貼到上面的框裡。'
+      :'讀不到剪貼簿。請在上面的框裡長按 → 貼上，再按「套用這段設定」。','');
+    return;
+  }
+  applySettingsText(text,true);
+}
+function applySettingsText(text,fromClipboard){
+  let obj;
+  try{obj=transferDecode(text);}catch(e){showTransferStatus('❌ '+e.message,'bad');return false;}
+  const {fields,ai}=sanitizeImported(obj);
+  const aiNames=[['gemini','Gemini'],['openai','OpenAI'],['nvidia','NVIDIA']].filter(([k])=>ai[k]).map(([,n])=>n);
+  // 確認時只顯示「有沒有」，不把密語、Key 顯示在畫面上
+  const summary=[
+    '要用這段設定取代目前的設定嗎？',
+    '',
+    '• 雲端後台：'+(fields.gasUrl?'有':'（沒有）'),
+    '• 通關密語：'+(fields.gasToken?'有':'（沒有）'),
+    '• AI Key：'+(aiNames.length?aiNames.join('、'):'（沒有）'),
+    '• 長期記憶：'+((fields.profile||[]).length)+' 筆',
+    obj.at?'• 複製時間：'+fmtDateTime(obj.at,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''
+  ].filter(x=>x!=='').join('\n');
+  if(!confirm(summary)){showTransferStatus('已取消，設定沒有變動。','');return false;}
+  Object.assign(state,fields);
+  Object.assign(state.ai,ai);
+  // 新的瀏覽器重新抓資料，不沿用舊快取
+  state.context=null;state.contextAt=null;
+  save();
+  pushSharedAiKeys();
+  if(state.theme)applyTheme(state.theme);
+  applyFontScale();
+  fillSettings();
+  hideTransferBox();
+  // 用完就清掉剪貼簿，免得密語和 Key 一直躺在裡面、之後不小心貼到別的地方
+  if(fromClipboard){try{navigator.clipboard.writeText('').catch(()=>{});}catch(e){}}
+  showTransferStatus('✅ 設定已套用'+(fromClipboard?'，剪貼簿也清空了':'')+'。'+(state.gasUrl?'正在抓行事曆和天氣…':''),'ok');
+  if(state.gasUrl)refreshContext();
+  return true;
 }
 function saveSettings(showToast){
   state.ai.provider=document.getElementById('aiProvider').value;
