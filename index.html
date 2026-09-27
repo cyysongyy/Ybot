@@ -48,10 +48,13 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .wrap{max-width:760px;margin:0 auto;padding:16px 14px 60px;transition:max-width .2s;}
 @media(min-width:860px){.wrap{max-width:1080px;}}
 /* ── 首頁：品牌列＋白天風景主視覺（依使用者給的設計圖） ── */
-.appHeader{position:relative;display:flex;align-items:center;gap:10px;margin:4px 0 14px;z-index:20;}
-.brand{display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;text-decoration:none;}
-.brandLogo{width:48px;height:48px;flex-shrink:0;filter:drop-shadow(0 3px 6px rgba(30,64,175,.25));}
-.brandName{font-size:1.75rem;font-weight:900;letter-spacing:.02em;line-height:1;color:#0b1f4d;}
+.appHeader{position:relative;display:flex;align-items:center;gap:10px;margin:4px 0 14px;z-index:20;container:hdr/inline-size;}
+/* 品牌縮成原本的 2/3（使用者要求）：圖示 48→32px、字 1.75→1.17rem。
+   原本的尺寸加上「語音摘要」鍵，手機字級稍微調大一點，整列就比螢幕寬，
+   整頁會被撐出橫向捲動、左邊的機器人被切掉一半。 */
+.brand{display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;text-decoration:none;}
+.brandLogo{width:32px;height:32px;flex-shrink:0;filter:drop-shadow(0 2px 4px rgba(30,64,175,.25));}
+.brandName{font-size:1.17rem;font-weight:900;letter-spacing:.02em;line-height:1;color:#0b1f4d;}
 .menuBtn{flex-shrink:0;width:42px;height:42px;margin-left:auto;border:none;background:none;cursor:pointer;display:flex;
   align-items:center;justify-content:center;border-radius:12px;color:#1e3a8a;}
 .menuBtn:hover{background:rgba(37,99,235,.08);}
@@ -67,6 +70,10 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 @media(prefers-reduced-motion:reduce){.briefBtn.busy .briefIcon{animation:none;}}
 /* 很窄的手機放不下四個字，只留喇叭圖示（aria-label 還是完整的） */
 @media(max-width:340px){.briefBtn{padding:0 11px;}.briefLabel{display:none;}}
+/* 系統字級開很大時，光看螢幕寬度不夠：同樣 360px 寬，字級 26px 的整列就放不下。
+   這裡用 rem 當門檻，字放大、門檻跟著放大，擠不下時一樣只留喇叭。
+   （實測字級 26px 在 360px、28px 在 375px 才會超出，約是 13rem，這裡留一點餘裕。） */
+@container hdr (max-width:14rem){.briefBtn{padding:0 11px;}.briefLabel{display:none;}}
 .menuPanel{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:190px;background:var(--card);
   border:1px solid var(--line);border-radius:16px;padding:6px;box-shadow:var(--shadow-md);}
 .appHeader.open .menuPanel{display:block;}
