@@ -48,6 +48,18 @@ a{color:var(--pri);}
 button,input,textarea{font-family:inherit;}
 button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:8px;}
 .wrap{max-width:760px;margin:0 auto;padding:16px 14px 60px;transition:max-width .2s;}
+/* 從主畫面打開時（iPhone 的網頁 App），因為 viewport-fit=cover 加上
+   black-translucent 狀態列，頁面會一路延伸到時間、電池那一條底下，封面最上面
+   一截會被蓋住。用 env(safe-area-inset-*) 把內容往內推；在一般 Safari／Chrome
+   分頁裡這些值都是 0，不影響。橫放時瀏海在左右，也一起讓開。 */
+.wrap{padding-top:calc(16px + env(safe-area-inset-top,0px));
+  padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px));
+  padding-bottom:calc(60px + env(safe-area-inset-bottom,0px));}
+/* black-translucent 的狀態列文字是白色的，底下如果是淺色頁面就看不到時間和電量。
+   在那一條墊一塊深藍色（跟封面同色系），捲動時內容也從它底下滑過。
+   一般分頁裡高度是 0，完全看不到。 */
+.safeTop{position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);z-index:60;pointer-events:none;
+  background:linear-gradient(90deg,#0b1f4d,#1d4ed8);}
 @media(min-width:860px){.wrap{max-width:1080px;}}
 /* ── 標題列：封面圖（使用者提供的設計圖，原檔 2170×725） ──
    圖本身就畫了 YBOT 字樣和右邊的 ☰，所以不再另外畫機器人圖示和文字，
@@ -357,7 +369,8 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 /* 快速錄音：從 iPhone 實體鍵透過捷徑開 ?rec=1 進來時的全螢幕介面。
    目標是「按鍵→講話→講完就存好」，中間不要有任何要看畫面找按鈕的步驟。 */
 .qrOverlay{position:fixed;inset:0;z-index:50;background:rgba(15,23,42,.72);
-  display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px);}
+  display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(4px);
+  padding-top:calc(24px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));}
 .qrBox{background:var(--card);border-radius:22px;padding:28px 22px;width:100%;max-width:340px;
   text-align:center;box-shadow:var(--shadow-md);max-height:92vh;overflow-y:auto;}
 .qrTitle{font-size:1.05rem;font-weight:800;color:var(--tx);margin-bottom:18px;}
@@ -500,6 +513,7 @@ a.ovMailItem:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
+<div class="safeTop" aria-hidden="true"></div>
 <div class="wrap">
   <header class="appHeader" id="appHeader">
     <div class="cover">
@@ -519,6 +533,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
       <div class="menuSep"></div>
       <button class="tab" id="themeBtn" onclick="toggleTheme()">🌓 深淺色</button>
+      <button class="tab" id="reloadAppBtn" onclick="reloadApp()">🔄 重新載入 App</button>
     </nav>
   </header>
 
@@ -1191,6 +1206,21 @@ function toggleMenu(e){
   const h=document.getElementById('appHeader');
   const open=h.classList.toggle('open');
   document.getElementById('menuBtn').setAttribute('aria-expanded',open?'true':'false');
+}
+// 從主畫面打開的 Ybot 沒有網址列、也沒有重新整理鍵，以前只能滑掉 App 再重開才更新得到。
+// service worker 是「網路優先」，重新載入就會抓到最新版；先請它檢查一次 sw.js
+// 本身有沒有更新（最多等 1.5 秒，網路慢或離線就不等了，直接重新載入）。
+async function reloadApp(){
+  closeMenu();
+  const btn=document.getElementById('reloadAppBtn');
+  if(btn)btn.textContent='🔄 載入中…';
+  try{
+    if('serviceWorker'in navigator){
+      const reg=await navigator.serviceWorker.getRegistration();
+      if(reg)await Promise.race([reg.update().catch(()=>{}),new Promise(r=>setTimeout(r,1500))]);
+    }
+  }catch(e){}
+  location.reload();
 }
 function closeMenu(){
   const h=document.getElementById('appHeader');
