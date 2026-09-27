@@ -516,10 +516,19 @@ a.ovMailItem:hover{text-decoration:underline;}
             <filter id="hsFog" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>
           </defs>
           <rect width="400" height="320" fill="url(#hsSky)"/>
+          <!-- 雲要避開上面那排天氣和時間。橫向不能靠：天氣描述一長、或系統字級
+               調大，左右兩塊就會把中間那條空隙吃光（量過，只剩 8 個單位）。
+               能靠的是上下兩條邊界——卡片的內距是固定的，換算成這個 viewBox
+               的座標，文字最高只到 y13，往下最多到 y118（字級 26px 時）。
+               所以雲分兩層：一層貼著畫面上緣（下緣不超過 y6），一層在 y121 以下
+               的山稜線上方。hsSoft 會往外糊掉約 9 個單位，算邊界時要一起算。 -->
           <g class="hsClouds" fill="#fff" filter="url(#hsSoft)" opacity=".9">
-            <ellipse cx="70" cy="62" rx="52" ry="12"/><ellipse cx="102" cy="54" rx="30" ry="14"/>
-            <ellipse cx="300" cy="44" rx="62" ry="11"/><ellipse cx="338" cy="37" rx="28" ry="12"/>
-            <ellipse cx="190" cy="92" rx="44" ry="8" opacity=".7"/><ellipse cx="370" cy="110" rx="40" ry="7" opacity=".6"/>
+            <ellipse cx="116" cy="-12" rx="76" ry="9"/><ellipse cx="150" cy="-18" rx="40" ry="10"/>
+            <ellipse cx="304" cy="-14" rx="66" ry="9" opacity=".85"/><ellipse cx="340" cy="-20" rx="34" ry="10" opacity=".85"/>
+            <ellipse cx="84" cy="146" rx="58" ry="11"/><ellipse cx="118" cy="142" rx="30" ry="12"/>
+            <ellipse cx="312" cy="144" rx="52" ry="10" opacity=".85"/><ellipse cx="344" cy="142" rx="26" ry="11" opacity=".85"/>
+            <ellipse cx="198" cy="168" rx="48" ry="8" opacity=".6"/>
+            <ellipse cx="374" cy="160" rx="40" ry="7" opacity=".55"/>
           </g>
           <circle class="hsGlowC" cx="262" cy="176" r="120" fill="url(#hsGlow)"/>
           <circle class="hsSun" cx="262" cy="170" r="17" fill="#fff6c9"/>
