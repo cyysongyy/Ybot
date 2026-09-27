@@ -214,6 +214,7 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroBadgeRow{display:flex;align-items:flex-end;gap:6px;margin-top:14px;}
 @container (max-width:330px){
   .heroScheduleMini .dayTag{min-width:28px;height:26px;font-size:.8rem;padding:0 4px;}
+  .heroScheduleMini .dayTag.wd{padding:0;}
 }
 .heroScheduleMini{flex:1;min-width:0;background:rgba(255,255,255,.9);border-radius:22px;padding:7px;
   box-shadow:0 8px 24px rgba(15,50,120,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
@@ -225,6 +226,9 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroScheduleMini .sChev{flex-shrink:0;color:#334155;font-size:1.1rem;line-height:1;font-weight:700;}
 .heroScheduleMini .dayTag{flex-shrink:0;min-width:32px;height:30px;padding:0 6px;border-radius:9px;display:flex;align-items:center;justify-content:center;
   font-size:.9rem;font-weight:900;color:#fff;background:linear-gradient(135deg,#94a3b8,#64748b);}
+/* 全形括號左右各自帶半個字寬的空白，照排標籤會太寬；左右內距收掉就好，
+   字距不要再壓，壓了括號會貼上字、看起來像一個怪符號。 */
+.heroScheduleMini .dayTag.wd{padding:0 1px;}
 .heroScheduleMini .dayTag.d0{background:linear-gradient(135deg,#f59e0b,#ea580c);}
 .heroScheduleMini .dayTag.d1{background:linear-gradient(135deg,#14b8a6,#0d9488);}
 .heroScheduleMini .dayTag.d2{background:linear-gradient(135deg,#a855f7,#7c3aed);}
@@ -2789,16 +2793,19 @@ function renderHeroSchedule(events){
     return;
   }
   const LIMIT=4;
-  // 「今天」不掛標籤；明天/後天/大後天各有現成的中文詞；再更遠的日子沒有
-  // 慣用詞可以掛（近期如果剛好都沒行程，就會抓到比較遠的），直接顯示月/日
-  // 比硬造新詞看得懂。比對一定要用台北時間（tpeNow），不能直接對 ev.start
-  // 呼叫 toDateString()——那是裝置本地時區，裝置時區不是台北時就會判斷錯天。
-  const dayLabels=['今','明','後','大後'];
+  // 標籤顯示星期幾（日）。以前寫「後」「大後」，要自己在心裡數今天是幾號、
+  // 再往後推幾天，反而不好對——校長的行程本來就是照星期在記的。
+  // 一週之內用星期就講得清楚；超過七天一定要改寫日期，不然「（一）」
+  // 到底是哪一個星期一會分不出來（行事曆抓的是未來 14 天）。
+  // 顏色沿用原本的：今天橘、明天綠、後天紫、大後天藍，一眼還是分得出遠近。
+  // 比對一定要用台北時間（tpeNow），不能直接對 ev.start 呼叫 toDateString()
+  // ——那是裝置本地時區，裝置時區不是台北時就會判斷錯天。
   const heroDayTag=ev=>{
     const t=tpeNow(ev.start);
     const evDateStr=t.toDateString();
-    for(let i=0;i<dayLabels.length;i++){
-      if(evDateStr===dateStrPlusDays(i))return `<span class="dayTag d${i}">${dayLabels[i]}</span>`;
+    for(let i=0;i<7;i++){
+      if(evDateStr===dateStrPlusDays(i))
+        return `<span class="dayTag wd${i<4?' d'+i:''}">（${WD_NAMES[t.getDay()]}）</span>`;
     }
     return `<span class="dayTag">${t.getMonth()+1}/${t.getDate()}</span>`;
   };
