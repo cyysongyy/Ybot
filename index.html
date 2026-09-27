@@ -6,7 +6,9 @@
 <title>Ybot · 個人助理</title>
 <link rel="manifest" href="ybot-manifest.webmanifest">
 <link rel="icon" href="ybot-icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="ybot-icon.svg">
+<!-- iPhone 不認 SVG 的 apple-touch-icon（加入主畫面會變成一張網頁縮圖），要給 PNG；
+     做成滿版方形，iPhone 會自己切圓角 -->
+<link rel="apple-touch-icon" sizes="180x180" href="ybot-icon-180.png">
 <meta name="theme-color" content="#6d28d9">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -4887,16 +4889,38 @@ function onAppsDataToggle(){
 // 不是完整的 Web Push（那需要後台額外做 VAPID／加密，太重）。這裡做的是
 // 「App 開著（含背景分頁、PWA 常駐）時，本機主動偵測到點提醒／新的重要信件
 // 就跳系統通知」，比純粹被動等使用者自己點開 App 看更即時一點。
+// iPhone／iPad 上，Safari 和 Chrome 的一般分頁裡根本沒有 Notification。
+// Apple 只開放給「加入主畫面」、再從主畫面圖示打開的網頁 App（iOS 16.4 起）。
+// 所以在 iPhone 上光說「不支援」沒用，要直接告訴使用者怎麼做。
+// iPadOS 13 起會假裝成 Mac（platform 是 MacIntel），靠觸控點數分辨。
+function isIOSDevice(){
+  const ua=navigator.userAgent||'';
+  return /iPhone|iPad|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+}
+function isStandaloneApp(){
+  return navigator.standalone===true||!!(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
+}
+function pushUnsupportedHint(){
+  if(isIOSDevice()){
+    if(!isStandaloneApp())return 'iPhone／iPad 要先把 Ybot 加入主畫面才能用通知：用 Safari 打開這個網頁 → 按下方的「分享」→「加入主畫面」，之後都從主畫面的 Ybot 圖示打開，再回來按這個鍵。';
+    return '已經是從主畫面打開的了，但這台的 iOS 版本太舊：要 iOS 16.4 以上才支援通知，請到「設定 → 一般 → 軟體更新」更新後再試。';
+  }
+  return '這個瀏覽器不支援通知功能。';
+}
 function renderPushStatus(){
   const btn=document.getElementById('pushToggleBtn'),st=document.getElementById('pushStatus');
   if(!btn||!st)return;
   const supported='Notification'in window;
   if(!supported){
-    btn.disabled=true;st.textContent='這個瀏覽器不支援通知功能。';return;
+    btn.disabled=true;st.textContent=pushUnsupportedHint();return;
   }
   if(state.pushEnabled&&Notification.permission==='granted'){
     btn.textContent='🔕 關閉主動通知';
-    st.textContent='已開啟。App 開著時到點提醒與新的重要信件會跳出通知。';
+    // 這裡的通知是 App 自己每分鐘檢查一次跳的，沒有推播伺服器；iPhone 切到別的 App
+    // 一陣子就會把網頁 App 暫停，所以要照實講清楚，免得以為關掉了也會收到。
+    st.textContent=isIOSDevice()
+      ?'已開啟。iPhone 上要 Ybot 開著時才會跳通知；切到別的 App 一陣子後 iOS 會把它暫停，就不會再跳了（到點提醒信照常會寄到信箱）。'
+      :'已開啟。App 開著時到點提醒與新的重要信件會跳出通知。';
   }else{
     btn.textContent='🔔 開啟主動通知';
     st.textContent=Notification.permission==='denied'?'瀏覽器目前封鎖了通知權限，請到瀏覽器設定裡手動允許本網站的通知。':'';
@@ -4906,7 +4930,7 @@ async function togglePushNotifications(){
   if(state.pushEnabled){
     state.pushEnabled=false;save();renderPushStatus();return;
   }
-  if(!('Notification'in window)){alert('這個瀏覽器不支援通知功能');return;}
+  if(!('Notification'in window)){alert(pushUnsupportedHint());return;}
   const perm=await Notification.requestPermission();
   if(perm!=='granted'){renderPushStatus();return;}
   state.pushEnabled=true;save();renderPushStatus();
