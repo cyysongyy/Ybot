@@ -50,7 +50,7 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 /* ── 標題列：封面圖（使用者提供的設計圖，原檔 2170×725） ──
    圖本身就畫了 YBOT 字樣和右邊的 ☰，所以不再另外畫機器人圖示和文字，
    選單鍵是一顆透明的按鈕，疊在圖裡 ☰ 的位置上。 */
-.appHeader{position:relative;margin:4px 0 30px;z-index:20;}
+.appHeader{position:relative;margin:4px 0 16px;z-index:20;}
 .cover{position:relative;border-radius:22px;overflow:hidden;aspect-ratio:2170/725;background:#dbeafe;
   box-shadow:0 10px 28px rgba(30,64,175,.22);}
 .coverImg{display:block;width:100%;height:100%;object-fit:cover;cursor:pointer;}
@@ -62,11 +62,18 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   cursor:pointer;border-radius:14px;padding:0;}
 .menuBtn:hover{background:rgba(255,255,255,.18);}
 .menuBtn:focus-visible{outline:3px solid #fff;outline-offset:-4px;box-shadow:inset 0 0 0 6px rgba(37,99,235,.55);}
-/* 語音摘要鍵：封面上沒有空位，壓在封面右下角的邊上，一半在圖裡、一半在圖外 */
-.briefBtn{position:absolute;right:14px;bottom:-20px;z-index:2;display:flex;align-items:center;gap:6px;height:40px;
+/* 語音摘要鍵：放在封面右下角，下緣跟封面的下緣切齊（使用者要求，原本一半凸出在圖外）。
+   整顆都在圖裡之後會碰到 YBOT 字：字的下緣大約在封面高度的 62%，所以鍵的上緣
+   不能高過 64%。封面高度＝寬度×725/2170，換算下來鍵高最多是內容寬度的 12%：
+   390px 的手機 40px 剛好，320px 的手機會縮成 35px。 */
+.briefBtn{position:absolute;right:14px;bottom:0;z-index:2;display:flex;align-items:center;gap:6px;
+  height:40px;height:min(40px,calc((100vw - 28px)*.12));
   padding:0 14px 0 11px;border:2px solid #fff;border-radius:999px;cursor:pointer;font-size:.95rem;font-weight:800;
-  white-space:nowrap;color:#fff;background:linear-gradient(135deg,var(--pri),var(--pri2));box-shadow:var(--shadow-pri);}
+  white-space:nowrap;line-height:1;color:#fff;background:linear-gradient(135deg,var(--pri),var(--pri2));box-shadow:var(--shadow-pri);}
 .briefBtn:active{transform:scale(.97);}
+/* 窄手機上鍵變矮，看不見的點擊範圍往外多撐一點，手指一樣好按。
+   inset 是從白邊裡面算起的，扣掉 2px 白邊，實際往外多 6px（320px 手機：35+12＝47px 高）。 */
+.briefBtn::after{content:"";position:absolute;inset:-8px -6px;}
 .briefIcon{width:20px;height:20px;flex-shrink:0;}
 .briefBtn.busy{background:linear-gradient(135deg,#f59e0b,#ea580c);box-shadow:0 6px 16px rgba(234,88,12,.3);}
 .briefBtn.busy .briefIcon{animation:briefPulse 1s ease-in-out infinite;}
