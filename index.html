@@ -55,6 +55,18 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .menuBtn{flex-shrink:0;width:42px;height:42px;margin-left:auto;border:none;background:none;cursor:pointer;display:flex;
   align-items:center;justify-content:center;border-radius:12px;color:#1e3a8a;}
 .menuBtn:hover{background:rgba(37,99,235,.08);}
+/* 語音摘要鍵：左右都用 auto 邊界，會停在品牌和選單鍵中間那塊空白 */
+.briefBtn{flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:6px;height:40px;padding:0 14px 0 11px;
+  border:none;border-radius:999px;cursor:pointer;font-size:.95rem;font-weight:800;white-space:nowrap;color:#fff;
+  background:linear-gradient(135deg,var(--pri),var(--pri2));box-shadow:var(--shadow-pri);}
+.briefBtn:active{transform:scale(.97);}
+.briefIcon{width:20px;height:20px;flex-shrink:0;}
+.briefBtn.busy{background:linear-gradient(135deg,#f59e0b,#ea580c);box-shadow:0 6px 16px rgba(234,88,12,.3);}
+.briefBtn.busy .briefIcon{animation:briefPulse 1s ease-in-out infinite;}
+@keyframes briefPulse{50%{opacity:.35;}}
+@media(prefers-reduced-motion:reduce){.briefBtn.busy .briefIcon{animation:none;}}
+/* 很窄的手機放不下四個字，只留喇叭圖示（aria-label 還是完整的） */
+@media(max-width:340px){.briefBtn{padding:0 11px;}.briefLabel{display:none;}}
 .menuPanel{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:190px;background:var(--card);
   border:1px solid var(--line);border-radius:16px;padding:6px;box-shadow:var(--shadow-md);}
 .appHeader.open .menuPanel{display:block;}
@@ -480,6 +492,10 @@ a.ovMailItem:hover{text-decoration:underline;}
       </svg>
       <div class="brandText"><div class="brandName">YBOT</div></div>
     </div>
+    <button class="briefBtn" id="briefBtn" onclick="toggleVoiceBrief()" aria-label="語音摘要：念出接下來的行程、重要信件和今日新聞">
+      <svg class="briefIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span class="briefLabel" id="briefLabel">語音摘要</span>
+    </button>
     <button class="menuBtn" onclick="toggleMenu(event)" aria-label="選單" aria-expanded="false" id="menuBtn">
       <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 7h20M4 14h20M4 21h20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
     </button>
@@ -2141,18 +2157,18 @@ function newsFallbackSegments(h){
   }
   return segs;
 }
-async function newsScript(h){
-  const key=JSON.stringify(h);
+async function newsScript(h,opts){
+  const noGreet=!!(opts&&opts.noGreet);
+  const key=JSON.stringify(h)+(noGreet?'|noGreet':'');
   if(newsScriptCache.key===key)return newsScriptCache.text;   // 同一批新聞不重複叫 AI
-  const hr=tpeNow().getHours();
-  const greet=hr<11?'早安':hr<18?'午安':'晚安';
+  const greet=greetWord();
   const list=[['國內',h.domestic],['教育',h.education]]
     .filter(([,l])=>l.length).map(([k,l])=>`${k}：\n`+l.map(t=>'- '+t).join('\n')).join('\n');
   const prompt=`你是 Young 的個人助理 Ybot，要把今天的新聞標題整理成一段念給他聽的口語新聞摘要。
 規則：
 - 只能根據標題本身，不可以補充標題沒有的細節、數字、原因或評論；標題看不懂的就照字面簡單說。
 - 依國內、教育的順序，每則一兩句，口語、好聽懂；不要念出媒體名稱。
-- 開頭用「${greet}，」接一句簡短的開場，結尾不要客套話。
+- ${noGreet?'直接從第一則新聞開始，不要問候、不要開場白':`開頭用「${greet}，」接一句簡短的開場`}，結尾不要客套話。
 - 純文字，不要任何符號、編號或條列，總長 250 字以內。
 
 ${list}`;
@@ -2167,6 +2183,7 @@ async function toggleNewsSpeak(){
   ttsWarmUp();   // iOS：一定要在按下去的這一刻先暖機，等 AI 回來才念得出來
   const h=newsHeadlines();
   if(!h.domestic.length&&!h.world.length&&!h.education.length){alert('目前沒有新聞資料，先按上面的 🔄 更新。');return;}
+  if(briefState!=='idle'){briefState='idle';renderBriefBtn();}
   newsSpeakState='preparing';renderNewsSpeakBtn();
   let segs;
   // 國際新聞不經過 AI，所以只有國際新聞時也不用叫 AI。
@@ -2184,6 +2201,127 @@ function newsSpeakLabel(){
 function renderNewsSpeakBtn(){
   const b=document.getElementById('newsSpeakBtn');
   if(b)b.textContent=newsSpeakLabel();
+}
+function greetWord(){
+  const hr=tpeNow().getHours();
+  return hr<11?'早安':hr<18?'午安':'晚安';
+}
+
+// ── 語音摘要（標題列那顆鍵）──────────────────
+// 一按就念：接下來三個行程 → 重要 Email → 今日新聞。
+// 行程和信件的句子是程式自己組的，不經過 AI：時間、地點、寄件人念錯比沒念更糟，
+// 而且這兩塊本來就是結構化資料，照念最準。只有新聞沿用上面的 AI 口語摘要
+// （AI 失敗就直接念標題）。信件內文片段（snippet）刻意不念也不送 AI——
+// 首頁本來就只顯示主旨和寄件人，這顆鍵不該多洩漏任何東西。
+// 跟新聞鍵一樣：使用者明確按下去要聽的，不看 🔊／🔇 那個開關。
+let briefState='idle';   // idle | preparing | speaking
+const BRIEF_EVENT_COUNT=3;
+const BRIEF_STALE_MS=10*60000;   // 資料超過 10 分鐘就先更新再念，免得念到已經改掉的行程
+
+// 「上午9點」「中午12點半」「晚上7點15分」——念出來比 19:15 好懂
+function spokenClock(t){
+  const h=t.getHours(),m=t.getMinutes();
+  const part=h<5?'凌晨':h<12?'上午':h===12?'中午':h<18?'下午':'晚上';
+  const h12=h===0?12:h>12?h-12:h;
+  return part+h12+'點'+(m===0?'':m===30?'半':m+'分');
+}
+// 「今天」「明天星期一」「10月6日星期二」。一律照台北的日子算。
+function spokenDay(d){
+  const t=tpeNow(d);
+  if(isNaN(t))return '';
+  const wd='星期'+WD_NAMES[t.getDay()];
+  const ds=t.toDateString();
+  if(ds===dateStrPlusDays(0))return '今天';
+  if(ds===dateStrPlusDays(1))return '明天'+wd;
+  if(ds===dateStrPlusDays(2))return '後天'+wd;
+  return (t.getMonth()+1)+'月'+t.getDate()+'日'+wd;
+}
+// 還沒結束的行程（進行中的也算），排掉節日日曆，照開始時間排。
+function briefUpcomingEvents(now){
+  const n=now||new Date();
+  return ((state.context&&state.context.calendar)||[])
+    .filter(ev=>ev&&ev.title&&!isHolidayEvent(ev))
+    .filter(ev=>{
+      const end=new Date(ev.end||ev.start);
+      return !isNaN(end)&&end>n;
+    })
+    .sort((a,b)=>new Date(a.start)-new Date(b.start))
+    .slice(0,BRIEF_EVENT_COUNT);
+}
+function briefEventSentence(ev,now){
+  const st=new Date(ev.start);
+  const title=String(ev.title).trim();
+  if(!ev.allDay&&st<=(now||new Date()))return `現在正在進行：${title}。`;
+  const when=spokenDay(st)+(ev.allDay?'，整天':'，'+spokenClock(tpeNow(st)));
+  return `${when}，${title}。`;
+}
+// 「王小明 <abc@x.com>」→「王小明」；只有地址就念 @ 前面那段，不念整串網址
+function spokenSender(from){
+  const f=String(from||'').trim();
+  const name=f.replace(/<[^>]*>/g,'').replace(/["']/g,'').trim();
+  if(name&&!/@/.test(name))return name;
+  const addr=(f.match(/[^\s<>"']+@[^\s<>"']+/)||[''])[0];
+  return addr?addr.split('@')[0]:'不明寄件人';
+}
+function briefCalendarSegments(now){
+  const evs=briefUpcomingEvents(now);
+  if(!evs.length)return [{text:'接下來兩個禮拜都沒有行程。'}];
+  const head=evs.length<BRIEF_EVENT_COUNT?`接下來有${evs.length}個行程。`:`接下來的${BRIEF_EVENT_COUNT}個行程。`;
+  const ord=['第一','第二','第三','第四','第五'];
+  return [{text:head}].concat(evs.map((ev,i)=>({text:(evs.length>1?ord[i]+'，':'')+briefEventSentence(ev,now)})));
+}
+function briefMailSegments(){
+  const mails=(state.context&&state.context.gmail)||[];
+  if(!mails.length)return [{text:'信件方面，沒有未讀的重要信件。'}];
+  return [{text:`信件方面，有${mails.length}封未讀信件。`}].concat(mails.map(m=>({
+    text:`${spokenSender(m.from)}寄來的，主旨是：${String(m.subject||'（沒有主旨）').trim()}。`+(m.important?'這封可能跟繳費有關，記得看一下。':'')
+  })));
+}
+async function briefNewsSegments(){
+  const h=newsHeadlines();
+  if(!h.domestic.length&&!h.world.length&&!h.education.length)return [{text:'今天沒有新聞資料。'}];
+  if(aiOrder().length&&(h.domestic.length||h.education.length)){
+    try{return [{text:'今日新聞。'},{text:await newsScript(h,{noGreet:true})}].concat(newsEnglishSegments(h));}catch(e){}
+  }
+  return newsFallbackSegments(h);
+}
+async function buildBriefSegments(){
+  const now=new Date();
+  const segs=[{text:`${greetWord()}，這是你的語音摘要。`}]
+    .concat(briefCalendarSegments(now))
+    .concat(briefMailSegments());
+  return segs.concat(await briefNewsSegments());
+}
+async function toggleVoiceBrief(){
+  if(briefState!=='idle'){briefState='idle';stopSpeaking();renderBriefBtn();return;}
+  if(!('speechSynthesis'in window)){alert('這個瀏覽器不支援朗讀。');return;}
+  ttsWarmUp();   // iOS：一定要在按下去的這一刻先暖機，等資料和 AI 回來才念得出來
+  if(newsSpeakState!=='idle'){newsSpeakState='idle';renderNewsSpeakBtn();}
+  stopSpeaking();
+  briefState='preparing';renderBriefBtn();
+  const stale=!state.contextAt||(Date.now()-new Date(state.contextAt).getTime()>BRIEF_STALE_MS);
+  if(state.gasUrl&&(stale||!state.context)){
+    try{await refreshContext();}catch(e){}   // 更新失敗就用手上的資料念
+  }
+  if(briefState!=='preparing')return;   // 準備途中使用者按了停止
+  let segs;
+  if(!state.context){
+    segs=[{text:state.gasUrl?'目前讀不到雲端資料，請稍後再試一次。':'還沒有連接雲端後台，請到設定裡的雲端後台連接之後，就可以聽行程、信件和新聞了。'}];
+  }else{
+    try{segs=await buildBriefSegments();}
+    catch(e){segs=[{text:'整理摘要時出了點問題，請再按一次。'}];}
+  }
+  if(briefState!=='preparing')return;
+  briefState='speaking';renderBriefBtn();
+  speakSegments(segs,()=>{if(briefState==='speaking'){briefState='idle';renderBriefBtn();}});
+}
+function renderBriefBtn(){
+  const b=document.getElementById('briefBtn'),l=document.getElementById('briefLabel');
+  if(!b)return;
+  const txt=briefState==='preparing'?'整理中…':briefState==='speaking'?'停止':'語音摘要';
+  if(l)l.textContent=txt;
+  b.classList.toggle('busy',briefState!=='idle');
+  b.setAttribute('aria-label',briefState==='idle'?'語音摘要：念出接下來的行程、重要信件和今日新聞':txt==='停止'?'停止朗讀':'語音摘要整理中，按一下取消');
 }
 
 // ── 鬆弛感練習 ──────────────────────────
