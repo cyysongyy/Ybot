@@ -47,34 +47,34 @@ button,input,textarea{font-family:inherit;}
 button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:8px;}
 .wrap{max-width:760px;margin:0 auto;padding:16px 14px 60px;transition:max-width .2s;}
 @media(min-width:860px){.wrap{max-width:1080px;}}
-/* ── 首頁：品牌列＋白天風景主視覺（依使用者給的設計圖） ── */
-.appHeader{position:relative;display:flex;align-items:center;gap:10px;margin:4px 0 14px;z-index:20;container:hdr/inline-size;}
-/* 品牌縮成原本的 2/3（使用者要求）：圖示 48→32px、字 1.75→1.17rem。
-   原本的尺寸加上「語音摘要」鍵，手機字級稍微調大一點，整列就比螢幕寬，
-   整頁會被撐出橫向捲動、左邊的機器人被切掉一半。 */
-.brand{display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;text-decoration:none;}
-.brandLogo{width:32px;height:32px;flex-shrink:0;filter:drop-shadow(0 2px 4px rgba(30,64,175,.25));}
-.brandName{font-size:1.17rem;font-weight:900;letter-spacing:.02em;line-height:1;color:#0b1f4d;}
-.menuBtn{flex-shrink:0;width:42px;height:42px;margin-left:auto;border:none;background:none;cursor:pointer;display:flex;
-  align-items:center;justify-content:center;border-radius:12px;color:#1e3a8a;}
-.menuBtn:hover{background:rgba(37,99,235,.08);}
-/* 語音摘要鍵：左右都用 auto 邊界，會停在品牌和選單鍵中間那塊空白 */
-.briefBtn{flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:6px;height:40px;padding:0 14px 0 11px;
-  border:none;border-radius:999px;cursor:pointer;font-size:.95rem;font-weight:800;white-space:nowrap;color:#fff;
-  background:linear-gradient(135deg,var(--pri),var(--pri2));box-shadow:var(--shadow-pri);}
+/* ── 標題列：封面圖（使用者提供的設計圖，原檔 2170×725） ──
+   圖本身就畫了 YBOT 字樣和右邊的 ☰，所以不再另外畫機器人圖示和文字，
+   選單鍵是一顆透明的按鈕，疊在圖裡 ☰ 的位置上。 */
+.appHeader{position:relative;margin:4px 0 30px;z-index:20;}
+.cover{position:relative;border-radius:22px;overflow:hidden;aspect-ratio:2170/725;background:#dbeafe;
+  box-shadow:0 10px 28px rgba(30,64,175,.22);}
+.coverImg{display:block;width:100%;height:100%;object-fit:cover;cursor:pointer;}
+/* 寬螢幕照原比例會高到 350px 以上，壓到 250px，上下各裁一點（字和人臉都在中段） */
+@media(min-width:860px){.cover{aspect-ratio:auto;height:250px;}}
+/* 圖裡 ☰ 的中心大約在 (96%, 49%)。按鈕做成 48×48 貼齊右邊：
+   手機上圖示只有二十幾 px 寬，照圖示大小做會很難按。 */
+.menuBtn{position:absolute;right:0;top:calc(49% - 24px);width:48px;height:48px;border:none;background:none;
+  cursor:pointer;border-radius:14px;padding:0;}
+.menuBtn:hover{background:rgba(255,255,255,.18);}
+.menuBtn:focus-visible{outline:3px solid #fff;outline-offset:-4px;box-shadow:inset 0 0 0 6px rgba(37,99,235,.55);}
+/* 語音摘要鍵：封面上沒有空位，壓在封面右下角的邊上，一半在圖裡、一半在圖外 */
+.briefBtn{position:absolute;right:14px;bottom:-20px;z-index:2;display:flex;align-items:center;gap:6px;height:40px;
+  padding:0 14px 0 11px;border:2px solid #fff;border-radius:999px;cursor:pointer;font-size:.95rem;font-weight:800;
+  white-space:nowrap;color:#fff;background:linear-gradient(135deg,var(--pri),var(--pri2));box-shadow:var(--shadow-pri);}
 .briefBtn:active{transform:scale(.97);}
 .briefIcon{width:20px;height:20px;flex-shrink:0;}
 .briefBtn.busy{background:linear-gradient(135deg,#f59e0b,#ea580c);box-shadow:0 6px 16px rgba(234,88,12,.3);}
 .briefBtn.busy .briefIcon{animation:briefPulse 1s ease-in-out infinite;}
 @keyframes briefPulse{50%{opacity:.35;}}
 @media(prefers-reduced-motion:reduce){.briefBtn.busy .briefIcon{animation:none;}}
-/* 很窄的手機放不下四個字，只留喇叭圖示（aria-label 還是完整的） */
-@media(max-width:340px){.briefBtn{padding:0 11px;}.briefLabel{display:none;}}
-/* 系統字級開很大時，光看螢幕寬度不夠：同樣 360px 寬，字級 26px 的整列就放不下。
-   這裡用 rem 當門檻，字放大、門檻跟著放大，擠不下時一樣只留喇叭。
-   （實測字級 26px 在 360px、28px 在 375px 才會超出，約是 13rem，這裡留一點餘裕。） */
-@container hdr (max-width:14rem){.briefBtn{padding:0 11px;}.briefLabel{display:none;}}
-.menuPanel{display:none;position:absolute;right:0;top:calc(100% + 6px);min-width:190px;background:var(--card);
+:root[data-theme="dark"] .briefBtn{border-color:#0f172a;}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .briefBtn{border-color:#0f172a;}}
+.menuPanel{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:5;min-width:190px;background:var(--card);
   border:1px solid var(--line);border-radius:16px;padding:6px;box-shadow:var(--shadow-md);}
 .appHeader.open .menuPanel{display:block;}
 .menuPanel .tab{display:flex;align-items:center;gap:8px;padding:11px 12px;border-radius:11px;font-size:.9rem;font-weight:700;
@@ -82,19 +82,6 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .menuPanel .tab:hover{background:rgba(37,99,235,.07);}
 .menuPanel .tab.active{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;box-shadow:var(--shadow-pri);}
 .menuPanel .menuSep{height:1px;background:var(--line);margin:4px 6px;}
-/* 寬螢幕沒有擠的問題，分頁直接攤在品牌列右邊，不必藏進選單 */
-@media(min-width:860px){
-  .menuBtn{display:none;}
-  .menuPanel{display:flex;position:static;margin-left:auto;gap:4px;padding:5px;min-width:0;border-radius:14px;box-shadow:var(--shadow);}
-  .menuPanel .tab{width:auto;padding:9px 14px;font-size:.86rem;}
-  .menuPanel .menuSep{width:1px;height:auto;margin:6px 2px;}
-}
-:root[data-theme="dark"] .brandName{color:#e2e8f0;}
-:root[data-theme="dark"] .menuBtn{color:#bfdbfe;}
-@media(prefers-color-scheme:dark){
-  :root:not([data-theme="light"]) .brandName{color:#e2e8f0;}
-  :root:not([data-theme="light"]) .menuBtn{color:#bfdbfe;}
-}
 
 .hero{position:relative;overflow:hidden;border-radius:26px;padding:16px 14px 14px;margin-bottom:16px;min-height:330px;
   color:#fff;background:var(--sky2);box-shadow:0 14px 36px rgba(30,64,175,.22);isolation:isolate;container-type:inline-size;}
@@ -482,29 +469,16 @@ a.ovMailItem:hover{text-decoration:underline;}
 <body>
 <div class="wrap">
   <header class="appHeader" id="appHeader">
-    <div class="brand" onclick="switchTab('chat')" title="回到首頁">
-      <svg class="brandLogo" viewBox="0 0 64 64" aria-hidden="true">
-        <defs>
-          <linearGradient id="lgHead" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient>
-          <linearGradient id="lgVisor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e3a8a"/><stop offset="1" stop-color="#0b1533"/></linearGradient>
-        </defs>
-        <line x1="32" y1="6" x2="32" y2="13" stroke="#1d4ed8" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="32" cy="6" r="4" fill="#60a5fa" stroke="#1d4ed8" stroke-width="2"/>
-        <rect x="3" y="27" width="8" height="17" rx="4" fill="#1d4ed8"/>
-        <rect x="53" y="27" width="8" height="17" rx="4" fill="#1d4ed8"/>
-        <rect x="8" y="13" width="48" height="44" rx="19" fill="url(#lgHead)"/>
-        <rect x="12" y="17" width="40" height="36" rx="16" fill="#fff"/>
-        <rect x="16" y="22" width="32" height="26" rx="12" fill="url(#lgVisor)"/>
-        <path d="M22 37q4-6 8 0M34 37q4-6 8 0" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
-      </svg>
-      <div class="brandText"><div class="brandName">YBOT</div></div>
+    <div class="cover">
+      <picture>
+        <source type="image/webp" srcset="ybot-cover-1200.webp 1200w, ybot-cover-2170.webp 2170w" sizes="(min-width:860px) 1052px, 100vw">
+        <img class="coverImg" src="ybot-cover-1200.jpg" width="2170" height="725" alt="YBOT" title="回到首頁" onclick="switchTab('chat')">
+      </picture>
+      <button class="menuBtn" onclick="toggleMenu(event)" aria-label="選單" aria-expanded="false" id="menuBtn"></button>
     </div>
     <button class="briefBtn" id="briefBtn" onclick="toggleVoiceBrief()" aria-label="語音摘要：念出接下來的行程、重要信件和今日新聞">
       <svg class="briefIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span class="briefLabel" id="briefLabel">語音摘要</span>
-    </button>
-    <button class="menuBtn" onclick="toggleMenu(event)" aria-label="選單" aria-expanded="false" id="menuBtn">
-      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 7h20M4 14h20M4 21h20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
     </button>
     <nav class="menuPanel" id="menuPanel">
       <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</button>
