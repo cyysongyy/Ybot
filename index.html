@@ -93,7 +93,7 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .menuPanel .tab.active{background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;box-shadow:var(--shadow-pri);}
 .menuPanel .menuSep{height:1px;background:var(--line);margin:4px 6px;}
 
-.hero{position:relative;overflow:hidden;border-radius:26px;padding:16px 14px 14px;margin-bottom:16px;min-height:330px;
+.hero{position:relative;overflow:hidden;border-radius:26px;padding:12px 14px 14px;margin-bottom:16px;min-height:330px;
   color:#fff;background:var(--sky2);box-shadow:0 14px 36px rgba(30,64,175,.22);isolation:isolate;container-type:inline-size;}
 .heroScene{position:absolute;inset:0;z-index:-1;}
 .heroScene svg{width:100%;height:100%;display:block;}
@@ -217,17 +217,24 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroWeatherMini .lines{display:flex;flex-direction:column;}
 .heroWeatherMini .t{font-weight:900;font-size:1.8rem;font-size:clamp(1.3rem,8cqw,2.2rem);line-height:1;letter-spacing:-.01em;}
 .heroWeatherMini .lines{min-width:0;}
-.heroWeatherMini .d{font-size:.95rem;font-weight:700;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.heroWeatherMini .hl{font-size:.88rem;font-weight:700;margin-top:3px;}
+.heroWeatherMini .d{font-size:.95rem;font-weight:700;margin-top:2px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* 最高／最低溫排成一行。以前窄手機加上字級放大時會斷成兩行，天氣那塊變成四行高，
+   把下面的行事曆整個往下推（使用者截圖就是這樣）。字級跟著卡片寬度封頂，
+   一般的氣溫一定擠得下；真的擠不下（像三位數的極端值）才讓第二個數字換行，
+   不用 overflow 裁掉——溫度的數字被切掉比多一行更糟。 */
+.heroWeatherMini .hl{font-size:.85rem;font-size:min(.85rem,4cqw);font-weight:700;margin-top:1px;line-height:1.2;}
+/* 用行內排版而不是 flex-wrap：flex-wrap 會讓瀏覽器把天氣那塊算窄，明明擠得下也換行 */
+.heroWeatherMini .hl span{display:inline-block;white-space:nowrap;}
+.heroWeatherMini .hl span+span{margin-left:.35em;}
 .heroWeatherMini a{color:#fff;font-size:.85rem;font-weight:700;text-decoration:none;
   background:rgba(255,255,255,.22);padding:5px 10px;border-radius:999px;}
 /* 時間、日期、農曆各自一行。以前日期和時間擠在同一行，加上星期之後
    在手機上會被卡片的 overflow:hidden 切掉右半邊，所以拆開排。 */
-.heroClock{text-align:right;line-height:1.2;user-select:none;flex-shrink:0;}
+.heroClock{text-align:right;line-height:1.12;user-select:none;flex-shrink:0;}
 .heroClock .clockTime{font-weight:900;font-size:1.5rem;font-size:clamp(1.15rem,6.4cqw,1.9rem);letter-spacing:.01em;white-space:nowrap;}
-.heroClock .clockDate{font-weight:800;font-size:1.05rem;font-size:clamp(.88rem,4.6cqw,1.25rem);margin-top:3px;white-space:nowrap;}
-.heroClock .clockLunar{font-size:.95rem;font-size:clamp(.8rem,4.1cqw,1.1rem);font-weight:700;margin-top:2px;white-space:nowrap;opacity:.92;}
-.heroBadgeRow{display:flex;align-items:flex-end;gap:6px;margin-top:14px;}
+.heroClock .clockDate{font-weight:800;font-size:1.05rem;font-size:clamp(.88rem,4.6cqw,1.25rem);margin-top:2px;white-space:nowrap;}
+.heroClock .clockLunar{font-size:.95rem;font-size:clamp(.8rem,4.1cqw,1.1rem);font-weight:700;margin-top:1px;white-space:nowrap;opacity:.92;}
+.heroBadgeRow{display:flex;align-items:flex-end;gap:6px;margin-top:10px;}
 @container (max-width:330px){
   .heroScheduleMini .dayTag{min-width:28px;height:26px;font-size:.8rem;padding:0 4px;}
   .heroScheduleMini .dayTag.wd{padding:0;}
@@ -2891,7 +2898,7 @@ function renderHeroWeather(w){
   if(!el)return;
   const hasRange=w&&w.tMax!=null&&w.tMin!=null;
   el.innerHTML=w
-    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div><div class="d">${esc(w.desc||'')}</div>${hasRange?`<div class="hl">↑${w.tMax}°　↓${w.tMin}°</div>`:''}</div>`
+    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div><div class="d">${esc(w.desc||'')}</div>${hasRange?`<div class="hl"><span>↑${w.tMax}°</span><span>↓${w.tMin}°</span></div>`:''}</div>`
     : `<a href="javascript:void(0)" onclick="useGpsLocation()">📍 定位天氣</a>`;
 }
 // 往後 n 天（0＝今天）的日期字串。用 setDate 而不是加 86400000 毫秒，
