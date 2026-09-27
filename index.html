@@ -2271,7 +2271,7 @@ function briefCalendarSegments(now){
   return [{text:head}].concat(evs.map((ev,i)=>({text:(evs.length>1?ord[i]+'，':'')+briefEventSentence(ev,now)})));
 }
 function briefMailSegments(){
-  const mails=(state.context&&state.context.gmail)||[];
+  const mails=usefulMails();
   if(!mails.length)return [{text:'信件方面，沒有未讀的重要信件。'}];
   return [{text:`信件方面，有${mails.length}封未讀信件。`}].concat(mails.map(m=>({
     text:`${spokenSender(m.from)}寄來的，主旨是：${String(m.subject||'（沒有主旨）').trim()}。`+(m.important?'這封可能跟繳費有關，記得看一下。':'')
@@ -2858,7 +2858,7 @@ function showCtxStatus(){
   // 每一組各自不斷行，擠不下時只在組跟組之間換行，不會把「📬」跟數字拆開。
   const g=x=>`<span class="ctxGrp">${x}</span>`;
   document.getElementById('ctxStatus').innerHTML=c
-    ?[g(`📡 ${esc(t)} 更新`),g(`📅 ${(c.calendar||[]).length}`),g(`📬 ${(c.gmail||[]).length}`)].join(' • ')
+    ?[g(`📡 ${esc(t)} 更新`),g(`📅 ${(c.calendar||[]).length}`),g(`📬 ${usefulMails(c).length}`)].join(' • ')
     :'尚未載入雲端資料';
 }
 
@@ -2917,6 +2917,17 @@ function tomorrowDateStr(){return dateStrPlusDays(1);}
 const HOLIDAY_CAL_RE=/節日|節慶|假日|holiday/i;
 function isHolidayEvent(ev){
   return !!(ev&&ev.allDay&&ev.calendar&&HOLIDAY_CAL_RE.test(ev.calendar));
+}
+// 登入通知（「行動郵局登入通知」「XX 帳號登入提醒」這類）使用者明說是垃圾資訊：
+// 主旨裡有「登入」兩個字就整封不要——首頁、語音摘要、📬 數字、給 AI 的資料都一樣，
+// 否則首頁看不到、AI 卻還會提起，或數字對不起來。只看主旨，不管寄件人是誰。
+// 用函式包起來而不是頂層 const：這支程式有些地方在載入途中就會呼叫 renderOverview。
+function isNoiseMail(m){
+  return /登入/.test(String((m&&m.subject)||''));
+}
+function usefulMails(c){
+  const ctx=c===undefined?state.context:c;
+  return ((ctx&&ctx.gmail)||[]).filter(m=>!isNoiseMail(m));
 }
 // 行程類別小圖示：照標題關鍵字猜，猜不到就用日曆。
 const HERO_ICONS={
@@ -3009,7 +3020,7 @@ function renderOverview(){
     return;
   }
 
-  const mails=c.gmail||[];
+  const mails=usefulMails(c);
   const mailHtml=mails.length
     ? mails.map(m=>{
         const inner=`<span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span>`;
@@ -4476,7 +4487,7 @@ function buildContextText(question){
       lines.push('今天的行程（僅列今天，就是上面對照表「←今天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(todayEvents.length?todayEvents.map(evLabel).join('；'):'（無）'));
       lines.push('明天的行程（僅列明天，就是上面對照表「←明天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(tomorrowEvents.length?tomorrowEvents.map(evLabel).join('；'):'（無）'));
     }
-    if((c.gmail||[]).length)lines.push('未讀重要信件：'+c.gmail.map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
+    if(usefulMails(c).length)lines.push('未讀重要信件：'+usefulMails(c).map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
       const n=c.news;
       const newsFlat=[...(n.domestic||[]),...(n.world||[]),...(n.education||[])];
@@ -4914,7 +4925,7 @@ function checkProactiveNotifications(){
     state.pushedReminderIds.push(n.id);
     notifyLocal('⏰ 提醒時間到了',n.content,'reminder-'+n.id);
   });
-  const mails=(state.context&&state.context.gmail)||[];
+  const mails=usefulMails();
   mails.filter(m=>m.important).forEach(m=>{
     const mid=m.threadId||m.subject;
     if(!mid||state.pushedMailIds.includes(mid))return;
