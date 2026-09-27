@@ -260,7 +260,10 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .heroScheduleMini .empty{color:#334155;text-align:left;}
 
 /* 對話卡：大標題＋狀態列＋四格功能磚 */
-.chatHead{display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:12px;}
+/* 「YBOT 對話」標題那一塊的上下間距縮成原本的 2/3（使用者要求）：
+   卡片上內距 18→12px、標題下方 12→8px。只動這張卡，其他卡片維持 18px。 */
+#chatCard{padding-top:12px;}
+.chatHead{display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:8px;}
 .chatHeadIcon{width:50px;height:50px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#3b82f6,#1d4ed8);box-shadow:0 6px 14px rgba(37,99,235,.35);}
 .chatHeadText{flex:1;min-width:0;}
