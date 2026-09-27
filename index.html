@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Ybot · 個人助理</title>
 <link rel="manifest" href="ybot-manifest.webmanifest">
-<link rel="icon" href="ybot-icon.svg" type="image/svg+xml">
-<!-- iPhone 不認 SVG 的 apple-touch-icon（加入主畫面會變成一張網頁縮圖），要給 PNG；
-     做成滿版方形，iPhone 會自己切圓角 -->
+<link rel="icon" href="ybot-icon-192.png" type="image/png">
+<!-- 圖示是使用者給的「Ybot 光環」圖。iPhone 不認 SVG 的 apple-touch-icon，要給 PNG；
+     做成滿版方形（原圖的圓角外面已經用深色背景補滿），iPhone 會自己切圓角 -->
 <link rel="apple-touch-icon" sizes="180x180" href="ybot-icon-180.png">
 <meta name="theme-color" content="#6d28d9">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -5082,11 +5082,11 @@ async function notifyLocal(title,body,tag){
   try{
     if('serviceWorker'in navigator){
       const reg=await navigator.serviceWorker.ready;
-      await reg.showNotification(title,{body,tag,icon:'./ybot-icon.svg',badge:'./ybot-icon.svg'});
+      await reg.showNotification(title,{body,tag,icon:'./ybot-icon-192.png',badge:'./ybot-icon-192.png'});
       return;
     }
   }catch(e){}
-  try{new Notification(title,{body,tag,icon:'./ybot-icon.svg'});}catch(e){}
+  try{new Notification(title,{body,tag,icon:'./ybot-icon-192.png'});}catch(e){}
 }
 // 每次檢查：到點但還沒推播過的提醒、以及還沒推播過的重要信件（用 id 記錄，
 // 避免同一筆重複跳好幾次通知）。跟後台寄信到點提醒（notifiedAt）是兩件事、
