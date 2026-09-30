@@ -462,6 +462,19 @@ textarea.fi{resize:vertical;min-height:56px;}
 .delBtn{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;transition:color .15s;}
 .delBtn:hover{color:var(--bad);}
 .empty{text-align:center;color:var(--tx3);font-size:.84rem;padding:28px 0;}
+/* 同仁差假（WebITR 貼上整理）*/
+.leaveHead{font-size:.9rem;font-weight:800;color:var(--tx);margin-bottom:2px;}
+.leaveStale{font-size:.74rem;color:var(--warn);margin-bottom:4px;}
+.leaveAt{font-size:.7rem;color:var(--tx3);margin-bottom:4px;}
+.leaveGroup{font-size:.72rem;font-weight:800;color:var(--tx2);margin:12px 0 2px;}
+.leaveItem{display:flex;align-items:flex-start;gap:8px;padding:8px 2px;border-bottom:1px solid var(--line);}
+.leaveItem:last-child{border-bottom:none;}
+.leaveMain{flex:1;min-width:0;font-size:.88rem;line-height:1.55;overflow-wrap:anywhere;}
+.leaveType{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:7px;margin:0 4px;
+  background:rgba(217,119,6,.14);color:var(--warn);white-space:nowrap;}
+.leaveType.biz{background:rgba(13,148,136,.14);color:#0d9488;}
+.leaveWhen{color:var(--tx2);font-size:.82rem;}
+.leaveSub{font-size:.72rem;color:var(--tx3);line-height:1.5;}
 
 /* Settings */
 .field{margin-bottom:14px;}
@@ -688,6 +701,16 @@ a.ovMailItem:hover{text-decoration:underline;}
 
     <div class="card">
       <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
+    </div>
+
+    <div class="card" id="leaveCard">
+      <div class="section-title">📋 同仁差假</div>
+      <div id="leaveList"></div>
+      <button class="btn" onclick="pasteLeaveFromClipboard()" style="display:block;width:100%;margin-top:10px;">📥 貼上 WebITR 清單</button>
+      <textarea id="leaveBox" class="fi" style="display:none;margin-top:10px;min-height:90px;"></textarea>
+      <button class="btn ghost" id="leaveApplyBtn" onclick="applyLeaveText(document.getElementById('leaveBox').value)" style="display:none;width:100%;">整理這段清單</button>
+      <div class="statusLine" id="leaveStatus" style="display:none;"></div>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製，回來按上面的按鈕。<b>先貼上再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這個瀏覽器，不會上傳。</div>
     </div>
 
     <div class="card">
@@ -1129,6 +1152,7 @@ function defaults(){return{
     {id:'young-app-library',name:'Young App Library',url:'https://cyysongyy.github.io/Young-App-Library/',apiUrl:''}
   ],
   notes:[],chat:[],profile:[],
+  leave:[],leaveAt:'',
   context:null,contextAt:null
 };}
 let state;
@@ -1232,7 +1256,7 @@ function switchTab(name){
   closeMenu();
   document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
-  if(name==='notes')renderNotes();
+  if(name==='notes'){renderNotes();renderLeave();}
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
 }
 
@@ -2473,6 +2497,7 @@ async function buildBriefSegments(){
   const now=new Date();
   const segs=[{text:`${greetWord()}，這是你的語音摘要。`}]
     .concat(briefCalendarSegments(now))
+    .concat(briefLeaveSegments())
     .concat(briefMailSegments());
   return segs.concat(await briefNewsSegments());
 }
@@ -3007,6 +3032,202 @@ function renderNotes(){
     </div>`;
   }).join('');
 }
+// ── 同仁差假（WebITR 批核清單）──────────────────
+// WebITR 不寄通知信；讓程式拿著公務帳密自動登入縣府系統、甚至代按「同意」核准
+// 假單，都不該做。所以這裡只做「使用者自己複製批核清單、Ybot 幫忙整理」。
+// 同仁差假是個資：只存在這個瀏覽器的 localStorage，不送後台、不送 AI。
+// 核准後案件就從 WebITR 清單消失，所以每次貼上是「累加」而不是取代，
+// 過了假期的自動清掉。
+// 長的放前面：「延長病假」要先比對到，才不會被「病假」搶走。
+const LEAVE_TYPES=['家庭照顧假','延長病假','陪產檢及陪產假','陪產假','產前假','產檢假','安胎假','流產假','捐贈骨髓','器官捐贈',
+  '生理假','婚假','喪假','產假','娩假','病假','事假','公假','休假','特休','補休','公差','出差','公出','加班','值班','天災假','防疫假','疫苗接種假'];
+const LEAVE_BIZ_RE=/公假|公差|出差|公出|加班|值班/;
+const LEAVE_UNDATED_KEEP_MS=7*864e5;
+function leavePad(n){return String(n).padStart(2,'0');}
+// 115/10/01、115.10.01、2026-10-01、115年10月1日 都認；三位數年份當民國年。
+// 後面緊跟的時間（可能夾著「(三)」）一起抓。
+function leaveDatesIn(text){
+  const out=[];
+  const re=/(\d{3,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})\s*日?/g;
+  let m;
+  while((m=re.exec(text))){
+    let y=+m[1];const mo=+m[2],d=+m[3];
+    if(y<1000)y+=1911;
+    if(y<2000||y>2100||mo<1||mo>12||d<1||d>31)continue;
+    const t=text.slice(re.lastIndex,re.lastIndex+16).match(/^\s*(?:[(（][一二三四五六日][)）])?\s*(\d{1,2})\s*[:：]\s*(\d{2})/);
+    out.push({d:y+'-'+leavePad(mo)+'-'+leavePad(d),t:t?leavePad(t[1])+':'+t[2]:'',end:re.lastIndex+(t?t[0].length:0)});
+  }
+  return out;
+}
+function leaveTypeIn(text){
+  const s=String(text||'');
+  return LEAVE_TYPES.find(k=>s.indexOf(k)>=0)||'';
+}
+function leaveCells(line){return line.split('\t').map(c=>c.replace(/\s+/g,' ').trim());}
+function leaveColumns(head){
+  const find=re=>head.findIndex(h=>re.test(h));
+  return {
+    name:find(/申請人|姓名|請假人|差假人/),
+    agent:find(/代理/),
+    type:find(/假別|差假別|類別|表單|種類/),
+    hours:find(/時數|天數|合計/),
+    reason:find(/事由|原因|說明|備註/),
+    // 「申請日期」「送出時間」這類欄位的日期不是請假日期，整理時略過
+    ignore:head.map((h,i)=>/申請(日期|時間)|送出|填表|建立|簽核|狀態|流程/.test(h)?i:-1).filter(i=>i>=0)
+  };
+}
+// 按鈕、表頭之類混進來的列
+const LEAVE_JUNK_NAME=/^(同意|不同意|加會簽|申請人|代理人|全選)$/;
+function leaveRecordFrom(cells,col){
+  const pick=i=>(i>=0&&cells[i])||'';
+  const usable=cells.filter((c,i)=>!col.ignore.includes(i)&&i!==col.name&&i!==col.agent).join('  ');
+  const dates=leaveDatesIn(usable);
+  const typeCell=pick(col.type);
+  const type=leaveTypeIn(typeCell)||leaveTypeIn(usable)||typeCell.slice(0,10);
+  let name=pick(col.name);
+  if(col.name<0)name=cells.find(c=>/^[\u4e00-\u9fff]{2,4}$/.test(c)&&!leaveTypeIn(c)&&!LEAVE_JUNK_NAME.test(c))||'';
+  name=name.slice(0,24);
+  if(!name||LEAVE_JUNK_NAME.test(name))return null;
+  if(!dates.length&&!leaveTypeIn(usable+typeCell))return null;
+  const r={name,agent:pick(col.agent).slice(0,24),type,hours:pick(col.hours).slice(0,16),reason:pick(col.reason).slice(0,40),
+    sd:'',st:'',ed:'',et:''};
+  if(dates.length){
+    const a=dates[0],b=dates.length>1?dates[dates.length-1]:null;
+    r.sd=a.d;r.st=a.t;r.ed=b?b.d:a.d;r.et=b?b.t:'';
+    // 「115/10/01 08:00~12:00」：只有一個日期，結束時間跟在後面
+    if(!b){
+      const t2=usable.slice(a.end).match(/^\s*[~～\-－至到]\s*(\d{1,2})\s*[:：]\s*(\d{2})/);
+      if(t2)r.et=leavePad(t2[1])+':'+t2[2];
+    }
+    if(r.ed<r.sd)r.ed=r.sd;
+  }
+  return r;
+}
+// 從網頁表格複製出來的文字：一列一行、欄位用 Tab 隔開。
+// 儲存格裡有換行的話，那一列會被拆成兩行、各自都比表頭少幾欄——
+// 上一列還沒湊滿、接起來又不會超過表頭欄數，就當成同一列接回去。
+function parseLeaveText(text){
+  const lines=String(text||'').replace(/\r/g,'').split('\n').filter(l=>l.trim());
+  const hi=lines.findIndex(l=>leaveCells(l).some(c=>/申請人|姓名|請假人|差假人/.test(c)));
+  if(hi<0){
+    // 沒有表頭：一行裡同時有日期和假別的才算
+    const col={name:-1,agent:-1,type:-1,hours:-1,reason:-1,ignore:[]};
+    return lines.map(l=>leaveRecordFrom(leaveCells(l).flatMap(c=>c.split(' ')),col)).filter(r=>r&&r.sd);
+  }
+  const head=leaveCells(lines[hi]);
+  const col=leaveColumns(head);
+  const rows=[];
+  lines.slice(hi+1).forEach(l=>{
+    const cells=leaveCells(l);
+    const last=rows[rows.length-1];
+    if(!last||last.length>=head.length||last.length+cells.length-1>head.length){rows.push(cells);return;}
+    last[last.length-1]=(last[last.length-1]+' '+cells[0]).trim();
+    last.push(...cells.slice(1));
+  });
+  return rows.map(c=>leaveRecordFrom(c,col)).filter(Boolean);
+}
+function leaveKey(r){return [r.name,r.type,r.sd,r.st,r.ed,r.et].join('|');}
+function pruneLeave(){
+  const today=tpeYmd(),cut=Date.now()-LEAVE_UNDATED_KEEP_MS;
+  const before=(state.leave||[]).length;
+  state.leave=(state.leave||[]).filter(r=>r.sd?(r.ed||r.sd)>=today:new Date(r.addedAt).getTime()>cut);
+  return state.leave.length!==before;
+}
+function mergeLeave(recs){
+  const map=new Map((state.leave||[]).map(r=>[leaveKey(r),r]));
+  let added=0;
+  const nowIso=new Date().toISOString();
+  recs.forEach(r=>{
+    const k=leaveKey(r),old=map.get(k);
+    if(old){['agent','hours','reason'].forEach(f=>{if(r[f])old[f]=r[f];});return;}
+    map.set(k,Object.assign({id:'lv'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),addedAt:nowIso},r));
+    added++;
+  });
+  state.leave=[...map.values()];
+  return added;
+}
+function applyLeaveText(text){
+  const recs=parseLeaveText(text);
+  if(!recs.length){
+    showLeaveStatus('❌ 這段內容裡找不到差假資料。請在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製再貼一次；如果批核案件是 0，就沒有東西可以整理。','bad');
+    return false;
+  }
+  const added=mergeLeave(recs);
+  pruneLeave();
+  state.leaveAt=new Date().toISOString();
+  save();
+  const box=document.getElementById('leaveBox');if(box){box.value='';box.style.display='none';}
+  const btn=document.getElementById('leaveApplyBtn');if(btn)btn.style.display='none';
+  renderLeave();
+  showLeaveStatus('✅ 整理好 '+recs.length+' 筆'+(added<recs.length?'（新的 '+added+' 筆，其他之前已經有了）':'')+'。','ok');
+  return true;
+}
+async function pasteLeaveFromClipboard(){
+  let text='';
+  try{text=await navigator.clipboard.readText();}catch(e){text='';}
+  if(text&&applyLeaveText(text))return;
+  const box=document.getElementById('leaveBox');
+  box.style.display='block';box.placeholder='在這裡貼上（Ctrl+V 或長按 → 貼上），再按「整理這段清單」';
+  document.getElementById('leaveApplyBtn').style.display='block';
+  box.focus();
+  if(!text)showLeaveStatus('讀不到剪貼簿。請在上面的框裡貼上，再按「整理這段清單」。','');
+}
+function showLeaveStatus(msg,kind){
+  const el=document.getElementById('leaveStatus');if(!el)return;
+  el.className='statusLine'+(kind==='ok'||kind==='bad'?' '+kind:'');el.textContent=msg;el.style.display='block';
+}
+function deleteLeave(id){
+  state.leave=(state.leave||[]).filter(r=>r.id!==id);
+  save();renderLeave();
+}
+function leaveCoversDay(r,ymd){return !!r.sd&&r.sd<=ymd&&(r.ed||r.sd)>=ymd;}
+function leaveMD(ymd){
+  const [y,m,d]=ymd.split('-').map(Number);
+  return m+'/'+d+'（'+WD_NAMES[new Date(y,m-1,d).getDay()]+'）';
+}
+function leaveRange(r,withDate){
+  if(!r.sd)return '日期不明';
+  if(r.sd===(r.ed||r.sd)){
+    const t=r.st&&r.et?r.st+'–'+r.et:r.st?r.st+' 起':'';
+    return ((withDate?leaveMD(r.sd)+' ':'')+t).trim()||'整天';
+  }
+  return leaveMD(r.sd)+(r.st?' '+r.st:'')+' – '+leaveMD(r.ed)+(r.et?' '+r.et:'');
+}
+function leaveItemHtml(r,withDate){
+  const sub=[r.hours,r.agent?'代理：'+r.agent:'',r.reason].filter(Boolean).map(esc).join(' · ');
+  return `<div class="leaveItem"><div class="leaveMain"><b>${esc(r.name)}</b><span class="leaveType${LEAVE_BIZ_RE.test(r.type)?' biz':''}">${esc(r.type||'差假')}</span><span class="leaveWhen">${esc(leaveRange(r,withDate))}</span>`
+    +(sub?`<div class="leaveSub">${sub}</div>`:'')
+    +`</div><button class="delBtn" title="刪除這筆" aria-label="刪除 ${esc(r.name)} 這筆差假" onclick="deleteLeave('${esc(r.id)}')">✕</button></div>`;
+}
+function leaveSort(a,b){return (a.sd+a.st).localeCompare(b.sd+b.st)||a.name.localeCompare(b.name);}
+function renderLeave(){
+  const el=document.getElementById('leaveList');if(!el)return;
+  if(pruneLeave())save();
+  const today=tpeYmd();
+  const all=state.leave||[];
+  const todays=all.filter(r=>leaveCoversDay(r,today)).sort(leaveSort);
+  const later=all.filter(r=>r.sd&&r.sd>today).sort(leaveSort);
+  const undated=all.filter(r=>!r.sd);
+  const at=state.leaveAt?new Date(state.leaveAt):null;
+  let h='';
+  h+=`<div class="leaveHead">${todays.length?`今天 ${todays.length} 位同仁差假`:'今天沒有記錄到同仁差假'}</div>`;
+  if(!at||tpeYmd(at)!==today)h+=`<div class="leaveStale">⏰ 今天還沒貼上 WebITR 批核清單</div>`;
+  else h+=`<div class="leaveAt">最後更新：${esc(fmtTime(at,{hour:'2-digit',minute:'2-digit',hour12:false}))}</div>`;
+  if(todays.length)h+=`<div class="leaveGroup">今天 ${esc(leaveMD(today))}</div>`+todays.map(r=>leaveItemHtml(r,false)).join('');
+  if(later.length)h+=`<div class="leaveGroup">接下來</div>`+later.map(r=>leaveItemHtml(r,true)).join('');
+  if(undated.length)h+=`<div class="leaveGroup">日期不明</div>`+undated.map(r=>leaveItemHtml(r,false)).join('');
+  el.innerHTML=h;
+}
+// 語音摘要用：今天有人差假才念，沒有就不講（批核清單只看得到還沒核的，
+// 「沒有記錄」不等於「沒有人請假」，不能說成今天沒人請假）。
+function briefLeaveSegments(){
+  const today=tpeYmd();
+  const recs=(state.leave||[]).filter(r=>leaveCoversDay(r,today)).sort(leaveSort);
+  if(!recs.length)return [];
+  const who=recs.map(r=>String(r.name).replace(/[（(].*$/,'').trim()+(r.type||'請假')).join('、');
+  return [{text:`同仁差假，今天有${recs.length}位：${who}。`}];
+}
+
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 // ── 雲端上下文（Gmail／日曆／其他系統）────
@@ -5157,6 +5378,7 @@ function registerSW(){
 // ── 初始化 ──────────────────────────────
 renderChat();
 renderNotes();
+renderLeave();
 renderSpeakBtn();
 renderLinkChips();
 initCountdownUI();
