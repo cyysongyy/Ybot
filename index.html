@@ -484,6 +484,17 @@ textarea.fi{resize:vertical;min-height:56px;}
 .linkChips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
 .linkChips a.chip{text-decoration:none;}
 
+/* EIP 提醒條 */
+.eipBanner{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;
+  margin:0 0 14px;padding:12px 14px;border-radius:18px;border:1px solid #fdba74;
+  background:linear-gradient(135deg,#fff7ed,#ffedd5);color:#9a3412;font-weight:800;font-size:.92rem;
+  box-shadow:0 6px 16px rgba(234,88,12,.14);}
+.eipBanner .eipActions{display:flex;gap:8px;flex-shrink:0;}
+.eipBanner .btn{padding:8px 14px;font-size:.84rem;text-decoration:none;}
+.eipBanner .btn.ghost{background:rgba(255,255,255,.6);}
+:root[data-theme="dark"] .eipBanner{background:rgba(234,88,12,.14);border-color:rgba(251,146,60,.45);color:#fdba74;}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .eipBanner{background:rgba(234,88,12,.14);border-color:rgba(251,146,60,.45);color:#fdba74;}}
+
 /* Overview */
 .ovMono{font-family:'SF Mono','Roboto Mono',ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
 
@@ -536,6 +547,14 @@ a.ovMailItem:hover{text-decoration:underline;}
       <button class="tab" id="reloadAppBtn" onclick="reloadApp()">🔄 重新載入 App</button>
     </nav>
   </header>
+
+  <div class="eipBanner" id="eipBanner" style="display:none;">
+    <div class="eipText">🏛️ 下午三點了，記得點 EIP（公文／差勤）</div>
+    <div class="eipActions">
+      <a class="btn" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener" onclick="markEipDone()">打開 EIP ↗</a>
+      <button class="btn ghost" onclick="markEipDone()">今天不用</button>
+    </div>
+  </div>
 
   <!-- 💬 對話 -->
   <div class="pane active" id="pane-chat">
@@ -681,13 +700,8 @@ a.ovMailItem:hover{text-decoration:underline;}
 
   <!-- 📝 待辦與筆記 -->
   <div class="pane" id="pane-notes">
-    <div class="card" id="meetingCard" style="display:none;">
-      <button class="btn" onclick="openMeetingRec()" style="display:block;width:100%;">📋 開始會議記錄</button>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦（該你做的會直接進待辦清單），逐字稿另外存成筆記。</div>
-    </div>
-
     <div class="card">
-      <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
+      <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener" onclick="markEipDone()">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
     </div>
 
     <div class="card">
@@ -724,6 +738,11 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span class="chip" data-f="owned" onclick="setFilter('owned')">🤝 我交辦的</span>
       </div>
       <div id="noteList"></div>
+    </div>
+
+    <div class="card" id="meetingCard" style="display:none;">
+      <button class="btn" onclick="openMeetingRec()" style="display:block;width:100%;">📋 開始會議記錄</button>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦（該你做的會直接進待辦清單），逐字稿另外存成筆記。</div>
     </div>
   </div>
 
@@ -1117,7 +1136,7 @@ function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,qa:[],qaSyncedAt:'',
-  pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],
+  pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],eipDoneDate:'',eipNotifiedDate:'',
   gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -5144,6 +5163,60 @@ function checkProactiveNotifications(){
   save();
 }
 
+// ── EIP 入口網提醒：上班日下午 3 點 ─────────────
+// 使用者要每個上班日下午三點被提醒去點雲林縣 EIP（公文／差勤），假日不用。
+// 「假日」不能只看週六日：國定假日、補假會落在平日，補班的週六又要上班。
+// 所以照人事行政總處的「政府行政機關辦公日曆表」（ruyut/TaiwanCalendar 整理成
+// JSON，經 jsDelivr 取用），每年存一份在 localStorage；抓不到時退回只看週六日。
+// App 關著的時候這裡管不到，後台另有 setupEipReminder() 在 Google 日曆排 15:00 事件。
+const EIP_HOUR=15;
+const TWCAL_KEY='ybot_twcal_';
+const twCalTried={};
+function tpeYmd(t){return `${t.getFullYear()}${String(t.getMonth()+1).padStart(2,'0')}${String(t.getDate()).padStart(2,'0')}`;}
+function twCalCached(y){try{return JSON.parse(localStorage.getItem(TWCAL_KEY+y));}catch(e){return null;}}
+async function ensureTwCal(y){
+  const c=twCalCached(y);
+  if(c&&Date.now()-new Date(c.at).getTime()<30*86400000)return;
+  if(twCalTried[y]&&Date.now()-twCalTried[y]<3600000)return;   // 抓失敗（離線）別每分鐘重試
+  twCalTried[y]=Date.now();
+  try{
+    const r=await fetch(`https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${y}.json`);
+    if(!r.ok)return;
+    const d=await r.json();
+    if(!Array.isArray(d)||!d.length)return;
+    // 只存放假的日期（含週末），約一百多筆，比整份 365 天小很多
+    const off=d.filter(x=>x&&x.isHoliday).map(x=>String(x.date));
+    localStorage.setItem(TWCAL_KEY+y,JSON.stringify({at:new Date().toISOString(),off}));
+  }catch(e){}
+}
+function isTwWorkday(t){
+  const c=twCalCached(t.getFullYear());
+  if(c&&Array.isArray(c.off))return !c.off.includes(tpeYmd(t));
+  const w=t.getDay();
+  return w!==0&&w!==6;
+}
+function eipDueNow(){
+  const t=tpeNow();
+  return t.getHours()>=EIP_HOUR&&isTwWorkday(t)&&state.eipDoneDate!==tpeYmd(t);
+}
+// 點了 EIP（提醒條或 EIP 卡都算）或按「今天不用」，今天就不再提醒。
+function markEipDone(){state.eipDoneDate=tpeYmd(tpeNow());save();renderEipBanner();}
+function renderEipBanner(){
+  const el=document.getElementById('eipBanner');
+  if(el)el.style.display=eipDueNow()?'':'none';
+}
+async function checkEipReminder(){
+  const t=tpeNow();
+  await ensureTwCal(t.getFullYear());   // 先拿到辦公日曆再判斷，免得國定假日照樣響
+  renderEipBanner();
+  if(!eipDueNow())return;
+  const today=tpeYmd(t);
+  if(state.eipNotifiedDate===today)return;
+  if(!state.pushEnabled||!('Notification'in window)||Notification.permission!=='granted')return;
+  state.eipNotifiedDate=today;save();
+  notifyLocal('🏛️ 下午三點：記得點 EIP','雲林縣 EIP 入口網（公文／差勤）','eip-'+today);
+}
+
 // ── 離線支援 ────────────────────────────
 // 註冊 service worker，讓 App 沒網路也打得開（錄音和筆記本來就不需要網路，
 // 卡住的一直是「頁面本身跟 GitHub Pages 拿不到」）。細節在 sw.js。
@@ -5190,6 +5263,10 @@ setInterval(()=>{if(state.useMicroPolitics&&mpAuthUser)refreshMicroPoliticsEvent
 checkProactiveNotifications();
 setInterval(checkProactiveNotifications,60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkProactiveNotifications();});
+// EIP 提醒：開 App、每分鐘、切回 App 時各檢查一次。
+checkEipReminder();
+setInterval(checkEipReminder,60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkEipReminder();});
 </script>
 </body>
 </html>

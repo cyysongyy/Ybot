@@ -13,6 +13,7 @@
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
  *    再執行一次 setupWeeklyReview()（排程「本週回顧」，每週一早上 7 點）
+ *    再執行一次 setupEipReminder()（排程「EIP 入口網提醒」，上班日下午 3 點，假日不提醒）
  * 4. 部署 → 新增部署作業 → 網頁應用程式
  *    - 以下列身分執行：我（Me）
  *    - 誰可以存取：所有人（Anyone）
@@ -1014,6 +1015,70 @@ function standupWatch() {
     } catch (err) { /* 忽略單次寄送失敗 */ }
   }
   writeKv({ standupLastSent: now.toISOString() });
+}
+
+// ── 自動化：EIP 入口網提醒（上班日下午 3 點，假日不提醒）──────
+// 使用者要每個上班日下午三點被提醒去點雲林縣 EIP（公文／差勤）。
+// 做法跟起立提醒一樣：在預設日曆建一個今天 15:00 的短事件、設定準時跳通知，
+// 手機的日曆 App 就會用系統通知響，不用開著 Ybot。觸發器每天中午跑一次，
+// 判斷今天是不是上班日才建。
+// 「上班日」照人事行政總處的政府行政機關辦公日曆表（國定假日、補假、補班都算進去），
+// 資料來源是 ruyut/TaiwanCalendar 整理的 JSON；抓不到時退回只看週六日。
+// 只改這段不用重新部署網頁應用程式——觸發器跑的是存檔後的最新程式。
+const EIP_URL = 'https://eip.yunlin.gov.tw/index.do';
+function setupEipReminder() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'eipReminderPrep') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('eipReminderPrep').timeBased().everyDays(1).atHour(12).create();
+  eipReminderPrep();   // 今天如果已經過中午、還沒三點，馬上補排今天的
+  return '✅ 已排程：每個上班日下午 3 點在 Google 日曆跳出「點 EIP 入口網」提醒（國定假日、補假不提醒，補班日會提醒）' + tzWarn();
+}
+function removeEipReminder() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'eipReminderPrep') ScriptApp.deleteTrigger(t);
+  });
+  return '✅ 已停止 EIP 入口網提醒（之前已經建好的日曆事件不會刪）';
+}
+// 台北「今天」要不要上班。辦公日曆一年抓一次，快取 6 小時（CacheService 上限）。
+function twIsWorkday(d) {
+  const ymd = tpeFormat(d, 'yyyyMMdd');
+  const y = ymd.slice(0, 4);
+  const cache = CacheService.getScriptCache();
+  let off = null;
+  const hit = cache.get('twcal_' + y);
+  if (hit) { try { off = JSON.parse(hit); } catch (e) { off = null; } }
+  if (!off) {
+    try {
+      const res = UrlFetchApp.fetch('https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/' + y + '.json', { muteHttpExceptions: true });
+      if (res.getResponseCode() === 200) {
+        const data = JSON.parse(res.getContentText());
+        if (Array.isArray(data) && data.length) {
+          off = data.filter(x => x && x.isHoliday).map(x => String(x.date));
+          try { cache.put('twcal_' + y, JSON.stringify(off), 21600); } catch (e) { /* 快取失敗下次再抓 */ }
+        }
+      }
+    } catch (err) { /* 抓不到就退回只看週六日 */ }
+  }
+  if (off) return off.indexOf(ymd) < 0;
+  return Number(tpeFormat(d, 'u')) <= 5;   // u：1＝週一 … 7＝週日
+}
+function eipReminderPrep() {
+  const now = new Date();
+  if (!twIsWorkday(now)) return;
+  // 前面加 d：純日期字串存進試算表會被自動轉成日期，下次比對就對不上了
+  const todayKey = 'd' + tpeFormat(now, 'yyyyMMdd');
+  if (readKv().eipPreparedDate === todayKey) return;   // 同一天不要建兩個
+  const start = new Date(tpeFormat(now, 'yyyy-MM-dd') + 'T' + '15:00:00+08:00');
+  if (start <= now) return;   // 已經過三點就不補了
+  try {
+    const ev = CalendarApp.getDefaultCalendar().createEvent('🏛️ 點 EIP 入口網（公文／差勤）', start,
+      new Date(start.getTime() + 10 * 60000),
+      { description: '上班日下午 3 點的提醒，假日不提醒。\n' + EIP_URL +
+        '\n\n不想再收到：在 Apps Script 執行 removeEipReminder()。' });
+    ev.addPopupReminder(0);
+    writeKv({ eipPreparedDate: todayKey });
+  } catch (err) { /* 忽略建立失敗，明天再試 */ }
 }
 
 function getOwnerEmail() {
