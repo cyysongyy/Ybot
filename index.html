@@ -442,7 +442,10 @@ textarea.fi{resize:vertical;min-height:56px;}
 .btn:disabled{opacity:.5;cursor:default;transform:none;box-shadow:none;}
 .btn.ghost{background:none;border:1px solid var(--line);color:var(--tx2);box-shadow:none;}
 .btn.ghost:hover:not(:disabled){border-color:var(--pri);color:var(--pri);transform:none;box-shadow:var(--shadow);}
-.filterRow{display:flex;gap:6px;margin:4px 0 12px;}
+.filterRow{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;}
+.filterRow .chip{white-space:nowrap;}
+.meetingStart{margin-bottom:12px;}
+.meetingStart .btn{display:block;width:100%;}
 .filterRow .chip.active{background:var(--pri);color:#fff;border-color:var(--pri);}
 .noteItem{display:flex;align-items:flex-start;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line);}
 .noteItem:last-child{border-bottom:none;}
@@ -731,18 +734,13 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="card">
       <div class="filterRow">
         <span class="chip active" data-f="all" onclick="setFilter('all')">全部</span>
-        <span class="chip" data-f="note" onclick="setFilter('note')">📌 瑣事</span>
+        <span class="chip" data-f="meeting" onclick="setFilter('meeting')">📋 會議記錄</span>
         <span class="chip" data-f="todo" onclick="setFilter('todo')">✅ 待辦</span>
         <span class="chip" data-f="reminder" onclick="setFilter('reminder')">⏰ 提醒</span>
         <span class="chip" data-f="idea" onclick="setFilter('idea')">💡 心法</span>
         <span class="chip" data-f="owned" onclick="setFilter('owned')">🤝 我交辦的</span>
       </div>
       <div id="noteList"></div>
-    </div>
-
-    <div class="card" id="meetingCard" style="display:none;">
-      <button class="btn" onclick="openMeetingRec()" style="display:block;width:100%;">📋 開始會議記錄</button>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦（該你做的會直接進待辦清單），逐字稿另外存成筆記。</div>
     </div>
   </div>
 
@@ -1768,8 +1766,6 @@ function initVoiceButton(){
   if(rb)rb.style.display=ok;
   const ab=document.getElementById('askVoiceBtn');
   if(ab)ab.style.display=ok;
-  const mc=document.getElementById('meetingCard');
-  if(mc)mc.style.display=(ok==='none')?'none':'block';
 }
 async function toggleRecording(){
   const btn=document.getElementById('voiceBtn');
@@ -2849,6 +2845,7 @@ function cleanOwner(v){
   return (!t||SELF_WORDS.test(t))?'':t;
 }
 let noteFilter='all';
+function isMeetingNote(n){return n.type==='note'&&/^📋\s*會議/.test(String(n.content||''));}
 function setFilter(f){
   noteFilter=f;
   document.querySelectorAll('.filterRow .chip').forEach(c=>c.classList.toggle('active',c.dataset.f===f));
@@ -3004,22 +3001,31 @@ function renderNotes(){
   const list=document.getElementById('noteList');
   // 「我交辦的」不是一種 type，是「有填負責人」的那些——交辦出去的事橫跨
   // 待辦與提醒，用 type 分不出來。
+  // 「會議記錄」也不是 type：會議錄完存的是內容以「📋 會議逐字稿」開頭的筆記。
   let items=liveNotes().filter(n=>
-    noteFilter==='all'?true:(noteFilter==='owned'?!!String(n.owner||'').trim():n.type===noteFilter));
+    noteFilter==='all'?true
+    :noteFilter==='owned'?!!String(n.owner||'').trim()
+    :noteFilter==='meeting'?isMeetingNote(n)
+    :n.type===noteFilter);
   items=items.slice().sort((a,b)=>{
     if(!!a.done!==!!b.done)return a.done?1:-1;
     return new Date(b.createdAt)-new Date(a.createdAt);
   });
-  if(!items.length){list.innerHTML='<div class="empty">還沒有紀錄，新增一筆看看 👆</div>';return;}
+  // 會議記錄的入口在這裡（原本的會議記錄卡已拿掉）；不支援錄音的瀏覽器就不顯示按鈕。
+  const canRec=!!(navigator.mediaDevices&&window.MediaRecorder);
+  const meetingHead=noteFilter!=='meeting'?''
+    :`<div class="meetingStart">${canRec?'<button class="btn" onclick="openMeetingRec()">📋 開始會議記錄</button>':''}`+
+     `<div class="hint">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦，逐字稿存在這裡。</div></div>`;
+  if(!items.length){list.innerHTML=meetingHead+`<div class="empty">${noteFilter==='meeting'?'還沒有會議記錄':'還沒有紀錄，新增一筆看看 👆'}</div>`;return;}
   const now=new Date();
-  list.innerHTML=items.map(n=>{
+  list.innerHTML=meetingHead+items.map(n=>{
     const overdue=n.dueAt&&!n.done&&new Date(n.dueAt)<now;
     const dueTxt=n.dueAt?fmtDateTime(n.dueAt,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
     const checkable=CHECKABLE_TYPES.includes(n.type);
     return `<div class="noteItem">
       ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
       <div class="noteBody">
-        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${TYPE_LABEL[n.type]}</span>${n.owner?`<span class="ownerTag">🤝 ${esc(n.owner)}</span>`:''}${esc(n.content)}</div>
+        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${isMeetingNote(n)?'📋 會議':TYPE_LABEL[n.type]}</span>${n.owner?`<span class="ownerTag">🤝 ${esc(n.owner)}</span>`:''}${esc(n.content)}</div>
         ${dueTxt?`<div class="noteMeta ${overdue?'overdue':''}">${overdue?'🔴 已逾期 · ':'⏰ '}${dueTxt}</div>`:''}
       </div>
       <button class="delBtn" onclick="deleteNote('${n.id}')">✕</button>
