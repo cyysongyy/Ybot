@@ -475,6 +475,10 @@ textarea.fi{resize:vertical;min-height:56px;}
 .leaveType.biz{background:rgba(13,148,136,.14);color:#0d9488;}
 .leaveWhen{color:var(--tx2);font-size:.82rem;}
 .leaveSub{font-size:.72rem;color:var(--tx3);line-height:1.5;}
+.leaveSetup{margin-top:10px;font-size:.78rem;color:var(--tx2);line-height:1.6;}
+.leaveSetup summary{cursor:pointer;font-weight:700;color:var(--tx);padding:4px 0;}
+.leaveSetup ol{margin:6px 0 4px;padding-left:20px;}
+.leaveSetup a{color:var(--pri);font-weight:700;}
 
 /* Settings */
 .field{margin-bottom:14px;}
@@ -710,7 +714,17 @@ a.ovMailItem:hover{text-decoration:underline;}
       <textarea id="leaveBox" class="fi" style="display:none;margin-top:10px;min-height:90px;"></textarea>
       <button class="btn ghost" id="leaveApplyBtn" onclick="applyLeaveText(document.getElementById('leaveBox').value)" style="display:none;width:100%;">整理這段清單</button>
       <div class="statusLine" id="leaveStatus" style="display:none;"></div>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製，回來按上面的按鈕。<b>先貼上再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這個瀏覽器，不會上傳。</div>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">沒裝外掛時：在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製，回來按上面的按鈕。<b>先讀進來再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這台電腦的這個瀏覽器，不會上傳。</div>
+      <details class="leaveSetup" id="leaveSetup">
+        <summary>🧩 電腦自動讀取（免複製貼上）</summary>
+        <ol>
+          <li>用電腦的 Chrome 安裝 <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Tampermonkey</a> 擴充功能。</li>
+          <li>到 Chrome「擴充功能」→ Tampermonkey →「詳細資料」，打開「允許使用者指令碼」（舊版 Chrome 是打開右上角的「開發人員模式」）。</li>
+          <li>點這裡 <a href="webitr-ybot.user.js" target="_blank" rel="noopener">安裝 Ybot 差假外掛</a>，在跳出的畫面按「安裝」。</li>
+          <li>之後照平常登入 WebITR、打開「批核案件」，右下角出現「Ybot 已讀取批核清單」就成功了，這台電腦的 Ybot 會自動顯示。</li>
+        </ol>
+        <div class="hint" style="margin:0;">外掛只讀取表格：不會幫你登入，也不會按「同意」。資料只在這台電腦，手機上的 Ybot 看不到。</div>
+      </details>
     </div>
 
     <div class="card">
@@ -1152,7 +1166,7 @@ function defaults(){return{
     {id:'young-app-library',name:'Young App Library',url:'https://cyysongyy.github.io/Young-App-Library/',apiUrl:''}
   ],
   notes:[],chat:[],profile:[],
-  leave:[],leaveAt:'',
+  leave:[],leaveAt:'',leaveHidden:[],leaveExtAt:'',leaveSyncAt:'',
   context:null,contextAt:null
 };}
 let state;
@@ -1256,7 +1270,7 @@ function switchTab(name){
   closeMenu();
   document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
-  if(name==='notes'){renderNotes();renderLeave();}
+  if(name==='notes'){renderNotes();renderLeave();requestLeaveFromExt();}
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
 }
 
@@ -3131,7 +3145,9 @@ function pruneLeave(){
   const today=tpeYmd(),cut=Date.now()-LEAVE_UNDATED_KEEP_MS;
   const before=(state.leave||[]).length;
   state.leave=(state.leave||[]).filter(r=>r.sd?(r.ed||r.sd)>=today:new Date(r.addedAt).getTime()>cut);
-  return state.leave.length!==before;
+  const hb=(state.leaveHidden||[]).length;
+  state.leaveHidden=(state.leaveHidden||[]).filter(h=>h&&(h.ed?h.ed>=today:new Date(h.at).getTime()>Date.now()-21*864e5));
+  return state.leave.length!==before||state.leaveHidden.length!==hb;
 }
 function mergeLeave(recs){
   const map=new Map((state.leave||[]).map(r=>[leaveKey(r),r]));
@@ -3177,9 +3193,42 @@ function showLeaveStatus(msg,kind){
   el.className='statusLine'+(kind==='ok'||kind==='bad'?' '+kind:'');el.textContent=msg;el.style.display='block';
 }
 function deleteLeave(id){
-  state.leave=(state.leave||[]).filter(r=>r.id!==id);
+  const r=(state.leave||[]).find(x=>x.id===id);
+  // 外掛每次都會把近幾週的清單整份交過來，不記下來的話刪掉的那筆下次又會冒出來
+  if(r)state.leaveHidden=(state.leaveHidden||[]).concat([{k:leaveKey(r),ed:r.ed||r.sd||'',at:new Date().toISOString()}]);
+  state.leave=(state.leave||[]).filter(x=>x.id!==id);
   save();renderLeave();
 }
+// ── 電腦外掛（webitr-ybot.user.js）交來的 WebITR 批核清單 ──
+// 外掛跟 Ybot 在同一台電腦的同一個 Chrome 裡，靠頁面事件交接，不經過任何伺服器。
+// 交來的是原始表格文字，跟「貼上清單」走同一套整理程式。
+const LEAVE_EVT='ybot-webitr-leave';
+const LEAVE_REQ='ybot-webitr-leave-request';
+function applyLeaveSnapshots(detail){
+  let snaps;
+  try{snaps=JSON.parse(String(detail||'')).snapshots;}catch(e){return false;}
+  if(!Array.isArray(snaps))return false;
+  state.leaveExtAt=new Date().toISOString();
+  const hidden=new Set((state.leaveHidden||[]).map(h=>h.k));
+  const recs=[];
+  let latest='';
+  snaps.slice(-60).forEach(s=>{
+    if(!s||typeof s.text!=='string'||typeof s.at!=='string'||isNaN(Date.parse(s.at)))return;
+    parseLeaveText(s.text.slice(0,20000)).forEach(r=>{if(!hidden.has(leaveKey(r)))recs.push(r);});
+    if(s.at>latest)latest=s.at;
+  });
+  mergeLeave(recs);
+  pruneLeave();
+  if(latest){
+    state.leaveSyncAt=latest;
+    if(latest>(state.leaveAt||''))state.leaveAt=latest;
+  }
+  save();renderLeave();
+  return true;
+}
+document.addEventListener(LEAVE_EVT,e=>applyLeaveSnapshots(e.detail));
+// 外掛可能比 Ybot 晚載入；Ybot 這邊也主動喊一聲，誰先誰後都接得上
+function requestLeaveFromExt(){try{document.dispatchEvent(new Event(LEAVE_REQ));}catch(e){}}
 function leaveCoversDay(r,ymd){return !!r.sd&&r.sd<=ymd&&(r.ed||r.sd)>=ymd;}
 function leaveMD(ymd){
   const [y,m,d]=ymd.split('-').map(Number);
@@ -3211,8 +3260,9 @@ function renderLeave(){
   const at=state.leaveAt?new Date(state.leaveAt):null;
   let h='';
   h+=`<div class="leaveHead">${todays.length?`今天 ${todays.length} 位同仁差假`:'今天沒有記錄到同仁差假'}</div>`;
-  if(!at||tpeYmd(at)!==today)h+=`<div class="leaveStale">⏰ 今天還沒貼上 WebITR 批核清單</div>`;
-  else h+=`<div class="leaveAt">最後更新：${esc(fmtTime(at,{hour:'2-digit',minute:'2-digit',hour12:false}))}</div>`;
+  const ext=!!state.leaveExtAt;
+  if(!at||tpeYmd(at)!==today)h+=`<div class="leaveStale">${ext?'⏰ 今天還沒打開 WebITR 批核案件頁（打開就會自動讀進來）':'⏰ 今天還沒貼上 WebITR 批核清單'}</div>`;
+  else h+=`<div class="leaveAt">最後更新：${esc(fmtTime(at,{hour:'2-digit',minute:'2-digit',hour12:false}))}${ext?' · 🧩 電腦外掛自動讀取':''}</div>`;
   if(todays.length)h+=`<div class="leaveGroup">今天 ${esc(leaveMD(today))}</div>`+todays.map(r=>leaveItemHtml(r,false)).join('');
   if(later.length)h+=`<div class="leaveGroup">接下來</div>`+later.map(r=>leaveItemHtml(r,true)).join('');
   if(undated.length)h+=`<div class="leaveGroup">日期不明</div>`+undated.map(r=>leaveItemHtml(r,false)).join('');
@@ -5379,6 +5429,7 @@ function registerSW(){
 renderChat();
 renderNotes();
 renderLeave();
+requestLeaveFromExt();
 renderSpeakBtn();
 renderLinkChips();
 initCountdownUI();
