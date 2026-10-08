@@ -681,11 +681,6 @@ a.ovMailItem:hover{text-decoration:underline;}
 
   <!-- 📝 待辦與筆記 -->
   <div class="pane" id="pane-notes">
-    <div class="card" id="meetingCard" style="display:none;">
-      <button class="btn" onclick="openMeetingRec()" style="display:block;width:100%;">📋 開始會議記錄</button>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦（該你做的會直接進待辦清單），逐字稿另外存成筆記。</div>
-    </div>
-
     <div class="card">
       <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
     </div>
@@ -724,6 +719,11 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span class="chip" data-f="owned" onclick="setFilter('owned')">🤝 我交辦的</span>
       </div>
       <div id="noteList"></div>
+    </div>
+
+    <div class="card" id="meetingCard" style="display:none;">
+      <button class="btn" onclick="openMeetingRec()" style="display:block;width:100%;">📋 開始會議記錄</button>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">整場錄下來，中途不會自己停。結束後自動整理成重點摘要、決議事項與待辦（該你做的會直接進待辦清單），逐字稿另外存成筆記。</div>
     </div>
   </div>
 
