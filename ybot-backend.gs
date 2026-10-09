@@ -13,6 +13,7 @@
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
  *    再執行一次 setupWeeklyReview()（排程「本週回顧」，每週一早上 7 點）
+ *    再執行一次 setupAutopilot()（排程「自主決策」，每小時 AI 自動整理筆記／信件／行程，需 AI Key）
  * 4. 部署 → 新增部署作業 → 網頁應用程式
  *    - 以下列身分執行：我（Me）
  *    - 誰可以存取：所有人（Anyone）
@@ -353,6 +354,10 @@ function doPost(e) {
     } catch (err) {
       return jsonResp({ ok: false, error: '寄信失敗：' + err.message });
     }
+  }
+  if (action === 'runAutopilot') {
+    // 手動觸發一次自主決策（不受活躍時段限制），方便測試或想立刻整理時用
+    return jsonResp(autopilot(true));
   }
   if (action === 'addCalendarEvent') {
     try {
@@ -895,6 +900,127 @@ function autoEscalateStaleReminders(note, all, now, email) {
       '這些提醒已經過了 ' + AUTO_ESCALATE_HOURS + ' 小時還沒標記完成，Ybot 幫你自動轉成「待辦」，之後會繼續出現在待辦清單與每日簡報裡（不會像提醒一樣就此消失）：\n\n' +
       lines.join('\n') + '\n\n如果不想改，打開 App 把類型改回「提醒」即可。');
   } catch (err) { /* 忽略寄送失敗，資料已經改完 */ }
+}
+
+// ── 自動化：自主決策（每小時一次，活躍時段才動）──
+// 讓 AI 看過未完成的筆記／待辦、未讀信件、未來行程後，自己決定要不要整理。
+// 只開放「可逆」的動作，而且每一項都寫進「自主決策紀錄」並寄信說明怎麼復原：
+//   reclassify     筆記改類型（瑣事→待辦／提醒／心法），可順便補上時間
+//   setDue         內容寫了期限的待辦，補上 dueAt
+//   addCalendar    內容寫了明確日期時間的事件，加進 Google 日曆
+//   todoFromEmail  需要你處理的未讀信，建一筆待辦
+//   markDuplicate  重複的筆記標記完成（不刪除）
+// 不會刪資料、不會替你回信或寄信給別人。同一個目標同一種動作只會做一次。
+const AUTOPILOT_LOG_SHEET = '自主決策紀錄';
+const AUTOPILOT_LOG_COLS = ['id', 'at', 'action', 'targetId', 'detail', 'undo'];
+const AUTOPILOT_MAX_ACTIONS = 8;
+const AUTOPILOT_HOURS = [7, 22];   // 台北時間 7:00~22:00 才動，半夜不打擾
+
+function setupAutopilot() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'autopilot') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('autopilot').timeBased().everyHours(1).create();
+  return '✅ 已排程每小時一次自主決策（台北 ' + AUTOPILOT_HOURS[0] + ':00~' + AUTOPILOT_HOURS[1] + ':00）' + tzWarn();
+}
+
+function autopilot(force) {
+  const now = new Date();
+  const hour = tpeHour(now);
+  if (!force && (hour < AUTOPILOT_HOURS[0] || hour >= AUTOPILOT_HOURS[1])) return { ok: true, actions: [], skipped: '不在活躍時段' };
+  if (!hasAnyAiKey(getAiConfig())) return { ok: false, error: '尚未設定 AI Key' };
+
+  const { note } = setupSheets();
+  const log = ensureSheet(AUTOPILOT_LOG_SHEET, AUTOPILOT_LOG_COLS);
+  const done = new Set(sheetToObjects(log, AUTOPILOT_LOG_COLS).map(r => r.action + '|' + r.targetId));
+  const notes = sheetToObjects(note, NOTE_COLS).filter(n => n.done !== 'true');
+  const byId = {};
+  notes.forEach(n => byId[n.id] = n);
+  const gmail = getGmailDigest();
+  const calendar = getCalendarDigest();
+
+  const prompt = '你是 Young 的個人行政幕僚 Ybot，現在台北時間 ' + tpeFormat(now, 'yyyy-MM-dd HH:mm (EEE)') + '。\n' +
+    '請檢查以下資料，決定有沒有「有把握」該自動整理的地方。\n\n' +
+    '未完成的筆記／待辦（JSON）：\n' + JSON.stringify(notes.slice(0, 60).map(n => ({ id: n.id, type: n.type, content: String(n.content).slice(0, 200), dueAt: n.dueAt }))) + '\n\n' +
+    '未讀信件：\n' + JSON.stringify(gmail.map(m => ({ threadId: m.threadId, subject: m.subject, from: m.from, snippet: m.snippet }))) + '\n\n' +
+    '未來兩週行程：\n' + JSON.stringify(calendar.map(e => ({ title: e.title, start: e.start }))) + '\n\n' +
+    '只能使用下列動作，只回傳一個 JSON 物件 {"actions":[...]}，不要任何其他文字：\n' +
+    '1. {"type":"reclassify","id":"…","to":"todo|reminder|idea","dueAt":"選填，ISO 含 +08:00","reason":"…"}：type 是 note 但內容明顯是要做的事／有時間點的提醒／心得。改成 reminder 一定要給 dueAt。\n' +
+    '2. {"type":"setDue","id":"…","dueAt":"ISO 含 +08:00","reason":"…"}：待辦內容寫了明確期限但 dueAt 是空的。\n' +
+    '3. {"type":"addCalendar","id":"…","title":"…","start":"ISO 含 +08:00","end":"選填","reason":"…"}：內容寫了明確日期與時間的會議／活動，且行程裡還沒有。\n' +
+    '4. {"type":"todoFromEmail","threadId":"…","content":"一句話寫出要做什麼","reason":"…"}：未讀信件明顯需要 Young 親自處理（繳費、回覆、交件）。廣告、通知信不要。\n' +
+    '5. {"type":"markDuplicate","id":"…","dupOf":"…","reason":"…"}：兩筆內容實質相同，把較新的那筆標記完成。\n' +
+    '規則：日期時間只能取自資料原文，不可臆測；「明天」「下週三」請依現在時間換算；不確定就不要動；最多 ' + AUTOPILOT_MAX_ACTIONS + ' 項；沒有就回 {"actions":[]}。';
+
+  let actions = [];
+  try {
+    const raw = callAI(prompt);
+    const m = raw && raw.match(/\{[\s\S]*\}/);
+    actions = m ? (JSON.parse(m[0]).actions || []) : [];
+  } catch (err) { return { ok: false, error: 'AI 回應無法解析' }; }
+
+  const validDate = s => { const d = new Date(s); return (s && !isNaN(d) && d > new Date(now.getTime() - 86400000) && d < new Date(now.getTime() + 365 * 86400000)) ? d : null; };
+  const results = [];
+  actions.slice(0, AUTOPILOT_MAX_ACTIONS).forEach(a => {
+    try {
+      const key = a.type + '|' + (a.id || a.threadId || '');
+      if (done.has(key)) return;
+      let detail = '', undo = '';
+      if (a.type === 'reclassify') {
+        const n = byId[a.id];
+        if (!n || n.type !== 'note' || ['todo', 'reminder', 'idea'].indexOf(a.to) === -1) return;
+        const due = a.dueAt ? validDate(a.dueAt) : null;
+        if (a.to === 'reminder' && !due) return;
+        updatePartial(note, NOTE_COLS, n.id, due ? { type: a.to, dueAt: due.toISOString() } : { type: a.to });
+        detail = '「' + n.content + '」瑣事 → ' + a.to + (due ? '（' + tpeDateTimeStr(due) + '）' : '');
+        undo = '在 App 把類型改回「瑣事筆記」';
+      } else if (a.type === 'setDue') {
+        const n = byId[a.id]; const due = validDate(a.dueAt);
+        if (!n || n.dueAt || !due) return;
+        updatePartial(note, NOTE_COLS, n.id, { dueAt: due.toISOString() });
+        detail = '「' + n.content + '」補上期限 ' + tpeDateTimeStr(due);
+        undo = '在 App 清掉這筆的時間';
+      } else if (a.type === 'addCalendar') {
+        const n = byId[a.id]; const start = validDate(a.start);
+        if (!n || !start || !a.title) return;
+        const sameDay = calendar.some(e => tpeDateStr(new Date(e.start)) === tpeDateStr(start) && String(e.title).indexOf(String(a.title).slice(0, 6)) !== -1);
+        if (sameDay) return;
+        const end = validDate(a.end) || new Date(start.getTime() + 3600000);
+        const ev = CalendarApp.getDefaultCalendar().createEvent('🤖 ' + a.title, start, end, { description: '由 Ybot 自主決策依筆記建立：' + n.content });
+        ev.addPopupReminder(30);
+        detail = '日曆新增「' + a.title + '」' + tpeDateTimeStr(start);
+        undo = '到 Google 日曆刪除標題開頭 🤖 的這個事件';
+      } else if (a.type === 'todoFromEmail') {
+        const mail = gmail.filter(g => g.threadId === a.threadId)[0];
+        if (!mail || !a.content) return;
+        const id = Utilities.getUuid();
+        appendObj(note, NOTE_COLS, { id, type: 'todo', content: a.content + '（信件：' + mail.subject + '）', dueAt: '', done: '', createdAt: now.toISOString(), notifiedAt: '', owner: '' });
+        detail = '從信件「' + mail.subject + '」建立待辦：' + a.content;
+        undo = '在 App 刪掉這筆待辦';
+      } else if (a.type === 'markDuplicate') {
+        const n = byId[a.id];
+        if (!n || !byId[a.dupOf] || a.id === a.dupOf) return;
+        updatePartial(note, NOTE_COLS, n.id, { done: 'true' });
+        detail = '「' + n.content + '」跟另一筆重複，標記完成';
+        undo = '在 App 把這筆改回未完成';
+      } else return;
+      appendObj(log, AUTOPILOT_LOG_COLS, { id: Utilities.getUuid(), at: now.toISOString(), action: a.type, targetId: a.id || a.threadId || '', detail: detail + (a.reason ? '｜理由：' + a.reason : ''), undo });
+      done.add(key);
+      results.push({ detail, reason: a.reason || '', undo });
+    } catch (err) { /* 單一動作失敗就跳過，不影響其他動作 */ }
+  });
+
+  if (results.length) {
+    const email = NOTIFY_EMAIL || getOwnerEmail();
+    if (email) {
+      const lines = results.map((r, i) => (i + 1) + '. ' + r.detail + (r.reason ? '\n　理由：' + r.reason : '') + '\n　復原：' + r.undo);
+      try {
+        MailApp.sendEmail(email, '🤖 Ybot 自主處理了 ' + results.length + ' 件事',
+          '這一小時 Ybot 自己做了以下整理：\n\n' + lines.join('\n\n') + '\n\n全部紀錄在試算表「' + AUTOPILOT_LOG_SHEET + '」分頁。');
+      } catch (err) { }
+    }
+  }
+  return { ok: true, actions: results };
 }
 
 // ── 自動化：本週回顧（每週一早上 7 點）──
