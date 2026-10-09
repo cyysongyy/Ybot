@@ -342,6 +342,18 @@ function doPost(e) {
     CacheService.getScriptCache().remove('weatherDigest'); // 換地點後清掉舊快取，下次立刻抓新地點
     return jsonResp({ ok: true, message: '已儲存天氣地點' });
   }
+  if (action === 'notify') {
+    // 立刻寄一封通知信給自己（外部腳本用，例如差勤批核結果），不用等 reminderWatch 的 30 分鐘排程。
+    const email = NOTIFY_EMAIL || getOwnerEmail();
+    if (!email) return jsonResp({ ok: false, error: '找不到通知信箱' });
+    try {
+      const subject = String(body.subject || '通知').slice(0, 120);
+      MailApp.sendEmail(email, '🔔 Ybot：' + subject, String(body.message || subject));
+      return jsonResp({ ok: true, message: '已寄出通知' });
+    } catch (err) {
+      return jsonResp({ ok: false, error: '寄信失敗：' + err.message });
+    }
+  }
   if (action === 'addCalendarEvent') {
     try {
       const title = body.title || '(未命名事件)';
