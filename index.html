@@ -469,7 +469,7 @@ textarea.fi{resize:vertical;min-height:56px;}
 .memCnt{font-size:.68rem;font-weight:800;background:var(--bg);color:var(--tx3);border-radius:8px;padding:0 6px;}
 .memProg{font-size:.74rem;color:var(--tx3);font-weight:800;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;}
 .memMini{background:none;border:1px solid var(--line);border-radius:8px;padding:2px 8px;cursor:pointer;font-size:.9rem;}
-.memQ{font-size:1.02rem;font-weight:800;line-height:1.55;margin:4px 0 12px;color:var(--tx);overflow-wrap:anywhere;}
+.memQ{font-size:1.02rem;font-weight:800;line-height:1.55;margin:4px 0 12px;color:var(--tx);overflow-wrap:anywhere;white-space:pre-line;}
 .memOpt{display:block;width:100%;text-align:left;padding:11px 14px;margin-bottom:8px;border-radius:12px;border:1.5px solid var(--line);
   background:var(--card);color:var(--tx);font-size:.9rem;line-height:1.45;cursor:pointer;font-family:inherit;overflow-wrap:anywhere;}
 .memOpt:hover:not(:disabled){border-color:var(--pri);}
@@ -2428,7 +2428,7 @@ function newsEnglishSegments(h){
 }
 function newsFallbackSegments(h){
   const segs=[{text:'今天的新聞標題。'}];
-  if(h.domestic.length)segs.push({text:'國內：'+h.domestic.join('。')+'。'});
+  if(h.domestic.length)segs.push({text:'台灣頭條：'+h.domestic.join('。')+'。'});
   if(h.education.length)segs.push({text:'教育：'+h.education.join('。')+'。'});
   if(h.world.length){
     segs.push({text:'國際：'});
@@ -2441,12 +2441,12 @@ async function newsScript(h,opts){
   const key=JSON.stringify(h)+(noGreet?'|noGreet':'');
   if(newsScriptCache.key===key)return newsScriptCache.text;   // 同一批新聞不重複叫 AI
   const greet=greetWord();
-  const list=[['國內',h.domestic],['教育',h.education]]
+  const list=[['台灣頭條',h.domestic],['教育',h.education]]
     .filter(([,l])=>l.length).map(([k,l])=>`${k}：\n`+l.map(t=>'- '+t).join('\n')).join('\n');
   const prompt=`你是 Young 的個人助理 Ybot，要把今天的新聞標題整理成一段念給他聽的口語新聞摘要。
 規則：
 - 只能根據標題本身，不可以補充標題沒有的細節、數字、原因或評論；標題看不懂的就照字面簡單說。
-- 依國內、教育的順序，每則一兩句，口語、好聽懂；不要念出媒體名稱。
+- 依台灣頭條、教育的順序，每則一兩句，口語、好聽懂；不要念出媒體名稱。
 - ${noGreet?'直接從第一則新聞開始，不要問候、不要開場白':`開頭用「${greet}，」接一句簡短的開場`}，結尾不要客套話。
 - 純文字，不要任何符號、編號或條列，總長 250 字以內。
 
@@ -3347,7 +3347,8 @@ const MEM_EV_KEEP_DAYS=30;
 const MEM_NEWS_KEEP_DAYS=14;
 const MEM_ROUND=4;     // 一局 4 題、每題 25 分，滿分 100
 const MEM_PTS=25;
-const MEM_CAT={domestic:'國內',world:'國際',education:'教育'};
+// 新聞來源的名稱：domestic 是 Google 新聞台灣版的頭條，會混進國際新聞，所以不說「國內」
+const MEM_CAT={domestic:'台灣頭條',world:'國際英文',education:'教育'};
 const MEM_NOTE_TYPE={note:'瑣事筆記',todo:'待辦',reminder:'定時提醒',idea:'想法與心法'};
 const MEM_MODES=[
   {id:'mix',label:'🎲 綜合'},
@@ -3379,7 +3380,7 @@ function updateMemArchive(ctx){
   const h=newsHeadlines(),today=tpeYmd();
   Object.keys(MEM_CAT).forEach(c=>(h[c]||[]).forEach(t=>{
     if(seen.has(t))return;seen.add(t);
-    news.push({t:t.slice(0,160),c,d:today});
+    news.push({t:memCleanTitle(t).slice(0,160),c,d:today});
   }));
   state.memArchive={ev,news:news.slice(-150)};
 }
@@ -3444,14 +3445,40 @@ function memNumberVariants(numStr){
   const c=[n*2,n/2,n*1.5,n+Math.max(1,Math.round(n*0.3)),n-Math.max(1,Math.round(n*0.3)),n*10,n+1,n-1].filter(x=>x>0&&x!==n);
   return [...new Set(c.map(f))].filter(x=>x!==numStr);
 }
+// 標題結尾常掛著「| 上報」「| 大學研究所| 文教」這種欄目或媒體名稱，出題前拿掉
+function memCleanTitle(t){
+  let x=String(t||'').trim(),prev;
+  do{prev=x;x=x.replace(/\s*[|｜]\s*[^|｜]{1,10}$/,'').trim();}while(x!==prev&&x.length>8);
+  return x;
+}
+// 把標題切成前後兩段：優先切在中間附近的標點或空白，英文切在單字之間
+function memSplitTitle(t){
+  const n=t.length;if(n<12)return null;
+  const lo=Math.floor(n*0.35),hi=Math.ceil(n*0.7);
+  let cut=-1,best=1e9;
+  for(let i=lo;i<=hi;i++){
+    if(/[！!，,、：:；;？?　 ]/.test(t[i])){const d=Math.abs(i-n/2);if(d<best){best=d;cut=i+1;}}
+  }
+  if(cut<0)cut=Math.round(n/2);
+  const head=t.slice(0,cut).trim(),tail=t.slice(cut).trim();
+  return head&&tail.length>=4?{head,tail}:null;
+}
 function memNewsQs(){
-  const news=(state.memArchive&&state.memArchive.news)||[];
+  const news=((state.memArchive&&state.memArchive.news)||[]).map(n=>Object.assign({},n,{t:memCleanTitle(n.t)}));
+  const parts=news.map(n=>memSplitTitle(n.t));
   const qs=[];
-  news.forEach(n=>{
-    const cat=MEM_CAT[n.c]||'';
-    const note=`📰 ${memNewsDay(n.d)}的${cat}新聞：${n.t}`;
-    qs.push(memMakeQ('news','news|'+n.t,`下面哪一則是${cat}新聞？`,memClip(n.t,60),
-      news.filter(x=>x.c!==n.c).map(x=>memClip(x.t,60)),note));
+  news.forEach((n,i)=>{
+    const note=`📰 ${memNewsDay(n.d)}的新聞（${MEM_CAT[n.c]||''}）：${n.t}`;
+    // 標題接龍：看前半段、選出後半段。錯的選項是別則新聞的後半段，不會有兩個對的。
+    // （原本的「哪一則是國內新聞」不成立：台灣版頭條裡本來就有國際新聞）
+    const p=parts[i];
+    if(p){
+      // 錯的選項只用同一種語言的標題，不然中文題配英文選項，一眼就猜得出來；湊不到就不出這題
+      const zh=/[\u4e00-\u9fff]/.test(n.t);
+      const same=parts.filter((x,j)=>x&&j!==i&&/[\u4e00-\u9fff]/.test(x.head+x.tail)===zh);
+      qs.push(memMakeQ('news','news|'+n.t,`新聞標題接下去是？\n「${memClip(p.head,40)}……」`,memClip(p.tail,40),
+        same.map(x=>memClip(x.tail,40)),note));
+    }
     const m=n.t.match(/\d[\d,]*(?:\.\d+)?/);
     if(m&&!(m[0].length===4&&+m[0]>=1900&&+m[0]<=2100)){
       const masked=memClip(n.t.replace(m[0],'＿＿'),80);
@@ -3878,7 +3905,8 @@ function renderOverview(){
     : `<div class="ovItem ovEmpty">沒有未讀的重要信件</div>`;
 
   const news=c.news||{};
-  const newsGroups=[['國內',news.domestic],['國際',news.world],['教育',news.education]];
+  // domestic 是 Google 新聞「台灣版」的頭條，本來就會混進國際新聞，所以不叫「國內」
+  const newsGroups=[['台灣頭條',news.domestic],['國際',news.world],['教育',news.education]];
   const hasNews=newsGroups.some(([,list])=>list&&list.length);
   const newsHtml=hasNews
     ? newsGroups.filter(([,list])=>list&&list.length).map(([label,list])=>
