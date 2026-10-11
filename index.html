@@ -506,24 +506,6 @@ textarea.fi{resize:vertical;min-height:56px;}
 @keyframes memFall{to{transform:translateY(110vh) rotate(720deg);}}
 @media (prefers-reduced-motion: reduce){.memTrophy,.memBadge.new{animation:none;}}
 .memQuit{display:block;margin:10px auto 0;background:none;border:none;color:var(--tx3);font-size:.76rem;cursor:pointer;text-decoration:underline;}
-/* 同仁差假（WebITR 貼上整理）*/
-.leaveHead{font-size:.9rem;font-weight:800;color:var(--tx);margin-bottom:2px;}
-.leaveStale{font-size:.74rem;color:var(--warn);margin-bottom:4px;}
-.leaveAt{font-size:.7rem;color:var(--tx3);margin-bottom:4px;}
-.leaveGroup{font-size:.72rem;font-weight:800;color:var(--tx2);margin:12px 0 2px;}
-.leaveItem{display:flex;align-items:flex-start;gap:8px;padding:8px 2px;border-bottom:1px solid var(--line);}
-.leaveItem:last-child{border-bottom:none;}
-.leaveMain{flex:1;min-width:0;font-size:.88rem;line-height:1.55;overflow-wrap:anywhere;}
-.leaveType{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:7px;margin:0 4px;
-  background:rgba(217,119,6,.14);color:var(--warn);white-space:nowrap;}
-.leaveType.biz{background:rgba(13,148,136,.14);color:#0d9488;}
-.leaveWhen{color:var(--tx2);font-size:.82rem;}
-.leaveSub{font-size:.72rem;color:var(--tx3);line-height:1.5;}
-.leaveSetup{margin-top:10px;font-size:.78rem;color:var(--tx2);line-height:1.6;}
-.leaveSetup summary{cursor:pointer;font-weight:700;color:var(--tx);padding:4px 0;}
-.leaveSetup ol{margin:6px 0 4px;padding-left:20px;}
-.leaveSetup a{color:var(--pri);font-weight:700;}
-
 /* Settings */
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:.8rem;font-weight:700;color:var(--tx2);margin-bottom:5px;}
@@ -748,30 +730,6 @@ a.ovMailItem:hover{text-decoration:underline;}
       <!-- 手機上一鍵打開 WebITR 批核。登入和按「同意」都是使用者自己在 WebITR 裡做，Ybot 不經手帳密。 -->
       <a class="btn ghost" id="webitrBtn" style="display:block;text-align:center;text-decoration:none;margin-top:8px;" href="https://webitr.yunlin.gov.tw/WebITR/" target="_blank" rel="noopener">✅ WebITR 差勤批核 ↗</a>
       <div class="hint" style="margin-top:6px;margin-bottom:0;">第一次登入時讓 Chrome「儲存密碼」，之後打開會自動帶入帳密。要是先跳到 EIP 登入頁，登入後再按一次這顆就好。</div>
-    </div>
-
-    <div class="card" id="leaveCard">
-      <div class="section-title">📋 同仁差假</div>
-      <div id="leaveList"></div>
-      <div class="row2" style="margin-top:10px;">
-        <button class="btn" id="leaveImgBtn" onclick="document.getElementById('leaveImg').click()" style="flex:1;">📷 讀取截圖</button>
-        <button class="btn ghost" onclick="pasteLeaveFromClipboard()" style="flex:1;">📥 貼上清單</button>
-      </div>
-      <input type="file" id="leaveImg" accept="image/*" style="display:none" onchange="readLeaveScreenshot(this.files&&this.files[0]);this.value='';">
-      <textarea id="leaveBox" class="fi" style="display:none;margin-top:10px;min-height:90px;"></textarea>
-      <button class="btn ghost" id="leaveApplyBtn" onclick="applyLeaveBox()" style="display:none;width:100%;">整理這段清單</button>
-      <div class="statusLine" id="leaveStatus" style="display:none;"></div>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">在 WebITR「批核」頁截圖，按「📷 讀取截圖」選那張就好（截圖在手機上辨識，不上傳）。<b>先讀進來再按同意</b>，核准後案件就會從清單消失。按 ✕ 可刪掉單筆。</div>
-      <details class="leaveSetup" id="leaveSetup">
-        <summary>🧩 電腦自動讀取（免複製貼上）</summary>
-        <ol>
-          <li>用電腦的 Chrome 安裝 <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Tampermonkey</a> 擴充功能。</li>
-          <li>到 Chrome「擴充功能」→ Tampermonkey →「詳細資料」，打開「允許使用者指令碼」（舊版 Chrome 是打開右上角的「開發人員模式」）。</li>
-          <li>點這裡 <a href="webitr-ybot.user.js" target="_blank" rel="noopener">安裝 Ybot 差假外掛</a>，在跳出的畫面按「安裝」。</li>
-          <li>之後照平常登入 WebITR、打開「批核案件」，右下角出現「Ybot 已讀取批核清單」就成功了，這台電腦的 Ybot 會自動顯示。</li>
-        </ol>
-        <div class="hint" style="margin:0;">外掛只讀取表格：不會幫你登入，也不會按「同意」。資料只在這台電腦，手機上的 Ybot 看不到。</div>
-      </details>
     </div>
 
     <div class="card">
@@ -1226,13 +1184,17 @@ function defaults(){return{
     {id:'young-app-library',name:'Young App Library',url:'https://cyysongyy.github.io/Young-App-Library/',apiUrl:''}
   ],
   notes:[],chat:[],profile:[],
-  leave:[],leaveAt:'',leaveHidden:[],leaveExtAt:'',leaveSyncAt:'',
   context:null,contextAt:null
 };}
 let state;
 function load(){try{state=Object.assign(defaults(),JSON.parse(localStorage.getItem(LS_KEY))||{});}catch(e){state=defaults();}}
 function save(){localStorage.setItem(LS_KEY,JSON.stringify(state));}
 load();
+// 「📋 同仁差假」卡片已拿掉：之前存在這個瀏覽器裡的同仁差假一併清掉，不留個資
+if(['leave','leaveAt','leaveHidden','leaveExtAt','leaveSyncAt','leaveBmAt'].some(k=>k in state)){
+  ['leave','leaveAt','leaveHidden','leaveExtAt','leaveSyncAt','leaveBmAt'].forEach(k=>{delete state[k];});
+  try{save();}catch(e){}
+}
 // links 陣列存進 localStorage 後，defaults() 新增的預設連結（例如後來才加的
 // 校務管理系統）不會自動出現在已經有舊資料的使用者畫面上，這裡補一次性遷移。
 (function migrateDefaultLinks(){
@@ -1330,7 +1292,7 @@ function switchTab(name){
   closeMenu();
   document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
-  if(name==='notes'){renderNotes();resetLeaveUi();renderLeave();requestLeaveFromExt();}
+  if(name==='notes')renderNotes();
   if(name==='game'){updateMemArchive(state.context);save();renderMemGame();}
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
 }
@@ -2572,7 +2534,6 @@ async function buildBriefSegments(){
   const now=new Date();
   const segs=[{text:`${greetWord()}，這是你的語音摘要。`}]
     .concat(briefCalendarSegments(now))
-    .concat(briefLeaveSegments())
     .concat(briefMailSegments());
   return segs.concat(await briefNewsSegments());
 }
@@ -3107,391 +3068,10 @@ function renderNotes(){
     </div>`;
   }).join('');
 }
-// ── 同仁差假（WebITR 批核清單）──────────────────
-// WebITR 不寄通知信；讓程式拿著公務帳密自動登入縣府系統、甚至代按「同意」核准
-// 假單，都不該做。所以這裡只做「使用者自己複製批核清單、Ybot 幫忙整理」。
-// 同仁差假是個資：只存在這個瀏覽器的 localStorage，不送後台、不送 AI。
-// 核准後案件就從 WebITR 清單消失，所以每次貼上是「累加」而不是取代，
-// 過了假期的自動清掉。
-// 長的放前面：「延長病假」要先比對到，才不會被「病假」搶走。
-const LEAVE_TYPES=['家庭照顧假','延長病假','陪產檢及陪產假','陪產假','產前假','產檢假','安胎假','流產假','捐贈骨髓','器官捐贈',
-  '生理假','婚假','喪假','產假','娩假','病假','事假','公假','休假','特休','補休','公差','出差','公出','加班','值班','天災假','防疫假','疫苗接種假'];
-const LEAVE_BIZ_RE=/公假|公差|出差|公出|加班|值班/;
-const LEAVE_UNDATED_KEEP_MS=7*864e5;
-function leavePad(n){return String(n).padStart(2,'0');}
-// 115/10/01、115.10.01、2026-10-01、115年10月1日 都認；三位數年份當民國年。
-// 後面緊跟的時間（可能夾著「(三)」）一起抓。
-function leaveDatesIn(text){
-  const out=[];
-  const re=/(\d{3,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,2})\s*日?/g;
-  let m;
-  while((m=re.exec(text))){
-    let y=+m[1];const mo=+m[2],d=+m[3];
-    if(y<1000)y+=1911;
-    if(y<2000||y>2100||mo<1||mo>12||d<1||d>31)continue;
-    const t=text.slice(re.lastIndex,re.lastIndex+16).match(/^\s*(?:[(（][一二三四五六日][)）])?\s*(\d{1,2})\s*[:：]\s*(\d{2})/);
-    out.push({d:y+'-'+leavePad(mo)+'-'+leavePad(d),t:t?leavePad(t[1])+':'+t[2]:'',end:re.lastIndex+(t?t[0].length:0)});
-  }
-  return out;
-}
-function leaveTypeIn(text){
-  const s=String(text||'');
-  return LEAVE_TYPES.find(k=>s.indexOf(k)>=0)||'';
-}
-function leaveCells(line){return line.split('\t').map(c=>c.replace(/\s+/g,' ').trim());}
-function leaveColumns(head){
-  const find=re=>head.findIndex(h=>re.test(h));
-  return {
-    name:find(/申請人|姓名|請假人|差假人/),
-    agent:find(/代理/),
-    type:find(/假別|差假別|類別|表單|種類/),
-    hours:find(/時數|天數|合計/),
-    reason:find(/事由|原因|說明|備註/),
-    // 「申請日期」「送出時間」這類欄位的日期不是請假日期，整理時略過
-    ignore:head.map((h,i)=>/申請(日期|時間)|送出|填表|建立|簽核|狀態|流程/.test(h)?i:-1).filter(i=>i>=0)
-  };
-}
-// 按鈕、表頭之類混進來的列
-const LEAVE_JUNK_NAME=/^(同意|不同意|加會簽|申請人|代理人|全選)$/;
-function leaveRecordFrom(cells,col){
-  const pick=i=>(i>=0&&cells[i])||'';
-  const usable=cells.filter((c,i)=>!col.ignore.includes(i)&&i!==col.name&&i!==col.agent).join('  ');
-  const dates=leaveDatesIn(usable);
-  const typeCell=pick(col.type);
-  const type=leaveTypeIn(typeCell)||leaveTypeIn(usable)||typeCell.slice(0,10);
-  let name=pick(col.name);
-  if(col.name<0)name=cells.find(c=>/^[\u4e00-\u9fff]{2,4}$/.test(c)&&!leaveTypeIn(c)&&!LEAVE_JUNK_NAME.test(c))||'';
-  name=name.slice(0,24);
-  if(!name||LEAVE_JUNK_NAME.test(name))return null;
-  if(!dates.length&&!leaveTypeIn(usable+typeCell))return null;
-  const r={name,agent:pick(col.agent).slice(0,24),type,hours:pick(col.hours).slice(0,16),reason:pick(col.reason).slice(0,40),
-    sd:'',st:'',ed:'',et:''};
-  if(dates.length){
-    const a=dates[0],b=dates.length>1?dates[dates.length-1]:null;
-    r.sd=a.d;r.st=a.t;r.ed=b?b.d:a.d;r.et=b?b.t:'';
-    // 「115/10/01 08:00~12:00」：只有一個日期，結束時間跟在後面
-    if(!b){
-      const t2=usable.slice(a.end).match(/^\s*[~～\-－至到]\s*(\d{1,2})\s*[:：]\s*(\d{2})/);
-      if(t2)r.et=leavePad(t2[1])+':'+t2[2];
-    }
-    if(r.ed<r.sd)r.ed=r.sd;
-  }
-  return r;
-}
-// 從網頁表格複製出來的文字：一列一行、欄位用 Tab 隔開。
-// 儲存格裡有換行的話，那一列會被拆成兩行、各自都比表頭少幾欄——
-// 上一列還沒湊滿、接起來又不會超過表頭欄數，就當成同一列接回去。
-// 手機版 WebITR 是一筆一張卡片，每行「欄位：內容」：
-//   申請人：林瑞芳(代理教師)(教導處) / 代理人： / 表單：【補請】加班 /
-//   申請時間：115-10-09(五) 10:07 / 時間：115-10-08(四) 16:30 ~ 18:30 (2小時)
-// 「申請時間」是送出假單的時間，不是請假時間，要分開。
-// 截圖辨識的結果常常不照順序：儲存格內容換行時，「時間：」標籤會跑到第二行、甚至被認成別的字。
-// 所以時間不靠標籤找，而是把同一張卡片裡（申請時間那行除外）的文字接起來，找「~」前後的日期。
-const LEAVE_CARD_LINE=/(申請人|代理人|表單|假別|申請時間|事由|原因|備註|狀態)\s*[：:]\s*(.*)$/;
-function leaveCardVal(v){return String(v||'').replace(/^[\s,，.。、|｜:：;；'"`]+/,'').trim();}
-function parseLeaveCards(text){
-  const lines=String(text||'').replace(/\r/g,'').split('\n').map(l=>l.replace(/\t+/g,' ').trim()).filter(Boolean);
-  const starts=[];lines.forEach((l,i)=>{if(/申請人\s*[：:]/.test(l))starts.push(i);});
-  return starts.map((st,k)=>{
-    const card=lines.slice(st,k+1<starts.length?starts[k+1]:lines.length);
-    const f={};let timeTxt='';
-    card.forEach(l=>{
-      const m=l.match(LEAVE_CARD_LINE);
-      if(m&&m[1]!=='申請人'){
-        if(!(m[1] in f))f[m[1]]=leaveCardVal(m[2]);
-        return;
-      }
-      if(m&&m[1]==='申請人'){f['申請人']=leaveCardVal(m[2]);return;}
-      // 其餘的行（時間、被斷開的時間、認錯的標籤）都接起來；斷在「-」「:」「~」的直接黏回去
-      let x=l.replace(/^.*?時間\s*[：:]\s*/,'');
-      // 日期斷在「115-10-」時，下一行開頭可能夾著認錯的標籤字（「吧 8 14(三)」），直接從「14(三)」接
-      if(/-$/.test(timeTxt)){const d=x.search(/\d{1,2}\s*[(（][一二三四五六日][)）]/);if(d>0)x=x.slice(d);}
-      timeTxt+=(/[\-:：~～]$/.test(timeTxt)||!timeTxt?'':' ')+x;
-    });
-    const name=(f['申請人']||'').slice(0,24);
-    const form=f['表單']||f['假別']||'';
-    const type=leaveTypeIn(form)||leaveTypeIn(timeTxt)||form.replace(/[【】\[\]]/g,'').slice(0,10);
-    if(!name)return null;
-    const r={name,agent:(f['代理人']||'').slice(0,24),type,reason:(f['事由']||f['原因']||'').slice(0,40),
-      hours:((timeTxt.match(/[(（]\s*([\d.]+\s*(?:小時|天|日)[^)）]*)[)）]/)||[])[1]||'').replace(/\s+/g,'').slice(0,16),
-      sd:'',st:'',ed:'',et:''};
-    const dates=leaveDatesIn(timeTxt);
-    if(dates.length){
-      // 有「~」就以「~」為界：前面最後一個日期是開始、後面第一個是結束
-      const til=timeTxt.search(/[~～]|至/);
-      let a=dates[0],b=null;
-      if(til>=0){
-        const before=dates.filter(d=>d.end<=til+1),after=dates.filter(d=>d.end>til+1);
-        if(before.length)a=before[before.length-1];
-        b=after[0]||null;
-      }else if(dates.length>1)b=dates[dates.length-1];
-      r.sd=a.d;r.st=a.t;r.ed=b?b.d:a.d;r.et=b?b.t:'';
-      if(!b){const t2=timeTxt.slice(a.end).match(/^\s*[~～\-－至到]\s*(\d{1,2})\s*[:：]\s*(\d{2})/);if(t2)r.et=leavePad(t2[1])+':'+t2[2];}
-      if(r.ed<r.sd)r.ed=r.sd;
-    }
-    if(!r.sd&&!leaveTypeIn(form+timeTxt))return null;
-    return r;
-  }).filter(Boolean);
-}
-// 截圖辨識出來的中文字之間會被插空白（「申 請 人 :」），先黏回去
-function leaveOcrNormalize(t){
-  const C='\\u4e00-\\u9fff\\u3000-\\u303f\\uff00-\\uffef()\\[\\]【】';
-  return String(t||'').replace(/\r/g,'')
-    .replace(new RegExp('(['+C+'])[ \\t]+(?=['+C+'])','g'),'$1')
-    .replace(/[ \t]+([：:])/g,'$1');
-}
-function parseLeaveText(text){
-  if(/申請人\s*[：:]/.test(String(text||'')))return parseLeaveCards(text);
-  const lines=String(text||'').replace(/\r/g,'').split('\n').filter(l=>l.trim());
-  const hi=lines.findIndex(l=>leaveCells(l).some(c=>/申請人|姓名|請假人|差假人/.test(c)));
-  if(hi<0){
-    // 沒有表頭：一行裡同時有日期和假別的才算
-    const col={name:-1,agent:-1,type:-1,hours:-1,reason:-1,ignore:[]};
-    return lines.map(l=>leaveRecordFrom(leaveCells(l).flatMap(c=>c.split(' ')),col)).filter(r=>r&&r.sd);
-  }
-  const head=leaveCells(lines[hi]);
-  const col=leaveColumns(head);
-  const rows=[];
-  lines.slice(hi+1).forEach(l=>{
-    const cells=leaveCells(l);
-    const last=rows[rows.length-1];
-    if(!last||last.length>=head.length||last.length+cells.length-1>head.length){rows.push(cells);return;}
-    last[last.length-1]=(last[last.length-1]+' '+cells[0]).trim();
-    last.push(...cells.slice(1));
-  });
-  return rows.map(c=>leaveRecordFrom(c,col)).filter(Boolean);
-}
-function leaveKey(r){return [r.name,r.type,r.sd,r.st,r.ed,r.et].join('|');}
-function pruneLeave(){
-  const today=tpeYmd(),cut=Date.now()-LEAVE_UNDATED_KEEP_MS;
-  const before=(state.leave||[]).length;
-  state.leave=(state.leave||[]).filter(r=>r.sd?(r.ed||r.sd)>=today:new Date(r.addedAt).getTime()>cut);
-  const hb=(state.leaveHidden||[]).length;
-  state.leaveHidden=(state.leaveHidden||[]).filter(h=>h&&(h.ed?h.ed>=today:new Date(h.at).getTime()>Date.now()-21*864e5));
-  return state.leave.length!==before||state.leaveHidden.length!==hb;
-}
-function mergeLeave(recs){
-  const map=new Map((state.leave||[]).map(r=>[leaveKey(r),r]));
-  let added=0;
-  const nowIso=new Date().toISOString();
-  recs.forEach(r=>{
-    const k=leaveKey(r),old=map.get(k);
-    if(old){['agent','hours','reason'].forEach(f=>{if(r[f])old[f]=r[f];});return;}
-    map.set(k,Object.assign({id:'lv'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),addedAt:nowIso},r));
-    added++;
-  });
-  state.leave=[...map.values()];
-  return added;
-}
-function applyLeaveText(text,opt){
-  opt=opt||{};
-  const recs=parseLeaveText(text);
-  if(!recs.length){
-    showLeaveStatus(opt.ocr
-      ?'❌ 截圖裡讀不到差假資料。請確認截的是 WebITR「批核」頁、看得到「申請人」那一塊；也可以直接修改上面辨識出來的文字，再按「整理這段清單」。'
-      :'❌ 這段內容裡找不到差假資料。請在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製再貼一次；如果批核案件是 0，就沒有東西可以整理。','bad');
-    return false;
-  }
-  const today=tpeYmd();
-  const past=recs.filter(r=>r.sd&&(r.ed||r.sd)<today);
-  const added=mergeLeave(recs);
-  pruneLeave();
-  state.leaveAt=new Date().toISOString();
-  save();
-  const box=document.getElementById('leaveBox'),btn=document.getElementById('leaveApplyBtn');
-  if(!opt.keepBox){
-    if(box){box.value='';box.style.display='none';}
-    if(btn)btn.style.display='none';
-  }
-  renderLeave();
-  // 已經過去的假（例如補請上週的加班）不會列在清單上，要講清楚，不然看起來像沒讀到
-  const pastTxt=past.length?`，其中 ${past.length} 筆已經過去、不列在清單上（${past.slice(0,3).map(r=>String(r.name).replace(/[（(].*$/,'')+' '+leaveMD(r.sd)+' '+(r.type||'')).join('、')}${past.length>3?'…':''}）`:'';
-  showLeaveStatus((opt.ocr?'✅ 從截圖讀到 ':'✅ 整理好 ')+recs.length+' 筆'+(added<recs.length&&!past.length?'（新的 '+added+' 筆，其他之前已經有了）':'')+pastTxt+'。'
-    +(opt.ocr?'辨識的文字在上面，有錯字可以直接改，再按「整理這段清單」。':''),'ok');
-  return true;
-}
-// ── 截圖辨識（在手機上跑，不上傳）──────────────
-// 用 Tesseract.js：程式和繁體中文辨識資料從 jsDelivr 下載（約 2MB，之後瀏覽器會留著），
-// 截圖本身只在這支手機的瀏覽器裡辨識，不送到任何伺服器，也不經過 AI。
-// 每個下載位址都釘死版本，jsDelivr 上的新版本不會在不知不覺中換掉辨識程式
-const TESS_SRC='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-const TESS_OPTS={
-  workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
-  corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
-  langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/chi_tra/4.0.0_best_int'
-};
-let tessLoading=null;
-function loadTesseract(){
-  if(window.Tesseract)return Promise.resolve(window.Tesseract);
-  if(!tessLoading)tessLoading=new Promise((res,rej)=>{
-    const sc=document.createElement('script');
-    sc.src=TESS_SRC;sc.crossOrigin='anonymous';
-    sc.onload=()=>window.Tesseract?res(window.Tesseract):rej(new Error('辨識程式載入失敗'));
-    sc.onerror=()=>{tessLoading=null;rej(new Error('辨識程式下載失敗，請確認有網路再試一次'));};
-    document.head.appendChild(sc);
-  });
-  return tessLoading;
-}
-let leaveOcrBusy=false;
-// 截圖讀進來的那幾筆。使用者在文字框修正錯字後再整理，要先拿掉這幾筆，
-// 不然「王小明」改成「王曉明」會變成兩筆。
-let leaveOcrIds=[];
-function applyLeaveBox(){
-  const text=document.getElementById('leaveBox').value;
-  if(leaveOcrIds.length){
-    const ids=new Set(leaveOcrIds);
-    state.leave=(state.leave||[]).filter(r=>!ids.has(r.id));
-    leaveOcrIds=[];
-    const before=new Set((state.leave||[]).map(r=>r.id));
-    const ok=applyLeaveText(text,{ocr:true,keepBox:true});
-    if(ok)leaveOcrIds=(state.leave||[]).filter(r=>!before.has(r.id)).map(r=>r.id);
-    return ok;
-  }
-  return applyLeaveText(text);
-}
-async function readLeaveScreenshot(file){
-  if(!file||leaveOcrBusy)return;
-  leaveOcrBusy=true;
-  const btn=document.getElementById('leaveImgBtn');if(btn)btn.disabled=true;
-  let worker=null;
-  try{
-    showLeaveStatus('⏳ 載入辨識程式…（第一次需要下載，之後就快了）','');
-    const T=await loadTesseract();
-    worker=await T.createWorker('chi_tra',1,{...TESS_OPTS,logger:m=>{
-      if(m&&m.status==='recognizing text')showLeaveStatus(`⏳ 辨識中… ${Math.round((m.progress||0)*100)}%（截圖不會離開這支手機）`,'');
-    }});
-    const {data}=await worker.recognize(file);
-    const text=leaveOcrNormalize(data&&data.text);
-    const box=document.getElementById('leaveBox');
-    box.style.display='block';box.value=text;
-    document.getElementById('leaveApplyBtn').style.display='block';
-    const before=new Set((state.leave||[]).map(r=>r.id));
-    applyLeaveText(text,{ocr:true,keepBox:true});
-    leaveOcrIds=(state.leave||[]).filter(r=>!before.has(r.id)).map(r=>r.id);
-  }catch(e){
-    showLeaveStatus('❌ '+(e&&e.message||'辨識失敗，請再試一次'),'bad');
-  }finally{
-    try{if(worker)await worker.terminate();}catch(e){}
-    leaveOcrBusy=false;if(btn)btn.disabled=false;
-  }
-}
-async function pasteLeaveFromClipboard(){
-  leaveOcrIds=[];
-  let text='';
-  try{text=await navigator.clipboard.readText();}catch(e){text='';}
-  if(text&&applyLeaveText(text))return;
-  const box=document.getElementById('leaveBox');
-  box.style.display='block';box.placeholder='在這裡貼上（Ctrl+V 或長按 → 貼上），再按「整理這段清單」';
-  document.getElementById('leaveApplyBtn').style.display='block';
-  box.focus();
-  if(!text)showLeaveStatus('讀不到剪貼簿。請在上面的框裡貼上，再按「整理這段清單」。','');
-}
-// 上次的提示、錯誤訊息和文字框不要一直留著：重新回到這頁就收乾淨（辨識中的不動）
-function resetLeaveUi(){
-  if(leaveOcrBusy)return;
-  const st=document.getElementById('leaveStatus');if(st){st.style.display='none';st.textContent='';}
-  const box=document.getElementById('leaveBox');if(box){box.value='';box.style.display='none';}
-  const btn=document.getElementById('leaveApplyBtn');if(btn)btn.style.display='none';
-  leaveOcrIds=[];
-}
-function showLeaveStatus(msg,kind){
-  const el=document.getElementById('leaveStatus');if(!el)return;
-  el.className='statusLine'+(kind==='ok'||kind==='bad'?' '+kind:'');el.textContent=msg;el.style.display='block';
-}
-function deleteLeave(id){
-  const r=(state.leave||[]).find(x=>x.id===id);
-  // 外掛每次都會把近幾週的清單整份交過來，不記下來的話刪掉的那筆下次又會冒出來
-  if(r)state.leaveHidden=(state.leaveHidden||[]).concat([{k:leaveKey(r),ed:r.ed||r.sd||'',at:new Date().toISOString()}]);
-  state.leave=(state.leave||[]).filter(x=>x.id!==id);
-  save();renderLeave();
-}
-// ── 電腦外掛（webitr-ybot.user.js）交來的 WebITR 批核清單 ──
-// 外掛跟 Ybot 在同一台電腦的同一個 Chrome 裡，靠頁面事件交接，不經過任何伺服器。
-// 交來的是原始表格文字，跟「貼上清單」走同一套整理程式。
-const LEAVE_EVT='ybot-webitr-leave';
-const LEAVE_REQ='ybot-webitr-leave-request';
-function applyLeaveSnapshots(detail){
-  let snaps;
-  try{snaps=JSON.parse(String(detail||'')).snapshots;}catch(e){return false;}
-  if(!Array.isArray(snaps))return false;
-  state.leaveExtAt=new Date().toISOString();
-  const hidden=new Set((state.leaveHidden||[]).map(h=>h.k));
-  const recs=[];
-  let latest='';
-  snaps.slice(-60).forEach(s=>{
-    if(!s||typeof s.text!=='string'||typeof s.at!=='string'||isNaN(Date.parse(s.at)))return;
-    parseLeaveText(s.text.slice(0,20000)).forEach(r=>{if(!hidden.has(leaveKey(r)))recs.push(r);});
-    if(s.at>latest)latest=s.at;
-  });
-  mergeLeave(recs);
-  pruneLeave();
-  if(latest){
-    state.leaveSyncAt=latest;
-    if(latest>(state.leaveAt||''))state.leaveAt=latest;
-  }
-  save();renderLeave();
-  return true;
-}
-document.addEventListener(LEAVE_EVT,e=>applyLeaveSnapshots(e.detail));
-
-
-// 外掛可能比 Ybot 晚載入；Ybot 這邊也主動喊一聲，誰先誰後都接得上
-function requestLeaveFromExt(){try{document.dispatchEvent(new Event(LEAVE_REQ));}catch(e){}}
-function leaveCoversDay(r,ymd){return !!r.sd&&r.sd<=ymd&&(r.ed||r.sd)>=ymd;}
-function leaveMD(ymd){
-  const [y,m,d]=ymd.split('-').map(Number);
-  return m+'/'+d+'（'+WD_NAMES[new Date(y,m-1,d).getDay()]+'）';
-}
-function leaveRange(r,withDate){
-  if(!r.sd)return '日期不明';
-  if(r.sd===(r.ed||r.sd)){
-    const t=r.st&&r.et?r.st+'–'+r.et:r.st?r.st+' 起':'';
-    return ((withDate?leaveMD(r.sd)+' ':'')+t).trim()||'整天';
-  }
-  return leaveMD(r.sd)+(r.st?' '+r.st:'')+' – '+leaveMD(r.ed)+(r.et?' '+r.et:'');
-}
-function leaveItemHtml(r,withDate){
-  const sub=[r.hours,r.agent?'代理：'+r.agent:'',r.reason].filter(Boolean).map(esc).join(' · ');
-  return `<div class="leaveItem"><div class="leaveMain"><b>${esc(r.name)}</b><span class="leaveType${LEAVE_BIZ_RE.test(r.type)?' biz':''}">${esc(r.type||'差假')}</span><span class="leaveWhen">${esc(leaveRange(r,withDate))}</span>`
-    +(sub?`<div class="leaveSub">${sub}</div>`:'')
-    +`</div><button class="delBtn" title="刪除這筆" aria-label="刪除 ${esc(r.name)} 這筆差假" onclick="deleteLeave('${esc(r.id)}')">✕</button></div>`;
-}
-function leaveSort(a,b){return (a.sd+a.st).localeCompare(b.sd+b.st)||a.name.localeCompare(b.name);}
-function renderLeave(){
-  const el=document.getElementById('leaveList');if(!el)return;
-  if(pruneLeave())save();
-  const today=tpeYmd();
-  const all=state.leave||[];
-  const todays=all.filter(r=>leaveCoversDay(r,today)).sort(leaveSort);
-  const later=all.filter(r=>r.sd&&r.sd>today).sort(leaveSort);
-  const undated=all.filter(r=>!r.sd);
-  const at=state.leaveAt?new Date(state.leaveAt):null;
-  let h='';
-  h+=`<div class="leaveHead">${todays.length?`今天 ${todays.length} 位同仁差假`:'今天沒有記錄到同仁差假'}</div>`;
-  const ext=!!state.leaveExtAt;
-  const how=ext?'打開 WebITR 批核案件頁就會自動讀進來':'在 WebITR 批核頁截圖，按「📷 讀取截圖」';
-  const src=ext&&state.leaveExtAt&&state.leaveSyncAt===state.leaveAt?' · 🧩 電腦外掛自動讀取':'';
-  if(!at||tpeYmd(at)!==today)h+=`<div class="leaveStale">⏰ 今天還沒讀取 WebITR 批核清單${how?'（'+how+'）':''}</div>`;
-  else h+=`<div class="leaveAt">最後更新：${esc(fmtTime(at,{hour:'2-digit',minute:'2-digit',hour12:false}))}${src}</div>`;
-  if(todays.length)h+=`<div class="leaveGroup">今天 ${esc(leaveMD(today))}</div>`+todays.map(r=>leaveItemHtml(r,false)).join('');
-  if(later.length)h+=`<div class="leaveGroup">接下來</div>`+later.map(r=>leaveItemHtml(r,true)).join('');
-  if(undated.length)h+=`<div class="leaveGroup">日期不明</div>`+undated.map(r=>leaveItemHtml(r,false)).join('');
-  el.innerHTML=h;
-}
-// 語音摘要用：今天有人差假才念，沒有就不講（批核清單只看得到還沒核的，
-// 「沒有記錄」不等於「沒有人請假」，不能說成今天沒人請假）。
-function briefLeaveSegments(){
-  const today=tpeYmd();
-  const recs=(state.leave||[]).filter(r=>leaveCoversDay(r,today)).sort(leaveSort);
-  if(!recs.length)return [];
-  const who=recs.map(r=>String(r.name).replace(/[（(].*$/,'').trim()+(r.type||'請假')).join('、');
-  return [{text:`同仁差假，今天有${recs.length}位：${who}。`}];
-}
-
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 // ── 🧠 記憶小遊戲 ──────────────────────────────
-// 題目全部從使用者自己的資料出：行程、新聞、待辦筆記、同仁差假、問答紀錄。
+// 題目全部從使用者自己的資料出：行程、新聞、待辦筆記、問答紀錄。
 // 不經過 AI：題目和正確答案都是程式照資料組出來的，不會有 AI 編出來的錯答案，
 // 資料也不會送到任何地方。
 // 雲端只給「今天起兩週」的行程、每類兩則新聞，所以這裡另外留一份最近看過的
@@ -3507,8 +3087,7 @@ const MEM_MODES=[
   {id:'mix',label:'🎲 綜合'},
   {id:'cal',label:'📅 行程'},
   {id:'news',label:'📰 新聞'},
-  {id:'notes',label:'📝 筆記問答'},
-  {id:'leave',label:'📋 同仁差假'}
+  {id:'notes',label:'📝 筆記問答'}
 ];
 function updateMemArchive(ctx){
   if(!ctx)return;
@@ -3666,14 +3245,8 @@ function memNoteQs(){
   });
   return qs.filter(Boolean);
 }
-function memLeaveQs(){
-  const recs=(state.leave||[]).filter(r=>r&&r.name&&r.type&&r.sd);
-  const common=['事假','病假','公假','休假','補休','公差','出差','特休'];
-  return recs.map(r=>memMakeQ('leave','leave|'+leaveKey(r),`${r.name}在 ${leaveRange(r,true)} 請的是什麼假？`,r.type,
-    common.concat(recs.map(x=>x.type)),`📋 ${r.name}：${r.type} ${leaveRange(r,true)}`)).filter(Boolean);
-}
 function memAllQs(mode){
-  const by={cal:memCalQs,news:memNewsQs,notes:memNoteQs,leave:memLeaveQs};
+  const by={cal:memCalQs,news:memNewsQs,notes:memNoteQs};
   if(mode!=='mix')return by[mode]?by[mode]():[];
   return [].concat(...Object.values(by).map(f=>f()));
 }
@@ -3735,7 +3308,7 @@ const MEM_BADGES=[
   {id:'perfect5',icon:'🌟',name:'滿分 5 次',test:s=>s.perfect>=5},
   {id:'streak5',icon:'⚡',name:'連續 5 次滿分',test:s=>s.bestStreak>=5},
   {id:'perfect10',icon:'🏆',name:'滿分 10 次',test:s=>s.perfect>=10},
-  {id:'allModes',icon:'🎯',name:'五種題型都拿過滿分',test:s=>MEM_MODES.every(m=>s.perfectModes.includes(m.id))},
+  {id:'allModes',icon:'🎯',name:'每種題型都拿過滿分',test:s=>MEM_MODES.every(m=>s.perfectModes.includes(m.id))},
   {id:'perfect30',icon:'👑',name:'滿分 30 次',test:s=>s.perfect>=30}
 ];
 const MEM_PRAISE=['記性超好！','完全沒被考倒！','這陣子的事都記在腦子裡了！','校長的記憶力果然一流！','滿分！給自己一個讚！'];
@@ -3806,7 +3379,7 @@ function memSpeakQ(){
   ttsWarmUp();
   speakSegments([{text:q.q}].concat(q.options.map((o,i)=>({text:'第'+(i+1)+'個，'+o+'。'}))));
 }
-const MEM_SRC_LABEL={cal:'📅 行程',news:'📰 新聞',notes:'📝 筆記問答',leave:'📋 同仁差假'};
+const MEM_SRC_LABEL={cal:'📅 行程',news:'📰 新聞',notes:'📝 筆記問答'};
 function renderMemGame(){
   const el=document.getElementById('memBody');if(!el)return;
   const g=memGame;
@@ -6001,8 +5574,6 @@ function registerSW(){
 // ── 初始化 ──────────────────────────────
 renderChat();
 renderNotes();
-renderLeave();
-requestLeaveFromExt();
 if(state.context){updateMemArchive(state.context);save();}
 renderSpeakBtn();
 renderLinkChips();
