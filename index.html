@@ -337,6 +337,10 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .ovHeadIcon svg{width:20px;height:20px;}
 .ovHeadIcon.mail{background:linear-gradient(135deg,#a855f7,#6d28d9);box-shadow:0 4px 10px rgba(109,40,217,.3);}
 .ovHeadIcon.news{background:linear-gradient(135deg,#fb923c,#ea580c);box-shadow:0 4px 10px rgba(234,88,12,.28);}
+.ovHeadIcon.approve{background:linear-gradient(135deg,#34d399,#059669);box-shadow:0 4px 10px rgba(5,150,105,.28);}
+.ovApprove{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.35);border-radius:16px;padding:12px 14px;margin-bottom:14px;}
+.ovApprove .ovItem{line-height:1.6;white-space:pre-wrap;word-break:break-word;}
+.ovApproveDismiss{border:0;background:none;color:var(--mut,#64748b);font-size:.9rem;cursor:pointer;padding:4px 6px;}
 .ovHeadIcon.warn{background:linear-gradient(135deg,#f87171,#dc2626);box-shadow:0 4px 10px rgba(220,38,38,.28);}
 .ovHeadTitle{flex:1;min-width:0;font-size:1.25rem;font-weight:900;letter-spacing:.03em;}
 .pane{display:none;}
@@ -1172,7 +1176,7 @@ function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,qa:[],qaSyncedAt:'',
-  pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],
+  pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],pushedApprovalIds:[],seenApprovalIds:[],
   gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
@@ -2533,6 +2537,7 @@ async function briefNewsSegments(){
 async function buildBriefSegments(){
   const now=new Date();
   const segs=[{text:`${greetWord()}，這是你的語音摘要。`}]
+    .concat(briefApprovalSegments())
     .concat(briefCalendarSegments(now))
     .concat(briefMailSegments());
   return segs.concat(await briefNewsSegments());
@@ -3447,6 +3452,7 @@ async function refreshContext(){
       renderNotes();
       showCtxStatus();
       renderOverview();
+      checkProactiveNotifications();   // 新進來的差勤批核／重要信件不用等下一分鐘
     }else if(d.authRequired){
       document.getElementById('ctxStatus').textContent='🔒 通關密語不正確或還沒填（設定 → 雲端後台 → 通關密語）';
     }else{document.getElementById('ctxStatus').textContent='❌ '+(d.error||'讀取失敗');}
@@ -3600,8 +3606,41 @@ function fmtConflictEvent(ev){
 const OV_ICONS={
   mail:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3" fill="#fff"/><path d="M3 7l9 6 9-6" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   news:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="#fff"/><path d="M6 8h7M6 12h12M6 16h12" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/><rect x="15" y="7" width="3" height="3" rx=".5" fill="#ea580c"/></svg>',
+  approve:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3" fill="#fff"/><path d="M8 12.5l2.6 2.6L16 9.6" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   warn:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z" fill="#fff"/><path d="M12 10v5" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="18" r="1.3" fill="#dc2626"/></svg>'
 };
+// ── 📋 差勤批核推播 ──────────────────────
+// Ybot 不會自己登入 WebITR、也不會代按同意。這裡只是把使用者自己存進筆記、
+// 內容以「【差勤批核】」開頭的那幾則（例如電腦上批核完寫回來的摘要），
+// 在手機首頁最上面亮出來、放進語音摘要第一句、App 開著時跳通知。
+// 資料就是原本的筆記，不另外存、不另外上傳。
+const APPROVAL_TAG='【差勤批核】';
+const APPROVAL_FRESH_MS=36*3600000;   // 一天半內的才算「新的」，舊的留在筆記裡就好
+function approvalNotes(){
+  const cutoff=Date.now()-APPROVAL_FRESH_MS;
+  return liveNotes().filter(n=>String(n.content||'').trim().startsWith(APPROVAL_TAG)&&
+      new Date(n.createdAt).getTime()>=cutoff)
+    .sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+}
+function approvalText(n){return String(n.content||'').trim().slice(APPROVAL_TAG.length).trim();}
+function unseenApprovals(){
+  const seen=state.seenApprovalIds||[];
+  return approvalNotes().filter(n=>!seen.includes(n.id));
+}
+function dismissApproval(id){
+  state.seenApprovalIds=(state.seenApprovalIds||[]).concat(id).slice(-200);
+  save();renderOverview();
+}
+function approvalHtml(){
+  const list=unseenApprovals();
+  if(!list.length)return '';
+  return `<div class="ovApprove" id="ovApprove"><div class="ovHead"><span class="ovHeadIcon approve">${OV_ICONS.approve}</span><span class="ovHeadTitle">差勤批核</span></div>`+
+    list.map(n=>`<div class="ovApproveRow" style="display:flex;gap:6px;align-items:flex-start;"><div class="ovItem" style="flex:1;min-width:0;">${esc(approvalText(n))}<div class="ovSub" style="font-size:.85rem;margin-top:2px;">${esc(fmtDateTime(n.createdAt,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))}</div></div><button class="ovApproveDismiss" onclick="dismissApproval('${esc(n.id)}')" aria-label="知道了，收起這則">知道了</button></div>`).join('')+
+    `</div>`;
+}
+function briefApprovalSegments(){
+  return unseenApprovals().map(n=>({text:'差勤批核：'+approvalText(n).replace(/[…]+/g,'，')}));
+}
 function renderOverview(){
   const box=document.getElementById('overviewCard');
   const c=state.context;
@@ -3616,7 +3655,7 @@ function renderOverview(){
   renderHeroSchedule(upcomingEvents);
   if(!c){
     box.style.display='block';
-    box.innerHTML=`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
+    box.innerHTML=approvalHtml()+`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
     return;
   }
 
@@ -3652,6 +3691,7 @@ function renderOverview(){
       `</div>`
     : '';
   box.innerHTML=
+    approvalHtml()+
     conflictHtml+
     `<div class="ovSection"><a class="ovHead" href="https://mail.google.com/mail/" target="_blank" rel="noopener"><span class="ovHeadIcon mail">${OV_ICONS.mail}</span><span class="ovHeadTitle">重要 EMAIL</span><span class="chev">›</span></a>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovHead ovLabelToggle" onclick="toggleNewsCollapse()"><span class="ovHeadIcon news">${OV_ICONS.news}</span><span class="ovHeadTitle">今日新聞 <span class="ovToggleIcon">${newsArrow}</span></span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
@@ -5548,6 +5588,13 @@ function checkProactiveNotifications(){
     state.pushedReminderIds.push(n.id);
     notifyLocal('⏰ 提醒時間到了',n.content,'reminder-'+n.id);
   });
+  if(!state.pushedApprovalIds)state.pushedApprovalIds=[];
+  approvalNotes().forEach(n=>{
+    if(state.pushedApprovalIds.includes(n.id))return;
+    state.pushedApprovalIds.push(n.id);
+    notifyLocal('📋 差勤批核',approvalText(n),'approval-'+n.id);
+  });
+  if(state.pushedApprovalIds.length>200)state.pushedApprovalIds=state.pushedApprovalIds.slice(-200);
   const mails=usefulMails();
   mails.filter(m=>m.important).forEach(m=>{
     const mid=m.threadId||m.subject;
