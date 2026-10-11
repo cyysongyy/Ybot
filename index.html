@@ -757,7 +757,17 @@ a.ovMailItem:hover{text-decoration:underline;}
       <textarea id="leaveBox" class="fi" style="display:none;margin-top:10px;min-height:90px;"></textarea>
       <button class="btn ghost" id="leaveApplyBtn" onclick="applyLeaveText(document.getElementById('leaveBox').value)" style="display:none;width:100%;">整理這段清單</button>
       <div class="statusLine" id="leaveStatus" style="display:none;"></div>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">沒裝外掛時：在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製，回來按上面的按鈕。<b>先讀進來再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這台電腦的這個瀏覽器，不會上傳。</div>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">手機用下面的「📱 書籤小工具」最快；也可以在 WebITR「批核案件」頁全選、複製，回來按上面的按鈕。<b>先讀進來再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這個瀏覽器，不會上傳。</div>
+      <details class="leaveSetup" id="leaveBmSetup">
+        <summary>📱 手機書籤小工具（免複製貼上）</summary>
+        <ol>
+          <li>按這顆 <button class="btn ghost" id="leaveBmCopy" onclick="copyLeaveBookmarklet()" style="padding:4px 10px;font-size:.78rem;">📋 複製書籤程式碼</button></li>
+          <li>在手機 Chrome 隨便開一個網頁（例如這頁），按右下「⋯」→「加入書籤」。</li>
+          <li>再按「⋯」→「書籤」，找到剛加的書籤，長按 →「編輯書籤」：名稱改成 <b>Ybot差假</b>，網址欄整個刪掉，貼上剛剛複製的程式碼，按「完成」。</li>
+          <li>之後在手機打開 WebITR「批核案件」頁，點上方網址列、輸入 <b>Ybot差假</b>，在下面的建議清單點那個書籤，就會跳回 Ybot、差假整理好了。</li>
+        </ol>
+        <div class="hint" style="margin:0;">書籤只讀取頁面上的表格，再直接交給這支手機的 Ybot：不會幫你登入、不會按「同意」、不經過任何伺服器。用 Safari 的話，在 WebITR 頁直接點書籤就好。</div>
+      </details>
       <details class="leaveSetup" id="leaveSetup">
         <summary>🧩 電腦自動讀取（免複製貼上）</summary>
         <ol>
@@ -3284,6 +3294,86 @@ function applyLeaveSnapshots(detail){
   return true;
 }
 document.addEventListener(LEAVE_EVT,e=>applyLeaveSnapshots(e.detail));
+
+// ── 手機書籤小工具 ──────────────────────────
+// iPhone 的 Chrome 不能裝外掛，改用書籤：在 WebITR 頁點書籤，它讀出「申請人」那張表，
+// 把文字放在網址的 # 後面跳回 Ybot。# 後面的東西瀏覽器不會送給任何伺服器，
+// 資料只是從同一支手機的 WebITR 分頁交到 Ybot。Ybot 讀完馬上把網址清乾淨。
+// 這個函式本身不在 Ybot 裡執行：它的原始碼會被轉成 javascript: 書籤，在 WebITR 頁面上跑。
+// 所以裡面不能用 // 註解（會被壓成一行），每句都要有分號，也不能用 Ybot 的任何函式。
+function leaveBookmarkletMain(){
+  var H=/申請人|姓名|請假人|差假人/;
+  var docs=[];
+  var walk=function(w){try{docs.push(w.document);}catch(e){return;}for(var i=0;i<w.frames.length;i++){walk(w.frames[i]);}};
+  walk(window);
+  var ct=function(c){return (c.innerText||c.textContent||'').replace(/\s+/g,' ').trim();};
+  var rows=function(t){return Array.prototype.map.call(t.rows||[],function(r){return Array.prototype.map.call(r.cells,ct);});};
+  var vis=function(e){return !!(e.offsetWidth||e.offsetHeight||e.getClientRects().length);};
+  var txt='';
+  for(var k=0;k<docs.length&&!txt;k++){
+    var ts=Array.prototype.filter.call(docs[k].querySelectorAll('table'),vis);
+    for(var i=0;i<ts.length;i++){
+      var r=rows(ts[i]),hi=-1;
+      for(var j=0;j<r.length;j++){if(r[j].some(function(c){return c.length<=10&&H.test(c);})){hi=j;break;}}
+      if(hi<0){continue;}
+      var out=r.slice(hi);
+      if(out.length===1){
+        var n=out[0].length;
+        for(var m=i+1;m<Math.min(ts.length,i+4);m++){
+          if(ts[m].contains(ts[i])||ts[i].contains(ts[m])){continue;}
+          var more=rows(ts[m]).filter(function(x){return x.length&&Math.abs(x.length-n)<=1;});
+          if(more.length){out=out.concat(more);break;}
+        }
+      }
+      txt=out.map(function(x){return x.join('\t');}).join('\n').slice(0,20000);
+      break;
+    }
+  }
+  if(!txt){alert('找不到批核清單。請先打開 WebITR 的「批核案件」頁，再點這個書籤。');return;}
+  location.href='https://cyysongyy.github.io/Ybot/#webitr='+encodeURIComponent(txt);
+}
+// 轉成書籤用的一行程式碼：中文換成 \uXXXX，整串只剩 ASCII，貼進書籤網址欄不會被改掉
+function leaveBookmarkletCode(){
+  const body=String(leaveBookmarkletMain).replace(/^function[^{]*\{/,'').replace(/\}\s*$/,'')
+    .split('\n').map(l=>l.trim()).join('')
+    .replace(/[^\x00-\x7f]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
+  return 'javascript:(function(){'+body+'})();';
+}
+async function copyLeaveBookmarklet(){
+  const code=leaveBookmarkletCode();
+  try{
+    await navigator.clipboard.writeText(code);
+    showLeaveStatus('✅ 書籤程式碼已複製。照下面第 2、3 步加成書籤。','ok');
+  }catch(e){
+    const box=document.getElementById('leaveBox');
+    box.style.display='block';box.value=code;box.focus();box.select();
+    showLeaveStatus('瀏覽器不讓 Ybot 直接複製。請長按上面框裡的文字 → 全選 → 拷貝。','');
+  }
+}
+// 書籤跳回來時，網址長這樣：…/Ybot/#webitr=<表格文字>
+function applyLeaveFromHash(){
+  const h=location.hash||'';
+  if(!h.startsWith('#webitr='))return false;
+  let text='';
+  try{text=decodeURIComponent(h.slice(8));}catch(e){text='';}
+  // 先把網址清掉：重新整理、分享網址時都不會再帶著同仁差假
+  try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}
+  if(!text)return false;
+  const hidden=new Set((state.leaveHidden||[]).map(x=>x.k));
+  const recs=parseLeaveText(text.slice(0,20000)).filter(r=>!hidden.has(leaveKey(r)));
+  const added=mergeLeave(recs);
+  pruneLeave();
+  state.leaveAt=new Date().toISOString();
+  state.leaveBmAt=state.leaveAt;
+  save();
+  switchTab('notes');
+  renderLeave();
+  showLeaveStatus(recs.length?`✅ 已從 WebITR 讀進 ${recs.length} 筆`+(added<recs.length?`（新的 ${added} 筆）`:'')+'。':'✅ 已讀取 WebITR，目前沒有批核案件。','ok');
+  const card=document.getElementById('leaveCard');
+  if(card&&card.scrollIntoView)try{card.scrollIntoView({block:'start'});}catch(e){}
+  return true;
+}
+window.addEventListener('hashchange',applyLeaveFromHash);
 // 外掛可能比 Ybot 晚載入；Ybot 這邊也主動喊一聲，誰先誰後都接得上
 function requestLeaveFromExt(){try{document.dispatchEvent(new Event(LEAVE_REQ));}catch(e){}}
 function leaveCoversDay(r,ymd){return !!r.sd&&r.sd<=ymd&&(r.ed||r.sd)>=ymd;}
@@ -3317,9 +3407,11 @@ function renderLeave(){
   const at=state.leaveAt?new Date(state.leaveAt):null;
   let h='';
   h+=`<div class="leaveHead">${todays.length?`今天 ${todays.length} 位同仁差假`:'今天沒有記錄到同仁差假'}</div>`;
-  const ext=!!state.leaveExtAt;
-  if(!at||tpeYmd(at)!==today)h+=`<div class="leaveStale">${ext?'⏰ 今天還沒打開 WebITR 批核案件頁（打開就會自動讀進來）':'⏰ 今天還沒貼上 WebITR 批核清單'}</div>`;
-  else h+=`<div class="leaveAt">最後更新：${esc(fmtTime(at,{hour:'2-digit',minute:'2-digit',hour12:false}))}${ext?' · 🧩 電腦外掛自動讀取':''}</div>`;
+  const ext=!!state.leaveExtAt,bm=!!state.leaveBmAt;
+  const how=bm?'在 WebITR 批核案件頁點「Ybot差假」書籤':ext?'打開 WebITR 批核案件頁就會自動讀進來':'';
+  const src=bm&&state.leaveBmAt===state.leaveAt?' · 📱 書籤讀取':ext?' · 🧩 電腦外掛自動讀取':'';
+  if(!at||tpeYmd(at)!==today)h+=`<div class="leaveStale">⏰ 今天還沒讀取 WebITR 批核清單${how?'（'+how+'）':''}</div>`;
+  else h+=`<div class="leaveAt">最後更新：${esc(fmtTime(at,{hour:'2-digit',minute:'2-digit',hour12:false}))}${src}</div>`;
   if(todays.length)h+=`<div class="leaveGroup">今天 ${esc(leaveMD(today))}</div>`+todays.map(r=>leaveItemHtml(r,false)).join('');
   if(later.length)h+=`<div class="leaveGroup">接下來</div>`+later.map(r=>leaveItemHtml(r,true)).join('');
   if(undated.length)h+=`<div class="leaveGroup">日期不明</div>`+undated.map(r=>leaveItemHtml(r,false)).join('');
@@ -5850,6 +5942,7 @@ renderChat();
 renderNotes();
 renderLeave();
 requestLeaveFromExt();
+applyLeaveFromHash();
 if(state.context){updateMemArchive(state.context);save();}
 renderSpeakBtn();
 renderLinkChips();
