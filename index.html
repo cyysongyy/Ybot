@@ -753,11 +753,15 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="card" id="leaveCard">
       <div class="section-title">📋 同仁差假</div>
       <div id="leaveList"></div>
-      <button class="btn" onclick="pasteLeaveFromClipboard()" style="display:block;width:100%;margin-top:10px;">📥 貼上 WebITR 清單</button>
+      <div class="row2" style="margin-top:10px;">
+        <button class="btn" id="leaveImgBtn" onclick="document.getElementById('leaveImg').click()" style="flex:1;">📷 讀取截圖</button>
+        <button class="btn ghost" onclick="pasteLeaveFromClipboard()" style="flex:1;">📥 貼上清單</button>
+      </div>
+      <input type="file" id="leaveImg" accept="image/*" style="display:none" onchange="readLeaveScreenshot(this.files&&this.files[0]);this.value='';">
       <textarea id="leaveBox" class="fi" style="display:none;margin-top:10px;min-height:90px;"></textarea>
-      <button class="btn ghost" id="leaveApplyBtn" onclick="applyLeaveText(document.getElementById('leaveBox').value)" style="display:none;width:100%;">整理這段清單</button>
+      <button class="btn ghost" id="leaveApplyBtn" onclick="applyLeaveBox()" style="display:none;width:100%;">整理這段清單</button>
       <div class="statusLine" id="leaveStatus" style="display:none;"></div>
-      <div class="hint" style="margin-top:8px;margin-bottom:0;">手機用下面的「📱 書籤小工具」最快；也可以在 WebITR「批核案件」頁全選、複製，回來按上面的按鈕。<b>先讀進來再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這個瀏覽器，不會上傳。</div>
+      <div class="hint" style="margin-top:8px;margin-bottom:0;">手機最簡單：在 WebITR「批核」頁截圖，回來按「📷 讀取截圖」選那張。截圖在這支手機上辨識，不會送到任何地方（第一次要下載約 2MB 的辨識程式）。也可以全選、複製後按「📥 貼上清單」。<b>先讀進來再按同意</b>——核准後案件就會從批核清單消失。已整理的會一直留到假期結束；按 ✕ 可刪掉單筆。資料只存在這個瀏覽器，不會上傳。</div>
       <details class="leaveSetup" id="leaveBmSetup">
         <summary>📱 手機書籤小工具（免複製貼上）</summary>
         <ol>
@@ -3187,7 +3191,67 @@ function leaveRecordFrom(cells,col){
 // 從網頁表格複製出來的文字：一列一行、欄位用 Tab 隔開。
 // 儲存格裡有換行的話，那一列會被拆成兩行、各自都比表頭少幾欄——
 // 上一列還沒湊滿、接起來又不會超過表頭欄數，就當成同一列接回去。
+// 手機版 WebITR 是一筆一張卡片，每行「欄位：內容」：
+//   申請人：林瑞芳(代理教師)(教導處) / 代理人： / 表單：【補請】加班 /
+//   申請時間：115-10-09(五) 10:07 / 時間：115-10-08(四) 16:30 ~ 18:30 (2小時)
+// 「申請時間」是送出假單的時間，不是請假時間，要分開。
+// 截圖辨識的結果常常不照順序：儲存格內容換行時，「時間：」標籤會跑到第二行、甚至被認成別的字。
+// 所以時間不靠標籤找，而是把同一張卡片裡（申請時間那行除外）的文字接起來，找「~」前後的日期。
+const LEAVE_CARD_LINE=/(申請人|代理人|表單|假別|申請時間|事由|原因|備註|狀態)\s*[：:]\s*(.*)$/;
+function leaveCardVal(v){return String(v||'').replace(/^[\s,，.。、|｜:：;；'"`]+/,'').trim();}
+function parseLeaveCards(text){
+  const lines=String(text||'').replace(/\r/g,'').split('\n').map(l=>l.replace(/\t+/g,' ').trim()).filter(Boolean);
+  const starts=[];lines.forEach((l,i)=>{if(/申請人\s*[：:]/.test(l))starts.push(i);});
+  return starts.map((st,k)=>{
+    const card=lines.slice(st,k+1<starts.length?starts[k+1]:lines.length);
+    const f={};let timeTxt='';
+    card.forEach(l=>{
+      const m=l.match(LEAVE_CARD_LINE);
+      if(m&&m[1]!=='申請人'){
+        if(!(m[1] in f))f[m[1]]=leaveCardVal(m[2]);
+        return;
+      }
+      if(m&&m[1]==='申請人'){f['申請人']=leaveCardVal(m[2]);return;}
+      // 其餘的行（時間、被斷開的時間、認錯的標籤）都接起來；斷在「-」「:」「~」的直接黏回去
+      let x=l.replace(/^.*?時間\s*[：:]\s*/,'');
+      // 日期斷在「115-10-」時，下一行開頭可能夾著認錯的標籤字（「吧 8 14(三)」），直接從「14(三)」接
+      if(/-$/.test(timeTxt)){const d=x.search(/\d{1,2}\s*[(（][一二三四五六日][)）]/);if(d>0)x=x.slice(d);}
+      timeTxt+=(/[\-:：~～]$/.test(timeTxt)||!timeTxt?'':' ')+x;
+    });
+    const name=(f['申請人']||'').slice(0,24);
+    const form=f['表單']||f['假別']||'';
+    const type=leaveTypeIn(form)||leaveTypeIn(timeTxt)||form.replace(/[【】\[\]]/g,'').slice(0,10);
+    if(!name)return null;
+    const r={name,agent:(f['代理人']||'').slice(0,24),type,reason:(f['事由']||f['原因']||'').slice(0,40),
+      hours:((timeTxt.match(/[(（]\s*([\d.]+\s*(?:小時|天|日)[^)）]*)[)）]/)||[])[1]||'').replace(/\s+/g,'').slice(0,16),
+      sd:'',st:'',ed:'',et:''};
+    const dates=leaveDatesIn(timeTxt);
+    if(dates.length){
+      // 有「~」就以「~」為界：前面最後一個日期是開始、後面第一個是結束
+      const til=timeTxt.search(/[~～]|至/);
+      let a=dates[0],b=null;
+      if(til>=0){
+        const before=dates.filter(d=>d.end<=til+1),after=dates.filter(d=>d.end>til+1);
+        if(before.length)a=before[before.length-1];
+        b=after[0]||null;
+      }else if(dates.length>1)b=dates[dates.length-1];
+      r.sd=a.d;r.st=a.t;r.ed=b?b.d:a.d;r.et=b?b.t:'';
+      if(!b){const t2=timeTxt.slice(a.end).match(/^\s*[~～\-－至到]\s*(\d{1,2})\s*[:：]\s*(\d{2})/);if(t2)r.et=leavePad(t2[1])+':'+t2[2];}
+      if(r.ed<r.sd)r.ed=r.sd;
+    }
+    if(!r.sd&&!leaveTypeIn(form+timeTxt))return null;
+    return r;
+  }).filter(Boolean);
+}
+// 截圖辨識出來的中文字之間會被插空白（「申 請 人 :」），先黏回去
+function leaveOcrNormalize(t){
+  const C='\\u4e00-\\u9fff\\u3000-\\u303f\\uff00-\\uffef()\\[\\]【】';
+  return String(t||'').replace(/\r/g,'')
+    .replace(new RegExp('(['+C+'])[ \\t]+(?=['+C+'])','g'),'$1')
+    .replace(/[ \t]+([：:])/g,'$1');
+}
 function parseLeaveText(text){
+  if(/申請人\s*[：:]/.test(String(text||'')))return parseLeaveCards(text);
   const lines=String(text||'').replace(/\r/g,'').split('\n').filter(l=>l.trim());
   const hi=lines.findIndex(l=>leaveCells(l).some(c=>/申請人|姓名|請假人|差假人/.test(c)));
   if(hi<0){
@@ -3229,23 +3293,100 @@ function mergeLeave(recs){
   state.leave=[...map.values()];
   return added;
 }
-function applyLeaveText(text){
+function applyLeaveText(text,opt){
+  opt=opt||{};
   const recs=parseLeaveText(text);
   if(!recs.length){
-    showLeaveStatus('❌ 這段內容裡找不到差假資料。請在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製再貼一次；如果批核案件是 0，就沒有東西可以整理。','bad');
+    showLeaveStatus(opt.ocr
+      ?'❌ 截圖裡讀不到差假資料。請確認截的是 WebITR「批核」頁、看得到「申請人」那一塊；也可以直接修改上面辨識出來的文字，再按「整理這段清單」。'
+      :'❌ 這段內容裡找不到差假資料。請在 WebITR「批核案件」頁按 Ctrl+A 全選、Ctrl+C 複製再貼一次；如果批核案件是 0，就沒有東西可以整理。','bad');
     return false;
   }
+  const today=tpeYmd();
+  const past=recs.filter(r=>r.sd&&(r.ed||r.sd)<today);
   const added=mergeLeave(recs);
   pruneLeave();
   state.leaveAt=new Date().toISOString();
   save();
-  const box=document.getElementById('leaveBox');if(box){box.value='';box.style.display='none';}
-  const btn=document.getElementById('leaveApplyBtn');if(btn)btn.style.display='none';
+  const box=document.getElementById('leaveBox'),btn=document.getElementById('leaveApplyBtn');
+  if(!opt.keepBox){
+    if(box){box.value='';box.style.display='none';}
+    if(btn)btn.style.display='none';
+  }
   renderLeave();
-  showLeaveStatus('✅ 整理好 '+recs.length+' 筆'+(added<recs.length?'（新的 '+added+' 筆，其他之前已經有了）':'')+'。','ok');
+  // 已經過去的假（例如補請上週的加班）不會列在清單上，要講清楚，不然看起來像沒讀到
+  const pastTxt=past.length?`，其中 ${past.length} 筆已經過去、不列在清單上（${past.slice(0,3).map(r=>String(r.name).replace(/[（(].*$/,'')+' '+leaveMD(r.sd)+' '+(r.type||'')).join('、')}${past.length>3?'…':''}）`:'';
+  showLeaveStatus((opt.ocr?'✅ 從截圖讀到 ':'✅ 整理好 ')+recs.length+' 筆'+(added<recs.length&&!past.length?'（新的 '+added+' 筆，其他之前已經有了）':'')+pastTxt+'。'
+    +(opt.ocr?'辨識的文字在上面，有錯字可以直接改，再按「整理這段清單」。':''),'ok');
   return true;
 }
+// ── 截圖辨識（在手機上跑，不上傳）──────────────
+// 用 Tesseract.js：程式和繁體中文辨識資料從 jsDelivr 下載（約 2MB，之後瀏覽器會留著），
+// 截圖本身只在這支手機的瀏覽器裡辨識，不送到任何伺服器，也不經過 AI。
+// 每個下載位址都釘死版本，jsDelivr 上的新版本不會在不知不覺中換掉辨識程式
+const TESS_SRC='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const TESS_OPTS={
+  workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+  langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/chi_tra/4.0.0_best_int'
+};
+let tessLoading=null;
+function loadTesseract(){
+  if(window.Tesseract)return Promise.resolve(window.Tesseract);
+  if(!tessLoading)tessLoading=new Promise((res,rej)=>{
+    const sc=document.createElement('script');
+    sc.src=TESS_SRC;sc.crossOrigin='anonymous';
+    sc.onload=()=>window.Tesseract?res(window.Tesseract):rej(new Error('辨識程式載入失敗'));
+    sc.onerror=()=>{tessLoading=null;rej(new Error('辨識程式下載失敗，請確認有網路再試一次'));};
+    document.head.appendChild(sc);
+  });
+  return tessLoading;
+}
+let leaveOcrBusy=false;
+// 截圖讀進來的那幾筆。使用者在文字框修正錯字後再整理，要先拿掉這幾筆，
+// 不然「王小明」改成「王曉明」會變成兩筆。
+let leaveOcrIds=[];
+function applyLeaveBox(){
+  const text=document.getElementById('leaveBox').value;
+  if(leaveOcrIds.length){
+    const ids=new Set(leaveOcrIds);
+    state.leave=(state.leave||[]).filter(r=>!ids.has(r.id));
+    leaveOcrIds=[];
+    const before=new Set((state.leave||[]).map(r=>r.id));
+    const ok=applyLeaveText(text,{ocr:true,keepBox:true});
+    if(ok)leaveOcrIds=(state.leave||[]).filter(r=>!before.has(r.id)).map(r=>r.id);
+    return ok;
+  }
+  return applyLeaveText(text);
+}
+async function readLeaveScreenshot(file){
+  if(!file||leaveOcrBusy)return;
+  leaveOcrBusy=true;
+  const btn=document.getElementById('leaveImgBtn');if(btn)btn.disabled=true;
+  let worker=null;
+  try{
+    showLeaveStatus('⏳ 載入辨識程式…（第一次需要下載，之後就快了）','');
+    const T=await loadTesseract();
+    worker=await T.createWorker('chi_tra',1,{...TESS_OPTS,logger:m=>{
+      if(m&&m.status==='recognizing text')showLeaveStatus(`⏳ 辨識中… ${Math.round((m.progress||0)*100)}%（截圖不會離開這支手機）`,'');
+    }});
+    const {data}=await worker.recognize(file);
+    const text=leaveOcrNormalize(data&&data.text);
+    const box=document.getElementById('leaveBox');
+    box.style.display='block';box.value=text;
+    document.getElementById('leaveApplyBtn').style.display='block';
+    const before=new Set((state.leave||[]).map(r=>r.id));
+    applyLeaveText(text,{ocr:true,keepBox:true});
+    leaveOcrIds=(state.leave||[]).filter(r=>!before.has(r.id)).map(r=>r.id);
+  }catch(e){
+    showLeaveStatus('❌ '+(e&&e.message||'辨識失敗，請再試一次'),'bad');
+  }finally{
+    try{if(worker)await worker.terminate();}catch(e){}
+    leaveOcrBusy=false;if(btn)btn.disabled=false;
+  }
+}
 async function pasteLeaveFromClipboard(){
+  leaveOcrIds=[];
   let text='';
   try{text=await navigator.clipboard.readText();}catch(e){text='';}
   if(text&&applyLeaveText(text))return;
