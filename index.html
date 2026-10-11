@@ -462,6 +462,50 @@ textarea.fi{resize:vertical;min-height:56px;}
 .delBtn{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;transition:color .15s;}
 .delBtn:hover{color:var(--bad);}
 .empty{text-align:center;color:var(--tx3);font-size:.84rem;padding:28px 0;}
+/* 🧠 記憶小遊戲 */
+.memChips{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 10px;}
+.memChips .chip{font-size:.84rem;padding:8px 14px;display:inline-flex;align-items:center;gap:6px;}
+.memChips .chip:disabled{opacity:.4;cursor:default;}
+.memCnt{font-size:.68rem;font-weight:800;background:var(--bg);color:var(--tx3);border-radius:8px;padding:0 6px;}
+.memProg{font-size:.74rem;color:var(--tx3);font-weight:800;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;}
+.memMini{background:none;border:1px solid var(--line);border-radius:8px;padding:2px 8px;cursor:pointer;font-size:.9rem;}
+.memQ{font-size:1.02rem;font-weight:800;line-height:1.55;margin:4px 0 12px;color:var(--tx);overflow-wrap:anywhere;}
+.memOpt{display:block;width:100%;text-align:left;padding:11px 14px;margin-bottom:8px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--card);color:var(--tx);font-size:.9rem;line-height:1.45;cursor:pointer;font-family:inherit;overflow-wrap:anywhere;}
+.memOpt:hover:not(:disabled){border-color:var(--pri);}
+.memOpt:disabled{cursor:default;}
+.memOpt.right{border-color:var(--ok);background:rgba(5,150,105,.12);font-weight:700;}
+.memOpt.wrong{border-color:var(--bad);background:rgba(220,38,38,.08);}
+.memNote{font-size:.8rem;padding:9px 12px;border-radius:10px;background:var(--bg);color:var(--tx2);margin:4px 0 10px;line-height:1.55;overflow-wrap:anywhere;}
+.memScore{font-size:1.8rem;font-weight:900;text-align:center;margin:6px 0 2px;color:var(--pri);}
+.memRecall{margin:4px 0 0;padding-left:20px;font-size:.82rem;line-height:1.55;color:var(--tx2);}
+.memRecall li{margin-bottom:6px;}
+.memScore.perfect{font-size:2.4rem;color:#d97706;}
+.memTrophy{font-size:3rem;text-align:center;line-height:1;margin-top:4px;animation:memPop .6s ease-out;}
+.memPraise{text-align:center;font-weight:800;font-size:1rem;margin-bottom:6px;}
+.memStreak{text-align:center;font-weight:800;color:#ea580c;margin-bottom:6px;}
+.memUnlock{text-align:center;font-size:.86rem;padding:10px 12px;border-radius:12px;margin:8px 0 10px;
+  background:linear-gradient(135deg,rgba(245,158,11,.16),rgba(124,58,237,.12));border:1px solid rgba(245,158,11,.45);}
+.memBoard{margin-top:6px;padding:12px;border-radius:14px;background:var(--bg);}
+.memStatRow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;}
+.memStatRow b{display:block;font-size:1.15rem;color:var(--tx);}
+.memStatRow small{font-size:.66rem;color:var(--tx3);}
+.memRecent{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:10px;}
+.memRecent small{font-size:.68rem;color:var(--tx3);margin-right:2px;}
+.memPill{font-size:.72rem;font-weight:800;padding:2px 8px;border-radius:10px;background:var(--card);border:1px solid var(--line);color:var(--tx2);}
+.memPill.gold{background:#fef3c7;border-color:#f59e0b;color:#92400e;}
+.memBadges{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px;}
+.memBadge{text-align:center;padding:8px 4px;border-radius:12px;border:1px dashed var(--line);opacity:.5;}
+.memBadge span{display:block;font-size:1.5rem;line-height:1.2;}
+.memBadge small{display:block;font-size:.64rem;color:var(--tx2);line-height:1.3;margin-top:2px;}
+.memBadge.on{opacity:1;border-style:solid;border-color:rgba(245,158,11,.6);background:rgba(245,158,11,.08);}
+.memBadge.new{animation:memPop .6s ease-out;box-shadow:0 0 0 3px rgba(245,158,11,.35);}
+@keyframes memPop{0%{transform:scale(.4);opacity:0;}70%{transform:scale(1.15);opacity:1;}100%{transform:scale(1);}}
+.memConfetti{position:fixed;inset:0;pointer-events:none;z-index:200;overflow:hidden;}
+.memConfetti i{position:absolute;top:-14px;width:8px;height:14px;border-radius:2px;animation-name:memFall;animation-timing-function:linear;animation-fill-mode:forwards;}
+@keyframes memFall{to{transform:translateY(110vh) rotate(720deg);}}
+@media (prefers-reduced-motion: reduce){.memTrophy,.memBadge.new{animation:none;}}
+.memQuit{display:block;margin:10px auto 0;background:none;border:none;color:var(--tx3);font-size:.76rem;cursor:pointer;text-decoration:underline;}
 /* 同仁差假（WebITR 貼上整理）*/
 .leaveHead{font-size:.9rem;font-weight:800;color:var(--tx);margin-bottom:2px;}
 .leaveStale{font-size:.74rem;color:var(--warn);margin-bottom:4px;}
@@ -547,6 +591,7 @@ a.ovMailItem:hover{text-decoration:underline;}
     <nav class="menuPanel" id="menuPanel">
       <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</button>
       <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</button>
+      <button class="tab" data-tab="game" onclick="switchTab('game')">🧠 記憶遊戲</button>
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
       <div class="menuSep"></div>
       <button class="tab" id="themeBtn" onclick="toggleTheme()">🌓 深淺色</button>
@@ -768,6 +813,14 @@ a.ovMailItem:hover{text-decoration:underline;}
   </div>
 
   <!-- ⚙️ 設定 -->
+  <!-- 🧠 記憶遊戲 -->
+  <div class="pane" id="pane-game">
+    <div class="card" id="memCard">
+      <div class="section-title">🧠 記憶小遊戲</div>
+      <div id="memBody"></div>
+    </div>
+  </div>
+
   <div class="pane" id="pane-settings">
     <div class="card">
       <div class="section-title">📲 安裝到主畫面</div>
@@ -1274,6 +1327,7 @@ function switchTab(name){
   document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='notes'){renderNotes();renderLeave();requestLeaveFromExt();}
+  if(name==='game'){updateMemArchive(state.context);save();renderMemGame();}
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
 }
 
@@ -3283,6 +3337,340 @@ function briefLeaveSegments(){
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
+// ── 🧠 記憶小遊戲 ──────────────────────────────
+// 題目全部從使用者自己的資料出：行程、新聞、待辦筆記、同仁差假、問答紀錄。
+// 不經過 AI：題目和正確答案都是程式照資料組出來的，不會有 AI 編出來的錯答案，
+// 資料也不會送到任何地方。
+// 雲端只給「今天起兩週」的行程、每類兩則新聞，所以這裡另外留一份最近看過的
+// 行程和新聞（memArchive），過去的行程、前幾天的新聞才有得回顧。
+const MEM_EV_KEEP_DAYS=30;
+const MEM_NEWS_KEEP_DAYS=14;
+const MEM_ROUND=4;     // 一局 4 題、每題 25 分，滿分 100
+const MEM_PTS=25;
+const MEM_CAT={domestic:'國內',world:'國際',education:'教育'};
+const MEM_NOTE_TYPE={note:'瑣事筆記',todo:'待辦',reminder:'定時提醒',idea:'想法與心法'};
+const MEM_MODES=[
+  {id:'mix',label:'🎲 綜合'},
+  {id:'cal',label:'📅 行程'},
+  {id:'news',label:'📰 新聞'},
+  {id:'notes',label:'📝 筆記問答'},
+  {id:'leave',label:'📋 同仁差假'}
+];
+function updateMemArchive(ctx){
+  if(!ctx)return;
+  const ar=(state.memArchive&&typeof state.memArchive==='object')?state.memArchive:{};
+  const now=Date.now();
+  // 還沒到的行程以雲端最新的為準（改期、取消的才不會留著舊版本）；
+  // 已經過去的雲端不會再給，從存檔裡留下來。
+  const evMap=new Map();
+  (Array.isArray(ar.ev)?ar.ev:[]).forEach(e=>{
+    const t=new Date(e.s).getTime();
+    if(e&&e.t&&t<now&&t>now-MEM_EV_KEEP_DAYS*864e5)evMap.set(e.t+'|'+e.s,e);
+  });
+  (ctx.calendar||[]).forEach(e=>{
+    if(!e||!e.title||!e.start||isHolidayEvent(e)||isNaN(new Date(e.start)))return;
+    const t=String(e.title).trim().slice(0,80);
+    evMap.set(t+'|'+e.start,{t,s:e.start,a:!!e.allDay});
+  });
+  const ev=[...evMap.values()].sort((a,b)=>new Date(a.s)-new Date(b.s)).slice(-300);
+  const cut=tpeYmd(new Date(now-MEM_NEWS_KEEP_DAYS*864e5));
+  const news=(Array.isArray(ar.news)?ar.news:[]).filter(n=>n&&n.t&&n.d>=cut);
+  const seen=new Set(news.map(n=>n.t));
+  const h=newsHeadlines(),today=tpeYmd();
+  Object.keys(MEM_CAT).forEach(c=>(h[c]||[]).forEach(t=>{
+    if(seen.has(t))return;seen.add(t);
+    news.push({t:t.slice(0,160),c,d:today});
+  }));
+  state.memArchive={ev,news:news.slice(-150)};
+}
+function memShuffle(a){
+  a=a.slice();
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+function memClip(s,n){s=String(s||'').replace(/\s+/g,' ').trim();return s.length>n?s.slice(0,n)+'…':s;}
+// 一題至少要有 2 個錯的選項（共 3 選 1），湊不到就不出這題，免得變成送分題
+function memMakeQ(src,key,q,answer,pool,note){
+  const wrong=memShuffle([...new Set(pool.filter(x=>x&&x!==answer))]).slice(0,3);
+  if(wrong.length<2)return null;
+  return {src,key,q,answer,options:memShuffle([answer,...wrong]),note};
+}
+function memDay(d){
+  const t=tpeNow(d);
+  const md=(t.getMonth()+1)+'/'+t.getDate()+'（'+WD_NAMES[t.getDay()]+'）';
+  return tpeYmd(d)===tpeYmd()?md+' 今天':md;
+}
+function memNewsDay(ymd){
+  if(ymd===tpeYmd())return '今天';
+  const [y,m,d]=String(ymd).split('-').map(Number);
+  return m+'/'+d;
+}
+function memCalQs(){
+  const now=Date.now();
+  const evs=((state.memArchive&&state.memArchive.ev)||[]).filter(e=>Math.abs(new Date(e.s).getTime()-now)<=14*864e5);
+  const titleCount={};evs.forEach(e=>{titleCount[e.t]=(titleCount[e.t]||0)+1;});
+  const qs=[];
+  evs.forEach(e=>{
+    const d=new Date(e.s),past=d.getTime()<now;
+    const clock=e.a?'整天':spokenClock(tpeNow(d));
+    const when=memDay(d)+(e.a?'':' '+clock);
+    const note=`📅 ${when}${past?'（已經過了）':''}：${e.t}`;
+    const key='cal|'+e.t+'|'+e.s;
+    // 同一個時段的其他行程不能拿來當錯的選項，不然兩個都對
+    const sameSlot=new Set(evs.filter(x=>x.s===e.s).map(x=>x.t));
+    qs.push(memMakeQ('cal',key,`${when}${past?'的行程是什麼？':'有什麼行程？'}`,e.t,
+      Object.keys(titleCount).filter(t=>!sameSlot.has(t)),note));
+    // 重複出現的行程（每週例會）問「哪一天」會有好幾個對的答案，略過
+    if(titleCount[e.t]===1){
+      const day=memDay(d);
+      const days=evs.filter(x=>x.t!==e.t).map(x=>memDay(new Date(x.s)));
+      for(const k of [-2,-1,1,2]){const x=new Date(d.getTime()+k*864e5);days.push(memDay(x));}
+      qs.push(memMakeQ('cal',key+'|day',`「${e.t}」${past?'是哪一天？':'在哪一天？'}`,day,days.filter(x=>x!==day),note));
+      if(!e.a){
+        const times=evs.filter(x=>!x.a&&x.t!==e.t).map(x=>spokenClock(tpeNow(new Date(x.s))));
+        for(const k of [-60,-30,30,60,120]){times.push(spokenClock(tpeNow(new Date(d.getTime()+k*60000))));}
+        qs.push(memMakeQ('cal',key+'|time',`「${e.t}」${past?'是幾點開始的？':'幾點開始？'}`,clock,times.filter(x=>x!==clock),note));
+      }
+    }
+  });
+  return qs.filter(Boolean);
+}
+// 新聞標題裡的數字挖空，選項是同單位、不同大小的數字
+function memNumberVariants(numStr){
+  const n=Number(numStr.replace(/,/g,''));
+  if(!isFinite(n))return [];
+  const dec=(numStr.split('.')[1]||'').length;
+  const f=x=>{const v=dec?x.toFixed(dec):String(Math.round(x));return numStr.includes(',')?Number(v).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec}):v;};
+  const c=[n*2,n/2,n*1.5,n+Math.max(1,Math.round(n*0.3)),n-Math.max(1,Math.round(n*0.3)),n*10,n+1,n-1].filter(x=>x>0&&x!==n);
+  return [...new Set(c.map(f))].filter(x=>x!==numStr);
+}
+function memNewsQs(){
+  const news=(state.memArchive&&state.memArchive.news)||[];
+  const qs=[];
+  news.forEach(n=>{
+    const cat=MEM_CAT[n.c]||'';
+    const note=`📰 ${memNewsDay(n.d)}的${cat}新聞：${n.t}`;
+    qs.push(memMakeQ('news','news|'+n.t,`下面哪一則是${cat}新聞？`,memClip(n.t,60),
+      news.filter(x=>x.c!==n.c).map(x=>memClip(x.t,60)),note));
+    const m=n.t.match(/\d[\d,]*(?:\.\d+)?/);
+    if(m&&!(m[0].length===4&&+m[0]>=1900&&+m[0]<=2100)){
+      const masked=memClip(n.t.replace(m[0],'＿＿'),80);
+      qs.push(memMakeQ('news','news|'+n.t+'|num',`填空：「${masked}」`,m[0],memNumberVariants(m[0]),note));
+    }
+  });
+  return qs.filter(Boolean);
+}
+function memNoteQs(){
+  const notes=(state.notes||[]).filter(n=>n&&!n.deleted&&n.content);
+  const qs=[];
+  notes.forEach(n=>{
+    const label=MEM_NOTE_TYPE[n.type]||'筆記';
+    const text=memClip(n.content,50);
+    const note=`📝 ${label}${n.done?'（已完成）':''}：${memClip(n.content,90)}`;
+    qs.push(memMakeQ('notes','note|'+n.id,`下面哪一則是你記下的「${label}」？`,text,
+      notes.filter(x=>x.type!==n.type).map(x=>memClip(x.content,50)),note));
+    if(n.type==='reminder'&&n.dueAt&&!isNaN(new Date(n.dueAt))){
+      const d=new Date(n.dueAt);
+      const fmt=x=>memDay(x)+' '+spokenClock(tpeNow(x));
+      const ans=fmt(d);
+      const pool=notes.filter(x=>x.type==='reminder'&&x.dueAt&&x.id!==n.id&&!isNaN(new Date(x.dueAt))).map(x=>fmt(new Date(x.dueAt)));
+      for(const k of [-864e5,864e5,-3600e3,3600e3])pool.push(fmt(new Date(d.getTime()+k)));
+      qs.push(memMakeQ('notes','note|'+n.id+'|due',`「${text}」的提醒時間是？`,ans,pool,note+`（${ans}）`));
+    }
+  });
+  const qa=(state.qa||[]).filter(x=>x&&x.q&&x.a);
+  qa.slice(0,60).forEach(x=>{
+    const ans=memClip(x.a,46);
+    qs.push(memMakeQ('notes','qa|'+x.id,`你問過：「${memClip(x.q,40)}」當時的回答是？`,ans,
+      qa.filter(y=>y.id!==x.id).map(y=>memClip(y.a,46)),`💬 ${memClip(x.q,60)} → ${memClip(x.a,120)}`));
+  });
+  return qs.filter(Boolean);
+}
+function memLeaveQs(){
+  const recs=(state.leave||[]).filter(r=>r&&r.name&&r.type&&r.sd);
+  const common=['事假','病假','公假','休假','補休','公差','出差','特休'];
+  return recs.map(r=>memMakeQ('leave','leave|'+leaveKey(r),`${r.name}在 ${leaveRange(r,true)} 請的是什麼假？`,r.type,
+    common.concat(recs.map(x=>x.type)),`📋 ${r.name}：${r.type} ${leaveRange(r,true)}`)).filter(Boolean);
+}
+function memAllQs(mode){
+  const by={cal:memCalQs,news:memNewsQs,notes:memNoteQs,leave:memLeaveQs};
+  if(mode!=='mix')return by[mode]?by[mode]():[];
+  return [].concat(...Object.values(by).map(f=>f()));
+}
+// 綜合模式輪流從不同來源抽，避免五題都是行程；同一件事（同一個行程、同一則筆記）一局只問一次
+function memBuildRound(mode){
+  const all=memShuffle(memAllQs(mode));
+  const bySrc={};all.forEach(q=>{(bySrc[q.src]=bySrc[q.src]||[]).push(q);});
+  const srcs=memShuffle(Object.keys(bySrc));
+  const out=[],usedItems=new Set();
+  const itemOf=q=>q.key.split('|').slice(0,3).join('|');
+  let progress=true;
+  while(out.length<MEM_ROUND&&progress){
+    progress=false;
+    for(const s of srcs){
+      if(out.length>=MEM_ROUND)break;
+      const list=bySrc[s];
+      while(list.length){
+        const q=list.shift();
+        if(usedItems.has(itemOf(q)))continue;
+        usedItems.add(itemOf(q));out.push(q);progress=true;break;
+      }
+    }
+  }
+  return out;
+}
+let memGame=null;   // {mode,qs,i,score,first,missed,review,answered,picked}
+function memStart(mode){
+  const qs=memBuildRound(mode||'mix');
+  if(qs.length<MEM_ROUND){renderMemGame();return;}   // 湊不滿 4 題就不開局，分數才會是 100 分制
+  memGame={mode,qs,i:0,score:0,first:qs.length,missed:[],review:false,answered:false,picked:-1};
+  renderMemGame();
+}
+function memAnswer(idx){
+  const g=memGame;if(!g||g.answered)return;
+  const q=g.qs[g.i];
+  g.answered=true;g.picked=idx;
+  const ok=q.options[idx]===q.answer;
+  if(!g.review){
+    if(ok)g.score++;
+    else g.missed.push(q);
+  }
+  renderMemGame();
+}
+function memNext(){
+  const g=memGame;if(!g)return;
+  g.i++;g.answered=false;g.picked=-1;
+  // 第一輪答錯的，最後再出一次（選項重新洗牌），多看一次比較記得住
+  if(g.i>=g.qs.length&&!g.review&&g.missed.length){
+    g.review=true;
+    g.qs=g.qs.concat(g.missed.map(q=>Object.assign({},q,{options:memShuffle(q.options)})));
+  }
+  if(g.i>=g.qs.length)memFinish();
+  renderMemGame();
+}
+// 拿到 100 分的獎勵：彩帶、一句誇獎、可以收集的徽章（解鎖過就一直留著）
+const MEM_BADGES=[
+  {id:'first100',icon:'🥇',name:'第一次滿分',test:s=>s.perfect>=1},
+  {id:'streak3',icon:'🔥',name:'連續 3 次滿分',test:s=>s.bestStreak>=3},
+  {id:'perfect5',icon:'🌟',name:'滿分 5 次',test:s=>s.perfect>=5},
+  {id:'streak5',icon:'⚡',name:'連續 5 次滿分',test:s=>s.bestStreak>=5},
+  {id:'perfect10',icon:'🏆',name:'滿分 10 次',test:s=>s.perfect>=10},
+  {id:'allModes',icon:'🎯',name:'五種題型都拿過滿分',test:s=>MEM_MODES.every(m=>s.perfectModes.includes(m.id))},
+  {id:'perfect30',icon:'👑',name:'滿分 30 次',test:s=>s.perfect>=30}
+];
+const MEM_PRAISE=['記性超好！','完全沒被考倒！','這陣子的事都記在腦子裡了！','校長的記憶力果然一流！','滿分！給自己一個讚！'];
+function memStatsObj(){
+  const s=Object.assign({played:0,best:0,total:0,perfect:0,streak:0,bestStreak:0},state.memStats||{});
+  ['history','badges','perfectModes'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
+  return s;
+}
+function memFinish(){
+  const g=memGame;if(!g||g.done)return;
+  g.done=true;
+  const pts=g.score*MEM_PTS;
+  g.points=pts;
+  const st=memStatsObj();
+  st.played++;st.total+=pts;st.best=Math.max(st.best,pts);
+  if(pts===100){
+    st.perfect++;st.streak++;st.bestStreak=Math.max(st.bestStreak,st.streak);
+    if(!st.perfectModes.includes(g.mode))st.perfectModes.push(g.mode);
+  }else st.streak=0;
+  st.history=st.history.concat([{at:new Date().toISOString(),mode:g.mode,score:pts}]).slice(-30);
+  const fresh=MEM_BADGES.filter(b=>!st.badges.includes(b.id)&&b.test(st));
+  st.badges=st.badges.concat(fresh.map(b=>b.id));
+  g.newBadges=fresh.map(b=>b.id);
+  g.streak=st.streak;
+  g.praise=pts===100?MEM_PRAISE[Math.floor(Math.random()*MEM_PRAISE.length)]:'';
+  st.lastAt=new Date().toISOString();
+  state.memStats=st;save();
+  if(pts===100){
+    memConfetti();
+    if(state.speakReply&&'speechSynthesis'in window){try{speakSegments([{text:'恭喜！一百分！'+g.praise}]);}catch(e){}}
+  }
+}
+function memConfetti(){
+  try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;}catch(e){}
+  const box=document.createElement('div');
+  box.className='memConfetti';box.setAttribute('aria-hidden','true');
+  const colors=['#7c3aed','#f59e0b','#10b981','#ef4444','#3b82f6','#ec4899'];
+  for(let i=0;i<60;i++){
+    const p=document.createElement('i');
+    p.style.left=(Math.random()*100)+'%';
+    p.style.background=colors[i%colors.length];
+    p.style.animationDelay=(Math.random()*0.6).toFixed(2)+'s';
+    p.style.animationDuration=(1.8+Math.random()*1.4).toFixed(2)+'s';
+    box.appendChild(p);
+  }
+  document.body.appendChild(box);
+  setTimeout(()=>box.remove(),4200);
+}
+function memBadgeWall(st,fresh){
+  return `<div class="memBadges">${MEM_BADGES.map(b=>{
+    const on=st.badges.includes(b.id),isNew=(fresh||[]).includes(b.id);
+    return `<div class="memBadge${on?' on':''}${isNew?' new':''}" title="${esc(b.name)}"><span>${on?b.icon:'🔒'}</span><small>${esc(b.name)}</small></div>`;
+  }).join('')}</div>`;
+}
+function memScoreBoard(st){
+  if(!st.played)return '';
+  const avg=Math.round(st.total/st.played);
+  const recent=st.history.slice(-8);
+  return `<div class="memBoard"><div class="memProg" style="margin-bottom:6px;"><span>🏅 我的成績</span></div>`
+    +`<div class="memStatRow"><div><b>${st.best}</b><small>最高</small></div><div><b>${avg}</b><small>平均</small></div><div><b>${st.perfect}</b><small>滿分次數</small></div><div><b>${st.streak}</b><small>連續滿分</small></div></div>`
+    +(recent.length?`<div class="memRecent"><small>最近 ${recent.length} 局</small>${recent.map(h=>`<span class="memPill${h.score===100?' gold':''}" title="${esc(fmtDateTime(h.at,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))}">${h.score}</span>`).join('')}</div>`:'')
+    +`</div>`;
+}
+function memQuit(){memGame=null;renderMemGame();}
+function memSpeakQ(){
+  const g=memGame;if(!g||!('speechSynthesis'in window))return;
+  const q=g.qs[g.i];if(!q)return;
+  ttsWarmUp();
+  speakSegments([{text:q.q}].concat(q.options.map((o,i)=>({text:'第'+(i+1)+'個，'+o+'。'}))));
+}
+const MEM_SRC_LABEL={cal:'📅 行程',news:'📰 新聞',notes:'📝 筆記問答',leave:'📋 同仁差假'};
+function renderMemGame(){
+  const el=document.getElementById('memBody');if(!el)return;
+  const g=memGame;
+  const st=memStatsObj();
+  if(!g){
+    const counts={},ready={};
+    MEM_MODES.forEach(m=>{counts[m.id]=memAllQs(m.id).length;ready[m.id]=memBuildRound(m.id).length>=MEM_ROUND;});
+    el.innerHTML=`<div class="hint" style="margin:0 0 10px;">從你的行程、新聞、待辦筆記出題，答完會告訴你正確內容。一局 ${MEM_ROUND} 題、每題 ${MEM_PTS} 分；拿到 100 分有獎勵 🎁</div>`
+      +`<div class="memChips">${MEM_MODES.map(m=>`<button class="chip" ${ready[m.id]?'':'disabled'} onclick="memStart('${m.id}')">${m.label}<span class="memCnt">${counts[m.id]}</span></button>`).join('')}</div>`
+      +(ready.mix?'':`<div class="memNote">目前資料還不夠出一局（要 ${MEM_ROUND} 題）。連上雲端後台（行程、新聞），或在「待辦與筆記」多記幾件事，再回來玩。</div>`)
+      +memScoreBoard(st)
+      +(st.played?`<div class="memProg" style="margin-top:12px;"><span>🎖️ 徽章 ${st.badges.length}/${MEM_BADGES.length}</span></div>`+memBadgeWall(st):'');
+    return;
+  }
+  if(g.done){
+    const pts=g.points;
+    const perfect=pts===100;
+    const face=perfect?'':pts>=75?'👍 只差一點點！':pts>=50?'🙂 不錯，再接再厲':'💪 多玩幾次就記住了';
+    const fresh=(g.newBadges||[]).map(id=>MEM_BADGES.find(b=>b.id===id)).filter(Boolean);
+    el.innerHTML=(perfect
+        ?`<div class="memTrophy">🏆</div><div class="memScore perfect">100 分</div><div class="memPraise">${esc(g.praise)}</div>`
+          +(g.streak>=2?`<div class="memStreak">🔥 連續 ${g.streak} 次滿分</div>`:'')
+        :`<div class="memScore">${pts} 分</div><div style="text-align:center;font-weight:800;margin-bottom:10px;">${face}</div>`)
+      +(fresh.length?`<div class="memUnlock">🎖️ 解鎖新徽章：${fresh.map(b=>`<b>${b.icon} ${esc(b.name)}</b>`).join('、')}</div>`:'')
+      +(g.missed.length?`<div class="memProg">再記一下這些</div><ul class="memRecall">${g.missed.map(q=>`<li>${esc(q.note)}</li>`).join('')}</ul>`:'')
+      +`<div class="row2" style="margin-top:12px;"><button class="btn" style="flex:1" onclick="memStart('${g.mode}')">再玩一局</button><button class="btn ghost" style="flex:1" onclick="memQuit()">換題型</button></div>`
+      +`<div class="hint" style="text-align:center;margin:8px 0 0;">最高 ${st.best} 分・平均 ${Math.round(st.total/st.played)} 分・滿分 ${st.perfect} 次</div>`;
+    return;
+  }
+  const q=g.qs[g.i];
+  const n=g.review?`🔁 再複習 ${g.i-g.first+1}/${g.missed.length}（不計分）`:`第 ${g.i+1}/${g.first} 題・目前 ${g.score*MEM_PTS} 分`;
+  const ok=g.answered&&q.options[g.picked]===q.answer;
+  el.innerHTML=`<div class="memProg"><span>${n}・${MEM_SRC_LABEL[q.src]||''}</span><button class="memMini" onclick="memSpeakQ()" aria-label="念出題目">🔊</button></div>`
+    +`<div class="memQ">${esc(q.q)}</div>`
+    +q.options.map((o,i)=>{
+      let cls='memOpt';
+      if(g.answered){if(o===q.answer)cls+=' right';else if(i===g.picked)cls+=' wrong';}
+      return `<button class="${cls}" ${g.answered?'disabled':''} onclick="memAnswer(${i})">${esc(o)}</button>`;
+    }).join('')
+    +(g.answered?`<div class="memNote"><b>${ok?(g.review?'✅ 答對了':`✅ 答對了 +${MEM_PTS} 分`):'❌ 正確答案是上面綠色那個'}</b><br>${esc(q.note)}</div>`
+      +`<button class="btn" style="display:block;width:100%;" onclick="memNext()">${g.i+1>=g.qs.length&&(g.review||!g.missed.length)?'看結果':'下一題'}</button>`:'')
+    +`<button class="memQuit" onclick="memQuit()">結束這局</button>`;
+}
+
 // ── 雲端上下文（Gmail／日曆／其他系統）────
 async function refreshContext(){
   if(!state.gasUrl){document.getElementById('ctxStatus').textContent='尚未設定雲端後台（設定 → 雲端後台）';return;}
@@ -3291,7 +3679,8 @@ async function refreshContext(){
     const r=await gasGet('context');
     const d=await r.json();
     if(d.ok){
-      state.context=d.context;state.contextAt=new Date().toISOString();save();
+      state.context=d.context;state.contextAt=new Date().toISOString();
+      updateMemArchive(d.context);save();
       // 用雲端筆記合併本機（雲端為主，保留本機尚未同步的新項目）
       const cloudIds=new Set((d.context.notes||[]).map(n=>n.id));
       const localOnly=state.notes.filter(n=>!cloudIds.has(n.id));
@@ -5433,6 +5822,7 @@ renderChat();
 renderNotes();
 renderLeave();
 requestLeaveFromExt();
+if(state.context){updateMemArchive(state.context);save();}
 renderSpeakBtn();
 renderLinkChips();
 initCountdownUI();
