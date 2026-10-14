@@ -379,12 +379,44 @@ function doPost(e) {
   return jsonResp({ ok: false, error: 'Unknown action: ' + action });
 }
 
+// ── 聯邦帳單 ──────────────────────────────────
+// 有「聯邦」兩個字的信就是聯邦銀行的帳單：不管已讀未讀、抓近 45 天最多 3 封，
+// 從全文抓本期應繳金額和繳款截止日（抓不到就留空，前端只顯示主旨）。
+function parseBillText(text) {
+  const t = String(text || '').replace(/\s+/g, ' ');
+  const a = t.match(/(?:本期)?應繳(?:總)?(?:金額|總額|款項)?\s*[:：]?\s*(?:NT\$|新[臺台]幣|TWD)?\s*(-?[\d,]+(?:\.\d+)?)\s*元?/);
+  const d = t.match(/(?:繳款截止日|繳款期限|最後繳款日|繳費期限|繳款截止日期)\s*[:：]?\s*(\d{2,4}\s*[\/\-.年]\s*\d{1,2}\s*[\/\-.月]\s*\d{1,2})/);
+  return { amount: a ? a[1] : '', due: d ? d[1].replace(/\s+/g, '').replace(/[年月]/g, '/') : '' };
+}
+function getBillDigest() {
+  try {
+    const threads = GmailApp.search('聯邦 newer_than:45d -from:me', 0, 10);
+    const out = [];
+    threads.forEach(t => {
+      const msgs = t.getMessages();
+      const last = msgs[msgs.length - 1];
+      const subject = t.getFirstMessageSubject() || '';
+      const body = (last.getPlainBody() || '').replace(/\s+/g, ' ');
+      if (!/聯邦/.test(subject + ' ' + last.getFrom() + ' ' + body)) return;
+      const p = parseBillText(body);
+      out.push({
+        subject, from: last.getFrom(), date: last.getDate().toISOString(),
+        snippet: body.slice(0, 120), amount: p.amount, due: p.due,
+        unread: t.isUnread(), threadId: t.getId()
+      });
+    });
+    out.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return out.slice(0, 3);
+  } catch (err) { return []; }
+}
+
 // ── 彙整上下文：Gmail + 日曆 + 新聞 + 天氣 + 起立提醒設定 + 待辦提醒 + 其他系統摘要 ──
 function buildContext() {
   return {
     generatedAt: new Date().toISOString(),
     notes: sheetToObjects(setupSheets().note, NOTE_COLS),
     gmail: getGmailDigest(),
+    bills: getBillDigest(),
     calendar: getCalendarDigest(),
     news: getNewsDigest(),
     weather: getWeatherDigest(),
@@ -405,7 +437,7 @@ function getStandupSettings() {
 // Gmail 彙整：近 2 天未讀信件，僅取主旨／寄件者／時間／摘要片段（不含全文）。
 // 排除 Ybot 自己寄的信（避免自己的每日簡報/提醒被當成「未讀重要信件」形成迴圈）
 // 與 Google 安全性快訊；含信用卡/繳費關鍵字的標記為重要並優先顯示；最多列 2 封。
-const GMAIL_IMPORTANT_KEYWORDS = ['信用卡', '繳費', '帳單', '付款', '逾期', 'invoice', 'payment', 'credit card'];
+const GMAIL_IMPORTANT_KEYWORDS = ['聯邦', '信用卡', '繳費', '帳單', '付款', '逾期', 'invoice', 'payment', 'credit card'];
 function getGmailDigest() {
   try {
     const threads = GmailApp.search('is:unread newer_than:2d -from:me -from:no-reply@accounts.google.com', 0, 20);
@@ -734,6 +766,12 @@ function dailyBrief() {
       lines.push('🟢 可以延後（共 ' + groups.green.length + ' 項，僅列前 5）：');
       groups.green.slice(0, 5).forEach(p => lines.push(fmtItemLine(p)));
     }
+    lines.push('');
+  }
+  if ((ctx.bills || []).length) {
+    lines.push('💳 聯邦帳單：');
+    ctx.bills.forEach(m => lines.push('　・' + m.subject +
+      (m.amount ? '｜應繳 ' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
     lines.push('');
   }
   if (ctx.gmail.length) {
