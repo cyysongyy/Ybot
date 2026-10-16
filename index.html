@@ -732,10 +732,11 @@ a.ovMailItem:hover{text-decoration:underline;}
   <!-- 📝 待辦與筆記 -->
   <div class="pane" id="pane-notes">
     <div class="card">
-      <a class="btn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤）↗</a>
-      <!-- 手機上一鍵打開 WebITR 批核。登入和按「同意」都是使用者自己在 WebITR 裡做，Ybot 不經手帳密。 -->
-      <a class="btn ghost" id="webitrBtn" style="display:block;text-align:center;text-decoration:none;margin-top:8px;" href="https://webitr.yunlin.gov.tw/WebITR/" target="_blank" rel="noopener">✅ WebITR 差勤批核 ↗</a>
-      <div class="hint" style="margin-top:6px;margin-bottom:0;">第一次登入時讓 Chrome「儲存密碼」，之後打開會自動帶入帳密。要是先跳到 EIP 登入頁，登入後再按一次這顆就好。</div>
+      <!-- WebITR 不開放直接登入（會顯示「本系統未開放使用WebITR首頁登入的功能」），
+           一定要先登入 EIP（單一簽入），再從 EIP 裡點「WebITR T9差勤」。所以只留 EIP 這一顆。
+           登入和按「同意」都是使用者自己做，Ybot 不經手帳密。 -->
+      <a class="btn" id="eipBtn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤批核）↗</a>
+      <div class="hint" style="margin-top:6px;margin-bottom:0;">差勤批核：先登入 EIP，再點裡面的「WebITR T9差勤」。WebITR 不能直接登入。第一次登入 EIP 時讓瀏覽器「儲存密碼」，之後會自動帶入。</div>
     </div>
 
     <div class="card">
