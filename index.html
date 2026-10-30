@@ -975,8 +975,12 @@ a.ovMailItem:hover{text-decoration:underline;}
         <input type="checkbox" id="useSchoolDb" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.useSchoolDb=this.checked;save();onSchoolDbToggle();">
         對話時附上校務系統資料給 AI 參考
       </label>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px;">
+        <input type="checkbox" id="allowSensitiveAI" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.allowSensitiveAI=this.checked;save();">
+        也附上敏感資料（身分證、薪資、電話、地址、學生名冊與成績）——預設關閉
+      </label>
       <div id="schoolDbStatus" class="hint" style="margin-top:8px;"></div>
-      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含身分證字號、薪資、聯絡方式）／學生名冊／學生成績，內容不受限制；週四品格圍圈輪值另外從校務系統網頁直接讀取。這些資料會連同對話一起送給你設定的 AI 服務。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
+      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含身分證字號、薪資、聯絡方式）／學生名冊／學生成績。身分證、薪資、電話、地址、學生名冊與成績預設不會送給 AI，要勾選上方「也附上敏感資料」才會附上；週四品格圍圈輪值另外從校務系統網頁直接讀取。這些資料會連同對話一起送給你設定的 AI 服務。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
     </div>
 
     <div class="card">
@@ -1178,7 +1182,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,qa:[],qaSyncedAt:'',
+  useSchoolDb:false,allowSensitiveAI:false,useAppsData:false,useMicroPolitics:false,speakReply:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],pushedApprovalIds:[],seenApprovalIds:[],
   gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
@@ -1340,12 +1344,10 @@ function gasErrText(e){
   }
   return msg||'讀取失敗';
 }
+// 2026-10 隱私修正：讀取也改用 POST，通關密語放在 body，不再出現在網址裡
+// （網址會被瀏覽器歷史、代理伺服器與後台紀錄留下來）。名稱沿用 gasGet 以免動到呼叫點。
 function gasGet(action,params){
-  const u=gasUrlOrThrow();
-  u.searchParams.set('action',action);
-  if(state.gasToken)u.searchParams.set('t',state.gasToken);
-  if(params)Object.keys(params).forEach(k=>u.searchParams.set(k,params[k]));
-  return fetch(u.toString());
+  return gasPost(Object.assign({action},params||{}));
 }
 function gasPost(body){
   const u=gasUrlOrThrow();
@@ -1367,7 +1369,7 @@ async function checkBackendLock(){
     const d=await (await gasGet('ping')).json();
     if(d&&d.authRequired){showTokenStatus('bad','🔒 後台已上鎖，但這裡的通關密語不對或還沒填。');return;}
     if(d&&d.ok&&d.tokenRequired===false){
-      showTokenStatus('bad','⚠️ 後台目前沒有上鎖：任何知道網址的人都讀得到你的信件摘要、行程與全部筆記。請到 Apps Script 執行一次 generateApiToken()。');return;
+      showTokenStatus('bad','⚠️ 後台尚未設定通關密語，目前會拒絕所有讀寫。請到 Apps Script 執行一次 generateApiToken()，再把密語貼進來。');return;
     }
     if(d&&d.ok&&d.tokenRequired){showTokenStatus('ok','🔒 已上鎖，密語正確。');return;}
     showTokenStatus('','');
@@ -1386,6 +1388,7 @@ function fillSettings(){
   document.getElementById('remUrl').value=state.remUrl;
   document.getElementById('hltUrl').value=state.hltUrl;
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
+  document.getElementById('allowSensitiveAI').checked=!!state.allowSensitiveAI;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
   document.getElementById('useMicroPolitics').checked=!!state.useMicroPolitics;
   renderAppsDataStatus();
@@ -1604,7 +1607,7 @@ const TRANSFER_PREFIX='YBOT-SETTINGS-1:';
 // 只搬「設定」和使用者自己的長期資料。刻意不搬的：
 // chat（對話紀錄）、notes（會從雲端同步回來）、context（快取，重抓就有）、
 // pushEnabled／pushed*（通知權限是跟著瀏覽器走的，新的那邊要自己重新允許）。
-const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply',
+const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','allowSensitiveAI','useAppsData','useMicroPolitics','speakReply',
   'gasUrl','gasToken','remUrl','hltUrl','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
 function transferEncode(obj){
   const bytes=new TextEncoder().encode(JSON.stringify(obj));
@@ -2878,8 +2881,8 @@ function blobToBase64(blob){
 }
 async function transcribeWithGemini(blob,mime){
   const b64=await blobToBase64(blob);
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${state.ai.gemini}`,
-    {method:'POST',headers:{'Content-Type':'application/json'},
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`,
+    {method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':state.ai.gemini},
      body:JSON.stringify({contents:[{parts:[
        {text:'請把這段語音逐字轉成文字稿。規則：(1) 保持說話者原本的語言，不要翻譯——說中文就輸出中文，說英文就輸出英文，中英夾雜就照原樣保留。(2) 中文一律使用繁體字與台灣用語，絕對不要輸出簡體字。(3) 只輸出文字稿內容本身，不要加任何說明、標題或引號。'},
        {inline_data:{mime_type:mime.split(';')[0],data:b64}}
@@ -3789,7 +3792,16 @@ function aiOrder(){
 // 跟回答共用同一個 maxOutputTokens——1024 太小的話，思考吃掉大半，答案就會在
 // 句子中間被硬切斷。給寬一點，反正沒用到不會計費。
 const AI_MAX_TOKENS=2048;
+// 送出前最後一道防線：就算資料從別的路徑混進來，身分證字號與手機號碼也不會離開本機。
+// 使用者勾選「也附上敏感資料」時不處理（那是明確的選擇）。
+function redactForAI(text){
+  if(state.allowSensitiveAI||typeof text!=='string')return text;
+  return text
+    .replace(/(?<![A-Za-z0-9])[A-Z][12]\d{8}(?!\d)/g,'[身分證已遮罩]')
+    .replace(/(?<!\d)09\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)/g,'[手機已遮罩]');
+}
 async function callAI(prompt,image,opts){
+  prompt=redactForAI(prompt);
   const order=aiOrder();
   if(!order.length)throw new Error('請先在「設定」填入至少一組 AI API Key');
   let lastErr;
@@ -3806,8 +3818,8 @@ async function callProvider(id,prompt,image,opts){
   if(id==='gemini'){
     const parts=[{text:prompt}];
     if(image)parts.push({inline_data:{mime_type:image.mime||'image/jpeg',data:image.b64}});
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${state.ai.gemini}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`,
+      {method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':state.ai.gemini},
        body:JSON.stringify({contents:[{parts}],generationConfig:{temperature:temp,maxOutputTokens:maxTokens}})});
     const d=await r.json();if(!r.ok)throw new Error(d.error?.message||`Gemini ${r.status}`);
     const cand=d.candidates?.[0];
@@ -4009,20 +4021,21 @@ function buildSchoolDbContext(){
     lines.push('教職員名冊（共'+staffList.length+'位）：'+
       staffList.slice(0,60).map(s=>{
         const md=parseRocBirthMonthDay(s.birth);
-        const parts=[s.unit,s.title,s.rank,s.idno?'身分證/職編'+s.idno:'',s.salary?'薪點'+s.salary:'',
-          s.phone?'電話'+s.phone:'',s.mobile?'手機'+s.mobile:'',
-          md?'生日'+md:(s.birth?'出生'+s.birth:''),s.startDate?'到職'+s.startDate:'',s.addr?'地址'+s.addr:'',s.note].filter(Boolean);
+        const sens=!!state.allowSensitiveAI;
+        const parts=[s.unit,s.title,s.rank,sens&&s.idno?'身分證/職編'+s.idno:'',sens&&s.salary?'薪點'+s.salary:'',
+          sens&&s.phone?'電話'+s.phone:'',sens&&s.mobile?'手機'+s.mobile:'',
+          md?'生日'+md:'',s.startDate?'到職'+s.startDate:'',sens&&s.addr?'地址'+s.addr:'',sens?s.note:''].filter(Boolean);
         return `${s.name}(${parts.join('·')})`;
       }).join('；'));
   }
   const roster=read('ck_roster_cache');
-  if(Array.isArray(roster)&&roster.length){
+  if(state.allowSensitiveAI&&Array.isArray(roster)&&roster.length){
     lines.push('學生名冊（共'+roster.length+'位）：'+
       roster.slice(0,200).map(r=>`${r.name||'(無姓名)'}(${r.cls}第${r.seat}號·學號${r.sid})`).join('；'));
   }
   const grades=read('cksch_grades');
   const gradeRows=grades&&Array.isArray(grades.data)?grades.data:null;
-  if(gradeRows&&gradeRows.length){
+  if(state.allowSensitiveAI&&gradeRows&&gradeRows.length){
     const recent=gradeRows.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,150);
     lines.push('學生成績（共'+gradeRows.length+'筆，僅列最近150筆）：'+
       recent.map(g=>`${g.name}(${g.cls})${g.subject}${g.score}分(${g.year}學年${g.semester}學期${g.stage}${g.date?'·'+g.date:''})`).join('；'));
