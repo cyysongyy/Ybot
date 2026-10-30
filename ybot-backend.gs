@@ -196,12 +196,27 @@ function clearApiToken() {
 // 還沒設密語時一律放行。不然貼上新程式、還來不及執行 generateApiToken()，
 // App 就整個連不上，反而會被誤判成「後台又失效了」。放行時回應會帶
 // tokenRequired:false，前端據此顯示「尚未保護」的警告。
-function authOk(supplied) {
+// 2026-10 隱私修正：沒設密語時不再放行（改成一律拒絕，只有 ping 例外，讓前端能顯示
+// 「尚未上鎖」的提示）；比對改成固定時間，避免靠回應速度猜密語。
+function tokenMatches(supplied) {
   const token = getApiToken();
-  if (!token) return true;
-  return String(supplied || '') === token;
+  const a = String(supplied || '');
+  if (!token || a.length !== token.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ token.charCodeAt(i);
+  return diff === 0;
+}
+function authOk(supplied) {
+  return tokenMatches(supplied);
+}
+function pingResp() {
+  return jsonResp({ ok: true, message: 'Ybot 後台連線正常', time: new Date().toISOString(),
+    tokenRequired: !!getApiToken() });
 }
 function authFail() {
+  if (!getApiToken()) {
+    return jsonResp({ ok: false, error: '後台尚未設定通關密語，請先在 Apps Script 執行 generateApiToken()', authRequired: true, needSetup: true });
+  }
   return jsonResp({ ok: false, error: '通關密語不正確或尚未填寫', authRequired: true });
 }
 
@@ -234,15 +249,25 @@ function ensureSheet(name, cols) {
 }
 
 // ── GET 處理 ────────────────────────────────────
+// 2026-10 隱私修正：GET 不再回傳任何資料。密語放在網址上會留在瀏覽器歷史與各種紀錄裡，
+// 所以讀取全部改走 POST（密語在 body）。GET 只剩連線測試，舊版前端會看到提示。
 function doGet(e) {
-  const action = e?.parameter?.action || 'context';
-  if (!authOk(e?.parameter?.t)) return authFail();
+  return pingResp();
+}
 
+// ── POST 處理 ───────────────────────────────────
+function doPost(e) {
+  let body;
+  try { body = JSON.parse(e.postData.contents); } catch (err) { return jsonResp({ ok: false, error: 'Invalid JSON' }); }
+  const action = body.action;
   if (action === 'ping') {
-    // tokenRequired 讓前端知道這個後台到底有沒有上鎖，沒上鎖就在設定頁提醒。
-    return jsonResp({ ok: true, message: 'Ybot 後台連線正常', time: new Date().toISOString(),
-      tokenRequired: !!getApiToken() });
+    // 已設密語但帶錯 → 擋；沒設密語 → 回 tokenRequired:false 讓前端顯示警告
+    if (getApiToken() && !tokenMatches(body.t)) return authFail();
+    return pingResp();
   }
+  if (!authOk(body.t)) return authFail();
+
+  // 讀取類動作（原本是 GET）
   if (action === 'notes') {
     const { note } = setupSheets();
     return jsonResp({ ok: true, notes: sheetToObjects(note, NOTE_COLS) });
@@ -254,15 +279,6 @@ function doGet(e) {
     const { qa } = setupSheets();
     return jsonResp({ ok: true, qa: sheetToObjects(qa, QA_COLS) });
   }
-  return jsonResp({ ok: false, error: 'Unknown action: ' + action });
-}
-
-// ── POST 處理 ───────────────────────────────────
-function doPost(e) {
-  let body;
-  try { body = JSON.parse(e.postData.contents); } catch (err) { return jsonResp({ ok: false, error: 'Invalid JSON' }); }
-  if (!authOk(body.t)) return authFail();
-  const action = body.action;
 
   if (action === 'addNote') {
     const { note } = setupSheets();
