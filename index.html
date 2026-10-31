@@ -347,6 +347,12 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .ovHeadTitle{flex:1;min-width:0;font-size:1.25rem;font-weight:900;letter-spacing:.03em;}
 .pane{display:none;}
 .pane.active{display:block;}
+/* 🏫 校長助理（內嵌同網域的 principal-assistant） */
+.paBar{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:.82rem;color:var(--muted,#64748b);}
+.paBar b{flex:1;color:inherit;font-weight:700;}
+.paBar button{border:1px solid var(--line);background:var(--card);color:inherit;border-radius:10px;padding:7px 11px;font-size:.8rem;font-weight:700;cursor:pointer;}
+.paFrame{display:block;width:100%;height:calc(100vh - 210px);min-height:480px;border:1px solid var(--line);border-radius:14px;background:var(--card);}
+.paHint{margin:8px 2px 0;font-size:.76rem;line-height:1.5;color:var(--muted,#64748b);}
 .card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow-md);transition:box-shadow .2s,transform .2s;}
 
 /* 對話分頁：桌面/平板寬螢幕採 2×2 卡片網格排版，手機仍維持單欄堆疊 */
@@ -579,6 +585,7 @@ a.ovMailItem:hover{text-decoration:underline;}
     <nav class="menuPanel" id="menuPanel">
       <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</button>
       <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</button>
+      <button class="tab" data-tab="pa" onclick="switchTab('pa')">🏫 校長助理</button>
       <button class="tab" data-tab="game" onclick="switchTab('game')">🧠 記憶遊戲</button>
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
       <div class="menuSep"></div>
@@ -783,6 +790,17 @@ a.ovMailItem:hover{text-decoration:underline;}
 
   <!-- ⚙️ 設定 -->
   <!-- 🧠 記憶遊戲 -->
+  <!-- 🏫 校長助理（內嵌） -->
+  <div class="pane" id="pane-pa">
+    <div class="paBar">
+      <b>🏫 校長助理</b>
+      <button type="button" onclick="reloadPaFrame()">🔄 重新載入</button>
+      <button type="button" onclick="openPaWindow()">↗ 新視窗開啟</button>
+    </div>
+    <iframe class="paFrame" id="paFrame" title="校長助理" loading="lazy" allow="clipboard-write; microphone" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <div class="paHint">校長助理與 Ybot 同網域，AI 金鑰會自動共用（兩邊擇一填寫即可）。若 Google 登入或畫面異常，請改用「新視窗開啟」。</div>
+  </div>
+
   <div class="pane" id="pane-game">
     <div class="card" id="memCard">
       <div class="section-title">🧠 記憶小遊戲</div>
@@ -1295,10 +1313,28 @@ function closeMenu(){
 }
 document.addEventListener('click',e=>{if(!e.target.closest('#appHeader'))closeMenu();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
+// ── 🏫 校長助理（內嵌）──────────────────
+// 校長助理是另一個 repo，但部署後與 Ybot 同一個 origin（cyysongyy.github.io），
+// 所以可以直接用 iframe 嵌進來，不用跨網域，也不動它自己的程式碼；它之後更新，
+// 這裡自動就是最新版。只在第一次點開分頁時才載入，避免拖慢 Ybot 開啟速度。
+// 金鑰共用沿用上面的 shared_ai_keys_v1，這裡不碰任何金鑰。
+const PA_URL='https://cyysongyy.github.io/principal-assistant/';
+function loadPaFrame(force){
+  const fr=document.getElementById('paFrame');
+  if(!fr)return;
+  if(force||!fr.getAttribute('src'))fr.setAttribute('src',PA_URL);
+}
+function reloadPaFrame(){
+  const fr=document.getElementById('paFrame');
+  if(fr)fr.removeAttribute('src');
+  loadPaFrame(true);
+}
+function openPaWindow(){window.open(PA_URL,'_blank','noopener');}
 function switchTab(name){
   closeMenu();
   document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
+  if(name==='pa')loadPaFrame();
   if(name==='notes')renderNotes();
   if(name==='game'){updateMemArchive(state.context);save();renderMemGame();}
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
