@@ -25,6 +25,7 @@
 | 🔗 整合其他 App | 可串接 [remediation-system](https://github.com/cyysongyy/remediation-system) 的 `remediation-backend.gs`／`health-backend.gs`，對話與簡報一併帶入考卷批改、健康預測的最新摘要 |
 | 🧩 我的其他 App | 「設定 → 我的其他 App」可自由新增任何你自建的 App（名稱＋網頁網址，選填後台 API 網址），在對話快捷列一鍵開啟，Ybot 也會知道這些 App 的存在 |
 | 🏫 校長助理（內嵌） | 選單 → 「🏫 校長助理」直接在 Ybot 內開啟 [principal-assistant](https://cyysongyy.github.io/principal-assistant/)（同網域 iframe，第一次點開才載入）；AI 金鑰與課表資料原本就與它共用。登入或畫面異常時可按「↗ 新視窗開啟」 |
+| 💡 心法同步 | 校長助理「想法與心法」裡的每一則（主題、一句心法、原文）會自動匯入 Ybot 的 💡 心法：筆記顯示一句心法與 🏫 主題標籤，原文收在「看原文」。單向匯入、不會重複；在 Ybot 刪掉的不會再匯回來，校長助理那邊刪除也不會連動刪 Ybot |
 
 ---
 

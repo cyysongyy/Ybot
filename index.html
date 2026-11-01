@@ -349,9 +349,12 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
 .pane.active{display:block;}
 /* 🏫 校長助理（內嵌同網域的 principal-assistant） */
 .paBar{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:.82rem;color:var(--muted,#64748b);}
-.paBar b{flex:1;color:inherit;font-weight:700;}
-.paBar button{border:1px solid var(--line);background:var(--card);color:inherit;border-radius:10px;padding:7px 11px;font-size:.8rem;font-weight:700;cursor:pointer;}
+.paBar b{flex:1;min-width:0;color:inherit;font-weight:700;white-space:nowrap;}
+.paBar button{white-space:nowrap;flex-shrink:0;border:1px solid var(--line);background:var(--card);color:inherit;border-radius:10px;padding:7px 11px;font-size:.8rem;font-weight:700;cursor:pointer;}
 .paFrame{display:block;width:100%;height:calc(100vh - 210px);min-height:480px;border:1px solid var(--line);border-radius:14px;background:var(--card);}
+.paRaw{margin-top:6px;font-size:.78rem;color:var(--tx2);}
+.paRaw summary{cursor:pointer;color:var(--tx3);font-weight:700;}
+.paRaw div{margin-top:4px;white-space:pre-wrap;line-height:1.6;}
 .paHint{margin:8px 2px 0;font-size:.76rem;line-height:1.5;color:var(--muted,#64748b);}
 .card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow-md);transition:box-shadow .2s,transform .2s;}
 
@@ -454,7 +457,8 @@ textarea.fi{resize:vertical;min-height:56px;}
 .btn:disabled{opacity:.5;cursor:default;transform:none;box-shadow:none;}
 .btn.ghost{background:none;border:1px solid var(--line);color:var(--tx2);box-shadow:none;}
 .btn.ghost:hover:not(:disabled){border-color:var(--pri);color:var(--pri);transform:none;box-shadow:var(--shadow);}
-.filterRow{display:flex;gap:6px;margin:4px 0 12px;}
+.filterRow{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;}
+.filterRow .chip{white-space:nowrap;}
 .filterRow .chip.active{background:var(--pri);color:#fff;border-color:var(--pri);}
 .noteItem{display:flex;align-items:flex-start;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line);}
 .noteItem:last-child{border-bottom:none;}
@@ -1319,9 +1323,58 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
 // 這裡自動就是最新版。只在第一次點開分頁時才載入，避免拖慢 Ybot 開啟速度。
 // 金鑰共用沿用上面的 shared_ai_keys_v1，這裡不碰任何金鑰。
 const PA_URL='https://cyysongyy.github.io/principal-assistant/';
+// ── 🏫 校長助理「想法與心法」→ Ybot 💡 心法 ─────────────
+// 校長助理把想法存在 localStorage['pa_ideas']（主題、原文、一句心法），
+// 與 Ybot 同網域，這裡直接讀、單向匯入成 type:'idea' 的筆記：
+//  - 筆記內容放「一句心法」（沒有心法就放原文），原文收在「看原文」裡
+//  - 用 paId 對應，重複匯入只會更新、不會長出重複的
+//  - 在 Ybot 刪掉的會記進 paIgnore，不會下次又匯回來
+//  - 校長助理裡刪除不會連動刪 Ybot 這邊（單向，避免誤刪）
+//  - 沒有任何金鑰經手，純資料搬運
+const PA_IDEAS_KEY='pa_ideas';
+function importPaIdeas(){
+  let arr;
+  try{arr=JSON.parse(localStorage.getItem(PA_IDEAS_KEY)||'[]');}catch(e){return 0;}
+  if(!Array.isArray(arr)||!arr.length)return 0;
+  const ignore=new Set(state.paIgnore||[]);
+  let changed=0;const added=[];
+  arr.forEach(x=>{
+    if(!x||!x.id||ignore.has(x.id))return;
+    const xin=String(x.xinfa||'').trim(),raw0=String(x.content||'').trim();
+    const core=xin||raw0;if(!core)return;
+    const raw=xin&&raw0?raw0:'';
+    const topic=String(x.topic||'');
+    // 雲端同步若把額外欄位丟掉，id 仍是 'pa'+id，用它當備援比對，避免重複
+    const ex=state.notes.find(n=>n.paId===x.id||n.id==='pa'+x.id);
+    if(ex){
+      if(ex.deleted)return;
+      if(ex.content!==core||ex.paRaw!==raw||ex.paTopic!==topic||ex.paId!==x.id){
+        ex.content=core;ex.paRaw=raw;ex.paTopic=topic;ex.paId=x.id;changed++;
+      }
+      return;
+    }
+    const n={id:'pa'+x.id,type:'idea',content:core,dueAt:'',done:false,
+      createdAt:x.ts?new Date(x.ts).toISOString():new Date().toISOString(),notifiedAt:'',
+      paId:x.id,paTopic:topic,paRaw:raw};
+    state.notes.unshift(n);added.push(n);changed++;
+  });
+  if(changed){
+    save();
+    if(document.getElementById('noteList'))renderNotes();
+    if(typeof renderOverview==='function')renderOverview();
+    if(state.gasUrl)added.forEach(n=>gasPost({action:'addNote',note:n}).catch(()=>{}));
+  }
+  return changed;
+}
+// 校長助理（iframe 內）改了 pa_ideas，同網域的 storage 事件會直接通知到這裡
+window.addEventListener('storage',e=>{
+  if(e.key===PA_IDEAS_KEY||e.key===null)try{importPaIdeas();}catch(err){}
+});
+setTimeout(()=>{try{importPaIdeas();}catch(e){}},0);
 function loadPaFrame(force){
   const fr=document.getElementById('paFrame');
   if(!fr)return;
+  if(!fr.dataset.paBound){fr.dataset.paBound='1';fr.addEventListener('load',()=>{setTimeout(()=>{try{importPaIdeas();}catch(e){}},1500);});}
   if(force||!fr.getAttribute('src'))fr.setAttribute('src',PA_URL);
 }
 function reloadPaFrame(){
@@ -1335,7 +1388,7 @@ function switchTab(name){
   document.querySelectorAll('.tab[data-tab]').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+name));
   if(name==='pa')loadPaFrame();
-  if(name==='notes')renderNotes();
+  if(name==='notes'){try{importPaIdeas();}catch(e){}renderNotes();}
   if(name==='game'){updateMemArchive(state.context);save();renderMemGame();}
   if(name==='settings'){fillSettings();renderQaList();renderProfileList();renderSoulList();}
 }
@@ -3045,14 +3098,18 @@ function toggleNote(id){
 // 復原時會用 restoreNote() 把本機那筆放回來，並重新 addNote 推回雲端。
 function deleteNote(id){
   const n=state.notes.find(x=>x.id===id);if(!n||n.deleted)return;
-  n.deleted=true;n.deletedAt=new Date().toISOString();save();renderNotes();renderOverview();
+  n.deleted=true;n.deletedAt=new Date().toISOString();
+  if(n.paId){state.paIgnore=state.paIgnore||[];if(!state.paIgnore.includes(n.paId))state.paIgnore.push(n.paId);}
+  save();renderNotes();renderOverview();
   if(state.gasUrl){
     gasPost({action:'deleteNote',id}).catch(()=>{});
   }
 }
 function restoreNote(id){
   const n=state.notes.find(x=>x.id===id);if(!n)return;
-  delete n.deleted;delete n.deletedAt;save();renderNotes();renderOverview();
+  delete n.deleted;delete n.deletedAt;
+  if(n.paId&&state.paIgnore)state.paIgnore=state.paIgnore.filter(x=>x!==n.paId);
+  save();renderNotes();renderOverview();
   if(state.gasUrl){
     gasPost({action:'addNote',note:n}).catch(()=>{});
   }
@@ -3116,7 +3173,8 @@ function renderNotes(){
     return `<div class="noteItem">
       ${checkable?`<input type="checkbox" ${n.done?'checked':''} onchange="toggleNote('${n.id}')">`:'<span style="width:17px;flex-shrink:0;text-align:center;">・</span>'}
       <div class="noteBody">
-        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${TYPE_LABEL[n.type]}</span>${n.owner?`<span class="ownerTag">🤝 ${esc(n.owner)}</span>`:''}${esc(n.content)}</div>
+        <div class="noteContent ${n.done?'done':''}"><span class="typeTag ${n.type}">${TYPE_LABEL[n.type]}</span>${n.owner?`<span class="ownerTag">🤝 ${esc(n.owner)}</span>`:''}${n.paTopic?`<span class="ownerTag">🏫 ${esc(n.paTopic)}</span>`:''}${esc(n.content)}</div>
+        ${n.paRaw?`<details class="paRaw"><summary>看原文</summary><div>${esc(n.paRaw)}</div></details>`:''}
         ${dueTxt?`<div class="noteMeta ${overdue?'overdue':''}">${overdue?'🔴 已逾期 · ':'⏰ '}${dueTxt}</div>`:''}
       </div>
       <button class="delBtn" onclick="deleteNote('${n.id}')">✕</button>
