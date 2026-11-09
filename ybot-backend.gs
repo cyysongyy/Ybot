@@ -1116,11 +1116,15 @@ function findTelegramChatId() {
     if (m && m.chat) chats[m.chat.id] = m.chat.first_name || m.chat.title || m.chat.username || '';
   });
   const ids = Object.keys(chats);
-  if (!ids.length) return '⚠️ 找不到對話：請先在 Telegram 對你的機器人傳一句話（例如 hi），再執行一次。';
-  if (ids.length > 1) return '找到好幾個對話，請挑你自己的那個，執行 setTelegramConfig(\'\', \'chat id\')：\n' +
-    ids.map(id => id + '（' + chats[id] + '）').join('\n');
+  // Apps Script 的執行記錄不會顯示函式的回傳值，所以結果一律 console.log 出來，
+  // 失敗的情況直接丟錯誤（記錄裡是紅字），不然使用者只會看到「執行完畢」不知道成功沒。
+  if (!ids.length) throw new Error('找不到對話：請先在 Telegram 打開你的機器人（不是 BotFather），按「開始」再傳一句 hi，然後再執行一次。');
+  if (ids.length > 1) throw new Error('找到好幾個對話，請挑你自己的那個，執行 setTelegramConfig(\'\', \'chat id\')：' +
+    ids.map(id => id + '（' + chats[id] + '）').join('、'));
   tgProps().setProperty(TG_CHAT_PROP, ids[0]);
-  return '✅ 已儲存 chat id（' + chats[ids[0]] + '）。接著執行 setupTelegramWatch()。';
+  const msg = '✅ 已儲存 chat id（' + chats[ids[0]] + '）。接著執行 setupTelegramWatch()。';
+  console.log(msg);
+  return msg;
 }
 function telegramSend(text) {
   const { chatId } = tgConfig();
@@ -1129,15 +1133,20 @@ function telegramSend(text) {
 }
 function testTelegram() {
   telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、聯邦帳單會傳到這裡。');
+  console.log('✅ 已傳出測試訊息，請看 Telegram');
   return '✅ 已傳出測試訊息，請看 Telegram';
 }
 function setupTelegramWatch() {
+  // 還沒有 chat id 就順手找一次，少一個步驟
+  if (!tgConfig().chatId) findTelegramChatId();
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'telegramWatch') ScriptApp.deleteTrigger(t);
   });
   testTelegram();
   ScriptApp.newTrigger('telegramWatch').timeBased().everyMinutes(10).create();
-  return '✅ 已排程每 10 分鐘檢查一次，並傳出一則測試訊息' + tzWarn();
+  const msg = '✅ 已排程每 10 分鐘檢查一次，並傳出一則測試訊息' + tzWarn();
+  console.log(msg);
+  return msg;
 }
 function telegramWatch() {
   const cfg = tgConfig();
