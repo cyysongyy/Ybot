@@ -19,7 +19,7 @@
  *       （token 只放這裡，不要寫進程式碼）
  *    c. 在 Telegram 對你的機器人隨便傳一句話，再執行一次 findTelegramChatId()
  *    d. 執行一次 setupTelegramWatch()（每 10 分鐘檢查一次，並先傳一則測試訊息）
- *    會推：新的【差勤批核】筆記、聯邦帳單、行程開始前約 20～30 分鐘提醒、新出現的行程撞期
+ *    會推：新的【差勤批核】筆記、聯邦帳單、行程開始前約 20～30 分鐘提醒
  * 4. 部署 → 新增部署作業 → 網頁應用程式
  *    - 以下列身分執行：我（Me）
  *    - 誰可以存取：所有人（Anyone）
@@ -1075,7 +1075,7 @@ function standupWatch() {
 
 // ── Telegram 通知 ───────────────────────────────
 // iPhone 上 Ybot 網頁要開著才會跳通知；改由後台每 10 分鐘檢查一次、直接傳 Telegram，
-// 手機鎖著也會響。推：新的【差勤批核】筆記、聯邦帳單、行程前提醒、新的行程撞期。
+// 手機鎖著也會響。推：新的【差勤批核】筆記、聯邦帳單、行程前提醒。
 // token 和 chat id 只存在「指令碼屬性」，不寫進程式碼。
 const TG_TOKEN_PROP = 'TELEGRAM_BOT_TOKEN';
 const TG_CHAT_PROP = 'TELEGRAM_CHAT_ID';
@@ -1133,7 +1133,7 @@ function telegramSend(text) {
   tgApi('sendMessage', { chat_id: chatId, text: String(text).slice(0, 4000), disable_web_page_preview: true });
 }
 function testTelegram() {
-  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、聯邦帳單、行程前提醒、行程撞期會傳到這裡。');
+  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、聯邦帳單、行程前提醒會傳到這裡。');
   console.log('✅ 已傳出測試訊息，請看 Telegram');
   return '✅ 已傳出測試訊息，請看 Telegram';
 }
@@ -1174,15 +1174,7 @@ function telegramWatch() {
     outbox.push({ key: 'ev:' + ev.key, text: '📅 ' + tpeFormat(ev.start, 'HH:mm') + ' ' + ev.title +
       (ev.location ? '（' + ev.location + '）' : '') + '\n' + mins + ' 分鐘後開始' });
   });
-  // 新出現的撞期：未來 14 天內，之前沒通知過的那幾組合併成一則
-  const newCf = detectCalendarConflicts(getCalendarDigest())
-    .filter(pair => pair[0].start.getTime() > now)
-    .map(pair => ({ key: 'cf:' + tgEventSig(pair[0]) + '|' + tgEventSig(pair[1]), pair: pair }))
-    .filter(c => sent.indexOf(c.key) === -1);
-  if (newCf.length) {
-    outbox.push({ keys: newCf.map(c => c.key), text: '⚠️ 行程撞期（' + newCf.length + ' 組）\n' +
-      newCf.map(c => fmtConflictEvent(c.pair[0]) + '\n　撞 ' + fmtConflictEvent(c.pair[1])).join('\n') });
-  }
+  // 撞期不推 Telegram（使用者交代只要行程前提醒）；撞期照樣顯示在 Ybot 首頁。
   let changed = false;
   outbox.forEach(o => {
     const keys = o.keys || [o.key];
@@ -1193,7 +1185,6 @@ function telegramWatch() {
   if (changed) p.setProperty(TG_SENT_PROP, JSON.stringify(sent.slice(-500)));
 }
 const TG_EVENT_LEAD_MS = 30 * 60000;
-function tgEventSig(ev) { return ev.title + '@' + ev.start.getTime() + '-' + ev.end.getTime(); }
 // 只抓接下來 30 分鐘內「還沒開始」的行程，連地點一起，給行程前提醒用。
 // 每 10 分鐘跑一次，所以實際大約會在開始前 20～30 分鐘收到。
 function getSoonEvents() {
