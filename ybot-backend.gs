@@ -817,6 +817,54 @@ function dailyBrief() {
 
   appendObj(setupSheets().brief, ['generatedAt', 'summary'], { generatedAt: new Date().toISOString(), summary });
   try { MailApp.sendEmail(email, '🤖 Ybot 每日簡報', summary); } catch (err) { }
+  // 同一份簡報的精簡版也傳 Telegram（有設定 token 與 chat id 才傳；失敗不影響上面的 Email）
+  try {
+    const tg = tgConfig();
+    if (tg.token && tg.chatId) {
+      telegramSend(buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents));
+    }
+  } catch (err) { /* Telegram 失敗就算了，Email 已經寄出 */ }
+}
+
+// Telegram 版晨報：手機上掃一眼用，所以只放天氣、撞期、今明行程、🔴🟠待辦、帳單、Ybot 的話。
+// 不放新聞與信件寄件者（太長，也不必把信件資訊送到 Telegram）。
+function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents) {
+  const L = ['🌅 Ybot 晨報　' + tpeDateStr()];
+  if (ctx.weather) {
+    const w = ctx.weather;
+    L.push(w.icon + ' ' + w.city + ' ' + w.desc + ' ' + w.tMin + '~' + w.tMax + '°C，降雨 ' + (w.rainChance ?? '—') + '%');
+  }
+  if (conflicts && conflicts.length) {
+    L.push('', '⚠️ 行程撞期 ' + conflicts.length + ' 組：');
+    conflicts.forEach(pair => L.push('　' + fmtConflictEvent(pair[0]) + ' 撞 ' + fmtConflictEvent(pair[1])));
+  }
+  // 只列今天與明天的行程；整週清單留在 Email
+  const todayStr = tpeFormat(new Date(), 'yyyy-MM-dd');
+  const tomorrowStr = tpeFormat(new Date(Date.now() + 86400000), 'yyyy-MM-dd');
+  const near = (briefEvents || []).filter(ev => {
+    const d = tpeFormat(new Date(ev.start), 'yyyy-MM-dd');
+    return d === todayStr || d === tomorrowStr;
+  });
+  if (near.length) {
+    L.push('', '📅 今明行程：');
+    near.slice(0, 8).forEach(ev => {
+      const t = ev.allDay ? '全天' : tpeDateTimeStr(new Date(ev.start));
+      L.push('　' + t + ' ' + ev.title);
+    });
+  }
+  if (groups.red.length || groups.orange.length) {
+    L.push('', '🎯 今天要處理：');
+    groups.red.forEach(p => L.push('🔴 ' + String(p.content || p.title || '').slice(0, 60)));
+    groups.orange.slice(0, 5).forEach(p => L.push('🟠 ' + String(p.content || p.title || '').slice(0, 60)));
+  } else {
+    L.push('', '🎯 今天沒有必須處理的待辦');
+  }
+  if ((ctx.bills || []).length) {
+    L.push('', '💳 帳單：');
+    ctx.bills.slice(0, 3).forEach(m => L.push('　・' + m.subject + (m.amount ? '｜' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
+  }
+  if (narrative) L.push('', '💬 ' + String(narrative).slice(0, 300));
+  return L.join('\n');
 }
 
 // 把「待辦／提醒」與「今明的行程」合併分成 🔴今天必須／🟠建議今天／🟢可延後，

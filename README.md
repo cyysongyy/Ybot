@@ -20,6 +20,7 @@
 | 📝 待辦與筆記 | 三種類型：📌 瑣事筆記／✅ 待辦／⏰ 定時提醒，本機優先、可選雲端同步 |
 | ⏰ 到點提醒 | 提醒時間一到，後台自動寄 Email 提醒（每 30 分鐘檢查一次） |
 | 🌅 每日簡報 | 每天早上 7 點自動寄「Ybot 每日簡報」：今日行程、🔴🟠🟢 優先分級的待辦、未讀信件重點、AI 個人化提醒 |
+| 🌅 Telegram 晨報 | 每日簡報產生時，同步把精簡版傳到 Telegram：天氣、撞期、今明行程、🔴🟠待辦、帳單、Ybot 的話（不含新聞與信件寄件者）。需先設定 Telegram（`setTelegramConfig`＋`findTelegramChatId`），沒設定就只寄 Email |
 | 🎯 優先分級 | 待辦／提醒自動分成 🔴今天必須／🟠建議今天／🟢可延後，規則先判斷到期日，AI 只負責「升級」看起來緊急但沒填到期日的項目 |
 | 🌙 晚間彙整 | 晚上 8 點檢查是否還有 🔴🟠 未處理事項，**只有真的有事才寄信**，沒事就不打擾 |
 | 🔗 整合其他 App | 可串接 [remediation-system](https://github.com/cyysongyy/remediation-system) 的 `remediation-backend.gs`／`health-backend.gs`，對話與簡報一併帶入考卷批改、健康預測的最新摘要 |
