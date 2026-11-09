@@ -798,6 +798,8 @@ function dailyBrief() {
     const r = ctx.linked.remediation;
     lines.push('🎯 考卷批改：累計 ' + r.totalSubmissions + ' 筆，近期平均 ' + (r.recentAvgPercentage ?? '—') + '%，常見迷思：' + ((r.topMisconceptions || []).join('、') || '無'));
   }
+  const stockLine = getStockSummaryLine();
+  if (stockLine) lines.push(stockLine);
   if (ctx.linked.health) {
     const h = ctx.linked.health;
     lines.push('🫀 健康：最新健康分 ' + h.score + '，生理年齡 ' + h.bio + '（' + h.date + '）');
@@ -821,14 +823,14 @@ function dailyBrief() {
   try {
     const tg = tgConfig();
     if (tg.token && tg.chatId) {
-      telegramSend(buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents));
+      telegramSend(buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stockLine));
     }
   } catch (err) { /* Telegram 失敗就算了，Email 已經寄出 */ }
 }
 
 // Telegram 版晨報：手機上掃一眼用，所以只放天氣、撞期、今明行程、🔴🟠待辦、帳單、Ybot 的話。
 // 不放新聞與信件寄件者（太長，也不必把信件資訊送到 Telegram）。
-function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents) {
+function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stockLine) {
   const L = ['🌅 Ybot 晨報　' + tpeDateStr()];
   if (ctx.weather) {
     const w = ctx.weather;
@@ -863,6 +865,7 @@ function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents) {
     L.push('', '💳 帳單：');
     ctx.bills.slice(0, 3).forEach(m => L.push('　・' + m.subject + (m.amount ? '｜' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
   }
+  if (stockLine) L.push('', stockLine);
   if (narrative) L.push('', '💬 ' + String(narrative).slice(0, 300));
   return L.join('\n');
 }
@@ -1256,6 +1259,80 @@ function getSoonEvents() {
     });
   } catch (err) { return []; }
   return out.sort((a, b) => a.start - b.start);
+}
+
+// ── 台股持股摘要（接「台股投資 Dashboard」的 Google Sheet 同步後台）────────────
+// 只算彙總（檔數、以昨收計的總未實現損益%），不輸出每檔股數與成本。
+// 網址與密碼只存在「指令碼屬性」：在編輯器執行 setStockConfig('網址', '密碼')，
+// 執行完記得把括號裡的內容刪掉，不要存檔留在程式碼裡。
+const STOCK_URL_PROP = 'STOCK_SYNC_URL';
+const STOCK_SECRET_PROP = 'STOCK_SYNC_SECRET';
+function setStockConfig(url, secret) {
+  const p = PropertiesService.getScriptProperties();
+  if (url) p.setProperty(STOCK_URL_PROP, String(url).trim());
+  if (secret) p.setProperty(STOCK_SECRET_PROP, String(secret).trim());
+  return '✅ 已儲存台股同步設定';
+}
+function stockToNum(v) {
+  const n = Number(String(v == null ? '' : v).replace(/,/g, ''));
+  return isFinite(n) ? n : NaN;
+}
+// 讀台股後台的持股；格式不如預期就回空陣列（晨報照常，只是不顯示這一行）
+function getStockHoldings() {
+  const p = PropertiesService.getScriptProperties();
+  const url = p.getProperty(STOCK_URL_PROP), secret = p.getProperty(STOCK_SECRET_PROP);
+  if (!url || !secret) return [];
+  const r = UrlFetchApp.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=read&secret=' + encodeURIComponent(secret),
+    { muteHttpExceptions: true, followRedirects: true });
+  const d = JSON.parse(r.getContentText());
+  if (!d || d.ok === false) return [];
+  let arr = d.holdings || d.data || d.rows || d;
+  if (!Array.isArray(arr) && arr && typeof arr === 'object') {
+    // 多使用者時可能是 { 使用者: [持股...] }，攤平成一個陣列
+    arr = Object.keys(arr).reduce((acc, k) => acc.concat(Array.isArray(arr[k]) ? arr[k] : []), []);
+  }
+  return (Array.isArray(arr) ? arr : []).filter(h => h && h.code && stockToNum(h.qty) > 0 && stockToNum(h.cost) > 0);
+}
+// 證交所即時報價（上市 tse／上櫃 otc 都問一次）。盤前 z 是「-」，改用昨收 y。
+function getStockPrices(codes) {
+  const exch = [];
+  codes.forEach(c => { exch.push('tse_' + c + '.tw'); exch.push('otc_' + c + '.tw'); });
+  const out = {};
+  for (let i = 0; i < exch.length; i += 40) {
+    const r = UrlFetchApp.fetch('https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=' +
+      encodeURIComponent(exch.slice(i, i + 40).join('|')) + '&json=1&delay=0', { muteHttpExceptions: true });
+    const d = JSON.parse(r.getContentText());
+    (d.msgArray || []).forEach(m => {
+      const z = stockToNum(m.z), y = stockToNum(m.y);
+      const price = z > 0 ? z : y;
+      if (m.c && price > 0) out[m.c] = price;
+    });
+  }
+  return out;
+}
+// 晨報用的一行彙總；任何一步失敗都回空字串，不影響晨報其他內容。
+function getStockSummaryLine() {
+  try {
+    const hs = getStockHoldings();
+    if (!hs.length) return '';
+    const prices = getStockPrices(hs.map(h => String(h.code).trim()));
+    let cost = 0, value = 0, n = 0;
+    hs.forEach(h => {
+      const px = prices[String(h.code).trim()];
+      if (!px) return;
+      const q = stockToNum(h.qty), c = stockToNum(h.cost);
+      cost += q * c; value += q * px; n++;
+    });
+    if (!n || !cost) return '';
+    const pct = (value - cost) / cost * 100;
+    return '📈 台股持股 ' + n + ' 檔，以昨收計總未實現損益 ' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+  } catch (err) { return ''; }
+}
+// 手動測試：在編輯器執行，看記錄檔有沒有出現摘要（沒出現代表設定或格式有問題）
+function testStockSummary() {
+  const line = getStockSummaryLine();
+  console.log(line || '（沒有摘要：請確認 setStockConfig 已執行、同步後台已部署為「所有人」，且有持股資料）');
+  return line;
 }
 
 function getOwnerEmail() {
