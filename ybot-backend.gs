@@ -1328,10 +1328,33 @@ function getStockSummaryLine() {
     return '📈 台股持股 ' + n + ' 檔，以昨收計總未實現損益 ' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
   } catch (err) { return ''; }
 }
-// 手動測試：在編輯器執行，看記錄檔有沒有出現摘要（沒出現代表設定或格式有問題）
+// 手動測試：在編輯器執行，逐步回報卡在哪一步（只顯示欄位名稱與筆數，不顯示網址、密碼或數字）。
 function testStockSummary() {
+  const log = m => console.log(m);
+  const p = PropertiesService.getScriptProperties();
+  const url = p.getProperty(STOCK_URL_PROP), secret = p.getProperty(STOCK_SECRET_PROP);
+  log('① 設定：網址 ' + (url ? '有' : '❌沒有') + '、密碼 ' + (secret ? '有' : '❌沒有') + (url && secret ? '' : '（請先執行 setStockConfig）'));
+  if (!url || !secret) return '未設定';
+  let d;
+  try {
+    const r = UrlFetchApp.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=read&secret=' + encodeURIComponent(secret),
+      { muteHttpExceptions: true, followRedirects: true });
+    log('② 連線：HTTP ' + r.getResponseCode());
+    const txt = r.getContentText();
+    try { d = JSON.parse(txt); } catch (e) {
+      log('❌ 回傳不是 JSON（前 80 字）：' + txt.slice(0, 80).replace(/\s+/g, ' ') + '\n   → 多半是部署權限不是「所有人（包括匿名）」，或網址不是 /exec 結尾');
+      return '非 JSON';
+    }
+  } catch (e) { log('❌ 連線失敗：' + e.message); return '連線失敗'; }
+  log('③ 回傳最上層欄位：' + (Array.isArray(d) ? '（陣列，' + d.length + ' 筆）' : Object.keys(d || {}).join(', ')));
+  if (d && d.ok === false) { log('❌ 後台回應失敗：' + (d.error || '未知') + '（Unauthorized＝密碼不對）'); return '後台拒絕'; }
+  const hs = getStockHoldings();
+  log('④ 讀到可用持股：' + hs.length + ' 筆' + (hs.length ? '；欄位：' + Object.keys(hs[0]).join(', ') : '（0 筆代表格式不符或 qty／cost 讀不到）'));
+  if (!hs.length) return '無持股';
+  const prices = getStockPrices(hs.map(h => String(h.code).trim()));
+  log('⑤ 抓到報價：' + Object.keys(prices).length + ' / ' + hs.length + ' 檔');
   const line = getStockSummaryLine();
-  console.log(line || '（沒有摘要：請確認 setStockConfig 已執行、同步後台已部署為「所有人」，且有持股資料）');
+  log(line || '⑥ 仍然沒有摘要：請把上面 ③④ 的欄位名稱貼給我');
   return line;
 }
 
