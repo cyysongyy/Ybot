@@ -13,6 +13,12 @@
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
  *    再執行一次 setupWeeklyReview()（排程「本週回顧」，每週一早上 7 點）
+ * 3-2.（選填）Telegram 通知：手機鎖著也收得到新的【差勤批核】筆記和聯邦帳單。
+ *    a. 在 Telegram 找 @BotFather 建立機器人（或沿用股票提醒那一個），拿到 token
+ *    b. 專案設定（齒輪）→ 指令碼屬性 → 新增屬性 TELEGRAM_BOT_TOKEN，值貼 token
+ *       （token 只放這裡，不要寫進程式碼）
+ *    c. 在 Telegram 對你的機器人隨便傳一句話，再執行一次 findTelegramChatId()
+ *    d. 執行一次 setupTelegramWatch()（每 10 分鐘檢查一次，並先傳一則測試訊息）
  * 4. 部署 → 新增部署作業 → 網頁應用程式
  *    - 以下列身分執行：我（Me）
  *    - 誰可以存取：所有人（Anyone）
@@ -1064,6 +1070,101 @@ function standupWatch() {
     } catch (err) { /* 忽略單次寄送失敗 */ }
   }
   writeKv({ standupLastSent: now.toISOString() });
+}
+
+// ── Telegram 通知 ───────────────────────────────
+// iPhone 上 Ybot 網頁要開著才會跳通知；改由後台每 10 分鐘檢查一次、直接傳 Telegram，
+// 手機鎖著也會響。目前只推兩種：新的【差勤批核】筆記、聯邦帳單。
+// token 和 chat id 只存在「指令碼屬性」，不寫進程式碼。
+const TG_TOKEN_PROP = 'TELEGRAM_BOT_TOKEN';
+const TG_CHAT_PROP = 'TELEGRAM_CHAT_ID';
+const TG_SENT_PROP = 'TELEGRAM_SENT_IDS';
+const TG_APPROVAL_TAG = '【差勤批核】';
+const TG_APPROVAL_FRESH_MS = 36 * 3600000;   // 跟前端首頁一樣：一天半內的才算新的
+const TG_BILL_FRESH_MS = 2 * 86400000;       // 帳單只推 2 天內寄來的，舊信不吵
+function tgProps() { return PropertiesService.getScriptProperties(); }
+function tgConfig() {
+  const p = tgProps();
+  return { token: p.getProperty(TG_TOKEN_PROP) || '', chatId: p.getProperty(TG_CHAT_PROP) || '' };
+}
+// 也可以不用指令碼屬性畫面，改在編輯器執行 setTelegramConfig('token', 'chatId')，
+// 執行完記得把括號裡的 token 刪掉，不要存檔留在程式碼裡。
+function setTelegramConfig(token, chatId) {
+  const p = tgProps();
+  if (token) p.setProperty(TG_TOKEN_PROP, String(token).trim());
+  if (chatId) p.setProperty(TG_CHAT_PROP, String(chatId).trim());
+  return '✅ 已儲存 Telegram 設定';
+}
+function tgApi(method, payload) {
+  const { token } = tgConfig();
+  if (!token) throw new Error('還沒設定 ' + TG_TOKEN_PROP + '（專案設定 → 指令碼屬性）');
+  const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify(payload || {}), muteHttpExceptions: true
+  });
+  let d = {};
+  try { d = JSON.parse(r.getContentText()); } catch (e) { /* 下面統一當失敗 */ }
+  if (!d.ok) throw new Error('Telegram 回應錯誤：' + (d.description || ('HTTP ' + r.getResponseCode())));
+  return d.result;
+}
+// 先在 Telegram 對機器人傳一句話，再執行這個：自動找到你的 chat id 存起來。
+function findTelegramChatId() {
+  const updates = tgApi('getUpdates', {});
+  const chats = {};
+  (updates || []).forEach(u => {
+    const m = u.message || u.edited_message || u.channel_post;
+    if (m && m.chat) chats[m.chat.id] = m.chat.first_name || m.chat.title || m.chat.username || '';
+  });
+  const ids = Object.keys(chats);
+  if (!ids.length) return '⚠️ 找不到對話：請先在 Telegram 對你的機器人傳一句話（例如 hi），再執行一次。';
+  if (ids.length > 1) return '找到好幾個對話，請挑你自己的那個，執行 setTelegramConfig(\'\', \'chat id\')：\n' +
+    ids.map(id => id + '（' + chats[id] + '）').join('\n');
+  tgProps().setProperty(TG_CHAT_PROP, ids[0]);
+  return '✅ 已儲存 chat id（' + chats[ids[0]] + '）。接著執行 setupTelegramWatch()。';
+}
+function telegramSend(text) {
+  const { chatId } = tgConfig();
+  if (!chatId) throw new Error('還沒設定 chat id：先對機器人傳一句話，再執行 findTelegramChatId()');
+  tgApi('sendMessage', { chat_id: chatId, text: String(text).slice(0, 4000), disable_web_page_preview: true });
+}
+function testTelegram() {
+  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、聯邦帳單會傳到這裡。');
+  return '✅ 已傳出測試訊息，請看 Telegram';
+}
+function setupTelegramWatch() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'telegramWatch') ScriptApp.deleteTrigger(t);
+  });
+  testTelegram();
+  ScriptApp.newTrigger('telegramWatch').timeBased().everyMinutes(10).create();
+  return '✅ 已排程每 10 分鐘檢查一次，並傳出一則測試訊息' + tzWarn();
+}
+function telegramWatch() {
+  const cfg = tgConfig();
+  if (!cfg.token || !cfg.chatId) return;
+  const p = tgProps();
+  let sent = [];
+  try { sent = JSON.parse(p.getProperty(TG_SENT_PROP) || '[]'); } catch (e) { sent = []; }
+  const now = Date.now();
+  const outbox = [];
+  sheetToObjects(setupSheets().note, NOTE_COLS).forEach(n => {
+    const c = String(n.content || '').trim();
+    if (!c.startsWith(TG_APPROVAL_TAG)) return;
+    if (!(now - new Date(n.createdAt).getTime() <= TG_APPROVAL_FRESH_MS)) return;
+    outbox.push({ key: 'ap:' + n.id, text: '📋 差勤批核\n' + c.slice(TG_APPROVAL_TAG.length).trim() });
+  });
+  getBillDigest().forEach(m => {
+    if (!(now - new Date(m.date).getTime() <= TG_BILL_FRESH_MS)) return;
+    const info = [m.amount ? '應繳 ' + m.amount + ' 元' : '', m.due ? '截止 ' + m.due : ''].filter(Boolean).join('｜');
+    outbox.push({ key: 'bill:' + m.threadId, text: '💳 聯邦帳單\n' + m.subject + (info ? '\n' + info : '') });
+  });
+  let changed = false;
+  outbox.forEach(o => {
+    if (sent.indexOf(o.key) !== -1) return;
+    try { telegramSend(o.text); sent.push(o.key); changed = true; }
+    catch (err) { /* 這次失敗就下次再試，不記成已送 */ }
+  });
+  if (changed) p.setProperty(TG_SENT_PROP, JSON.stringify(sent.slice(-300)));
 }
 
 function getOwnerEmail() {
