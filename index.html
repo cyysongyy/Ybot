@@ -3926,6 +3926,9 @@ function approvalHtml(){
   if(!list.length)return '';
   return `<div class="ovApprove" id="ovApprove"><div class="ovHead"><span class="ovHeadIcon approve">${OV_ICONS.approve}</span><span class="ovHeadTitle">差勤批核</span></div>`+
     list.map(n=>`<div class="ovApproveRow" style="display:flex;gap:6px;align-items:flex-start;"><div class="ovItem" style="flex:1;min-width:0;">${esc(approvalText(n))}<div class="ovSub" style="font-size:.85rem;margin-top:2px;">${esc(fmtDateTime(n.createdAt,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))}</div></div><button class="ovApproveDismiss" onclick="dismissApproval('${esc(n.id)}')" aria-label="知道了，收起這則">知道了</button></div>`).join('')+
+    // 手機上直接去批核：WebITR 不能直接登入，一定要從 EIP 進（登入、按同意都是使用者自己做）
+    `<a class="btn" id="ovApproveGo" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-top:10px;">✅ 到 EIP 批核 ↗</a>`+
+    `<div class="ovSub" style="font-size:.82rem;margin-top:6px;text-align:center;">登入 EIP →「WebITR差勤系統」→ 勾選 → 同意</div>`+
     `</div>`;
 }
 function briefApprovalSegments(){
