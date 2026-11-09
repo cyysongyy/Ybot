@@ -5850,7 +5850,7 @@ function renderPushStatus(){
     // 這裡的通知是 App 自己每分鐘檢查一次跳的，沒有推播伺服器；iPhone 切到別的 App
     // 一陣子就會把網頁 App 暫停，所以要照實講清楚，免得以為關掉了也會收到。
     st.textContent=isIOSDevice()
-      ?'已開啟。iPhone 上要 Ybot 開著時才會跳通知；切到別的 App 一陣子後 iOS 會把它暫停，就不會再跳了（到點提醒信照常會寄到信箱）。'
+      ?'已開啟。iPhone 上要 Ybot 開著時才會跳通知；切到別的 App 一陣子後 iOS 會把它暫停，就不會再跳了（到點提醒信照常會寄到信箱）。想鎖著也收到差勤批核、聯邦帳單，可以在後台設定 Telegram 通知。'
       :'已開啟。App 開著時到點提醒與新的重要信件會跳出通知。';
   }else{
     btn.textContent='🔔 開啟主動通知';
