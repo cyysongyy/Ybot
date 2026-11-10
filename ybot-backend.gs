@@ -1366,22 +1366,28 @@ function getStockPrices(codes) {
   }
   return out;
 }
+// 純計算：持股 + 報價 → { n, total, pct }。沒有任何一檔對得上報價時 n = 0。
+function stockSummaryCompute(hs, prices) {
+  let cost = 0, value = 0, n = 0;
+  hs.forEach(h => {
+    const px = prices[String(h.code).trim()];
+    if (!px) return;
+    const q = stockToNum(h.qty), c = stockToNum(h.cost);
+    if (!(q > 0) || !(c > 0)) return;
+    cost += q * c; value += q * px; n++;
+  });
+  return { n: n, total: hs.length, pct: cost > 0 ? (value - cost) / cost * 100 : NaN };
+}
+function stockSummaryText(r) {
+  return '📈 台股持股 ' + r.n + ' 檔，以昨收計總未實現損益 ' + (r.pct >= 0 ? '+' : '') + r.pct.toFixed(1) + '%';
+}
 // 晨報用的一行彙總；任何一步失敗都回空字串，不影響晨報其他內容。
 function getStockSummaryLine() {
   try {
     const hs = getStockHoldings();
     if (!hs.length) return '';
-    const prices = getStockPrices(hs.map(h => String(h.code).trim()));
-    let cost = 0, value = 0, n = 0;
-    hs.forEach(h => {
-      const px = prices[String(h.code).trim()];
-      if (!px) return;
-      const q = stockToNum(h.qty), c = stockToNum(h.cost);
-      cost += q * c; value += q * px; n++;
-    });
-    if (!n || !cost) return '';
-    const pct = (value - cost) / cost * 100;
-    return '📈 台股持股 ' + n + ' 檔，以昨收計總未實現損益 ' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+    const r = stockSummaryCompute(hs, getStockPrices(hs.map(h => String(h.code).trim())));
+    return r.n && isFinite(r.pct) ? stockSummaryText(r) : '';
   } catch (err) { return ''; }
 }
 // 手動測試：在編輯器執行，逐步回報卡在哪一步（只顯示欄位名稱與筆數，不顯示網址、密碼或數字）。
@@ -1397,9 +1403,13 @@ function testStockSummary() {
     if (!hsd.length) return '無持股';
     const px = getStockPrices(hsd.map(h => String(h.code).trim()));
     log('③ 抓到報價：' + Object.keys(px).length + ' / ' + hsd.length + ' 檔');
-    const ln = getStockSummaryLine();
-    log(ln || '④ 沒有摘要：請告訴我 ②③ 的筆數');
-    return ln;
+    try {
+      const r = stockSummaryCompute(hsd, px);
+      log('④ 對得上報價的持股：' + r.n + ' / ' + r.total + ' 檔' + (r.n < r.total ? '（沒對上的代號：' + hsd.filter(h => !px[String(h.code).trim()]).map(h => String(h.code).trim()).join('、') + '）' : ''));
+      if (r.n && isFinite(r.pct)) { const ln = stockSummaryText(r); log(ln); return ln; }
+      log('⑤ 算不出摘要：對得上的檔數為 0，或成本為 0。報價有的代號：' + Object.keys(px).join('、'));
+      return '';
+    } catch (e) { log('❌ 計算時出錯：' + e.message); return ''; }
   }
   log('① 設定：網址 ' + (url ? '有' : '❌沒有') + '、密碼 ' + (secret ? '有' : '❌沒有') + (url && secret ? '' : '（請先執行 setStockConfig）'));
   if (!url || !secret) return '未設定';
