@@ -1310,8 +1310,33 @@ function stockProbe(url, secret) {
   }
   return { param: '', action: '', data: null, tried: tried };
 }
+// 直接讀你自己的持股 Sheet（不經過同步後台、不需要金鑰）：
+// 在編輯器執行一次 setStockSheet('試算表ID')；試算表ID 就是 Sheet 網址 /d/ 與 /edit 中間那串。
+// 會自動找「第一列有 code、qty、cost 欄位」的分頁。只在 Ybot 後台讀取，不會寫入。
+const STOCK_SHEET_PROP = 'STOCK_SHEET_ID';
+function setStockSheet(id) {
+  if (id) PropertiesService.getScriptProperties().setProperty(STOCK_SHEET_PROP, String(id).trim());
+  return '✅ 已儲存持股 Sheet';
+}
+function readStockSheetDirect() {
+  const id = PropertiesService.getScriptProperties().getProperty(STOCK_SHEET_PROP);
+  if (!id) return null;
+  const sheets = SpreadsheetApp.openById(id).getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const vals = sheets[i].getDataRange().getValues();
+    if (!vals.length) continue;
+    const head = vals[0].map(h => String(h).trim().toLowerCase());
+    const ci = head.indexOf('code'), qi = head.indexOf('qty'), co = head.indexOf('cost');
+    if (ci < 0 || qi < 0 || co < 0) continue;
+    return vals.slice(1).map(r => ({ code: String(r[ci]).trim(), qty: r[qi], cost: r[co] }))
+      .filter(h => h.code && stockToNum(h.qty) > 0 && stockToNum(h.cost) > 0);
+  }
+  return [];
+}
 // 讀台股後台的持股；格式不如預期就回空陣列（晨報照常，只是不顯示這一行）
 function getStockHoldings() {
+  const direct = readStockSheetDirect();
+  if (direct) return direct;
   const p = PropertiesService.getScriptProperties();
   const url = p.getProperty(STOCK_URL_PROP), secret = p.getProperty(STOCK_SECRET_PROP);
   if (!url || !secret) return [];
@@ -1364,6 +1389,18 @@ function testStockSummary() {
   const log = m => console.log(m);
   const p = PropertiesService.getScriptProperties();
   const url = p.getProperty(STOCK_URL_PROP), secret = p.getProperty(STOCK_SECRET_PROP);
+  if (p.getProperty(STOCK_SHEET_PROP)) {
+    log('① 設定：已指定持股 Sheet（直接讀取，不使用同步後台與金鑰）');
+    let hsd;
+    try { hsd = readStockSheetDirect() || []; } catch (e) { log('❌ 讀 Sheet 失敗：' + e.message + '（第一次可能要在跳出的視窗按「允許」授權）'); return '讀取失敗'; }
+    log('② 讀到可用持股：' + hsd.length + ' 筆' + (hsd.length ? '' : '（0 筆：找不到第一列有 code、qty、cost 的分頁）'));
+    if (!hsd.length) return '無持股';
+    const px = getStockPrices(hsd.map(h => String(h.code).trim()));
+    log('③ 抓到報價：' + Object.keys(px).length + ' / ' + hsd.length + ' 檔');
+    const ln = getStockSummaryLine();
+    log(ln || '④ 沒有摘要：請告訴我 ②③ 的筆數');
+    return ln;
+  }
   log('① 設定：網址 ' + (url ? '有' : '❌沒有') + '、密碼 ' + (secret ? '有' : '❌沒有') + (url && secret ? '' : '（請先執行 setStockConfig）'));
   if (!url || !secret) return '未設定';
   let pr;
