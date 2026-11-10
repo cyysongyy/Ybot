@@ -1277,14 +1277,45 @@ function stockToNum(v) {
   const n = Number(String(v == null ? '' : v).replace(/,/g, ''));
   return isFinite(n) ? n : NaN;
 }
+// 台股同步後台可能用不同的參數名稱／動作名稱，依序試，第一個不是 Unauthorized／Unknown 的就用。
+const STOCK_SECRET_PARAMS = ['secret', 'token', 'key', 'pass', 'password', 'k'];
+const STOCK_ACTIONS = ['read', 'load', 'get', 'holdings', 'list'];
+function stockFetchRaw(url, secret, param, action) {
+  const r = UrlFetchApp.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=' + action + '&' + param + '=' + encodeURIComponent(secret),
+    { muteHttpExceptions: true, followRedirects: true });
+  let d = null;
+  try { d = JSON.parse(r.getContentText()); } catch (e) { /* 留 null */ }
+  return { code: r.getResponseCode(), data: d };
+}
+function stockProbe(url, secret) {
+  const tried = [];
+  for (let i = 0; i < STOCK_SECRET_PARAMS.length; i++) {
+    const param = STOCK_SECRET_PARAMS[i];
+    const res = stockFetchRaw(url, secret, param, STOCK_ACTIONS[0]);
+    const err = res.data && res.data.ok === false ? String(res.data.error || '') : '';
+    tried.push(param + (res.data ? (err ? '→' + err : '→ok') : '→非JSON'));
+    if (res.data && !/unauthor/i.test(err)) {
+      // 通過驗證了；若動作不對再換動作名稱
+      if (/unknown|invalid|action/i.test(err)) {
+        for (let j = 1; j < STOCK_ACTIONS.length; j++) {
+          const r2 = stockFetchRaw(url, secret, param, STOCK_ACTIONS[j]);
+          const e2 = r2.data && r2.data.ok === false ? String(r2.data.error || '') : '';
+          tried.push(param + '+' + STOCK_ACTIONS[j] + (r2.data ? (e2 ? '→' + e2 : '→ok') : '→非JSON'));
+          if (r2.data && !/unauthor|unknown|invalid|action/i.test(e2)) return { param: param, action: STOCK_ACTIONS[j], data: r2.data, tried: tried };
+        }
+        continue;
+      }
+      return { param: param, action: STOCK_ACTIONS[0], data: res.data, tried: tried };
+    }
+  }
+  return { param: '', action: '', data: null, tried: tried };
+}
 // 讀台股後台的持股；格式不如預期就回空陣列（晨報照常，只是不顯示這一行）
 function getStockHoldings() {
   const p = PropertiesService.getScriptProperties();
   const url = p.getProperty(STOCK_URL_PROP), secret = p.getProperty(STOCK_SECRET_PROP);
   if (!url || !secret) return [];
-  const r = UrlFetchApp.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=read&secret=' + encodeURIComponent(secret),
-    { muteHttpExceptions: true, followRedirects: true });
-  const d = JSON.parse(r.getContentText());
+  const d = stockProbe(url, secret).data;
   if (!d || d.ok === false) return [];
   let arr = d.holdings || d.data || d.rows || d;
   if (!Array.isArray(arr) && arr && typeof arr === 'object') {
@@ -1335,19 +1366,14 @@ function testStockSummary() {
   const url = p.getProperty(STOCK_URL_PROP), secret = p.getProperty(STOCK_SECRET_PROP);
   log('① 設定：網址 ' + (url ? '有' : '❌沒有') + '、密碼 ' + (secret ? '有' : '❌沒有') + (url && secret ? '' : '（請先執行 setStockConfig）'));
   if (!url || !secret) return '未設定';
-  let d;
-  try {
-    const r = UrlFetchApp.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'action=read&secret=' + encodeURIComponent(secret),
-      { muteHttpExceptions: true, followRedirects: true });
-    log('② 連線：HTTP ' + r.getResponseCode());
-    const txt = r.getContentText();
-    try { d = JSON.parse(txt); } catch (e) {
-      log('❌ 回傳不是 JSON（前 80 字）：' + txt.slice(0, 80).replace(/\s+/g, ' ') + '\n   → 多半是部署權限不是「所有人（包括匿名）」，或網址不是 /exec 結尾');
-      return '非 JSON';
-    }
-  } catch (e) { log('❌ 連線失敗：' + e.message); return '連線失敗'; }
-  log('③ 回傳最上層欄位：' + (Array.isArray(d) ? '（陣列，' + d.length + ' 筆）' : Object.keys(d || {}).join(', ')));
-  if (d && d.ok === false) { log('❌ 後台回應失敗：' + (d.error || '未知') + '（Unauthorized＝密碼不對）'); return '後台拒絕'; }
+  let pr;
+  try { pr = stockProbe(url, secret); } catch (e) { log('❌ 連線失敗：' + e.message); return '連線失敗'; }
+  log('② 嘗試結果（參數名稱→回應）：' + pr.tried.join('；'));
+  if (!pr.data) {
+    log('❌ 所有參數名稱都被拒絕或回傳不是 JSON。→ 金鑰與後台不一致（或後台沒有重新部署新版本），請把後台的 SECRET_TOKEN 與這裡存的重新對一次');
+    return '驗證失敗';
+  }
+  log('③ 通過驗證：參數「' + pr.param + '」、動作「' + pr.action + '」；回傳最上層欄位：' + (Array.isArray(pr.data) ? '（陣列，' + pr.data.length + ' 筆）' : Object.keys(pr.data).join(', ')));
   const hs = getStockHoldings();
   log('④ 讀到可用持股：' + hs.length + ' 筆' + (hs.length ? '；欄位：' + Object.keys(hs[0]).join(', ') : '（0 筆代表格式不符或 qty／cost 讀不到）'));
   if (!hs.length) return '無持股';
