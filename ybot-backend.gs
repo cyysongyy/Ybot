@@ -13,13 +13,13 @@
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
  *    再執行一次 setupWeeklyReview()（排程「本週回顧」，每週一早上 7 點）
- * 3-2.（選填）Telegram 通知：手機鎖著也收得到新的【差勤批核】筆記和聯邦帳單。
+ * 3-2.（選填）Telegram 通知：手機鎖著也收得到新的【差勤批核】筆記和重要信件（含聯邦帳單）。
  *    a. 在 Telegram 找 @BotFather 建立機器人（或沿用股票提醒那一個），拿到 token
  *    b. 專案設定（齒輪）→ 指令碼屬性 → 新增屬性 TELEGRAM_BOT_TOKEN，值貼 token
  *       （token 只放這裡，不要寫進程式碼）
  *    c. 在 Telegram 對你的機器人隨便傳一句話，再執行一次 findTelegramChatId()
  *    d. 執行一次 setupTelegramWatch()（每 10 分鐘檢查一次，並先傳一則測試訊息）
- *    會推：新的【差勤批核】筆記、聯邦帳單、行程開始前約 20～30 分鐘提醒
+ *    會推：新的【差勤批核】筆記、重要信件（含聯邦帳單）、行程開始前約 20～30 分鐘提醒
  * 4. 部署 → 新增部署作業 → 網頁應用程式
  *    - 以下列身分執行：我（Me）
  *    - 誰可以存取：所有人（Anyone）
@@ -62,7 +62,7 @@ function tpeDateStr(d) { return tpeFormat(d, 'yyyy/M/d'); }
 function tpeDateTimeStr(d) { return tpeFormat(d, 'M/d HH:mm'); }
 // 台北的「幾點」，用來判斷活躍時段
 function tpeHour(d) { return Number(tpeFormat(d, 'H')); }
-// 定時觸發器（每日簡報 7 點、晚間提醒 8 點…）是照「專案時區」發動的，
+// 定時觸發器（每日簡報 6 點、晚間提醒 8 點…）是照「專案時區」發動的，
 // 那個時區只能在 Apps Script 的專案設定裡改，程式改不了。所以這裡負責提醒：
 // 排程函式的回傳訊息會直接告訴你目前時區對不對。
 function scriptTz() {
@@ -387,7 +387,8 @@ function doPost(e) {
 }
 
 // ── 聯邦帳單 ──────────────────────────────────
-// 有「聯邦」兩個字的信就是聯邦銀行的帳單：不管已讀未讀、抓近 45 天最多 3 封，
+// 有「聯邦」兩個字的信就是聯邦銀行的帳單：不管已讀未讀、抓近 45 天最多 3 封（登入成功通知這類
+// 安全通知不算帳單，會略過）。帳單不再自成一類，前端與簡報都併進「重要信件」，
 // 從全文抓本期應繳金額和繳款截止日（抓不到就留空，前端只顯示主旨）。
 function parseBillText(text) {
   const t = String(text || '').replace(/\s+/g, ' ');
@@ -405,6 +406,7 @@ function getBillDigest() {
       const subject = t.getFirstMessageSubject() || '';
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ');
       if (!/聯邦/.test(subject + ' ' + last.getFrom() + ' ' + body)) return;
+      if (/登入/.test(subject)) return;   // 「行動銀行登入成功通知」不是帳單
       const p = parseBillText(body);
       out.push({
         subject, from: last.getFrom(), date: last.getDate().toISOString(),
@@ -714,8 +716,8 @@ function setupDailyBrief() {
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'dailyBrief') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('dailyBrief').timeBased().everyDays(1).atHour(7).create();
-  return '✅ 已排程每日早上 7 點自動產生 Ybot 簡報（台北時間）' + tzWarn();
+  ScriptApp.newTrigger('dailyBrief').timeBased().everyDays(1).atHour(6).nearMinute(0).create();
+  return '✅ 已排程每日早上 6 點自動產生 Ybot 簡報與 Telegram 晨報（台北時間，實際會在 6:00～6:15 之間送出）' + tzWarn();
 }
 
 function dailyBriefImpl() {
@@ -775,15 +777,20 @@ function dailyBriefImpl() {
     }
     lines.push('');
   }
-  if ((ctx.bills || []).length) {
-    lines.push('💳 聯邦帳單：');
-    ctx.bills.forEach(m => lines.push('　・' + m.subject +
-      (m.amount ? '｜應繳 ' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
-    lines.push('');
-  }
-  if (ctx.gmail.length) {
-    lines.push('📬 未讀重要信件（' + ctx.gmail.length + ' 封）：');
-    ctx.gmail.forEach(m => lines.push('　' + (m.important ? '💳' : '・') + ' ' + m.subject + '（' + m.from + '）'));
+  // 帳單信不再自成一類：跟未讀重要信件併成同一段，帳單排前面（同一封只列一次）
+  const mailSeen = {};
+  const mailLines = [];
+  (ctx.bills || []).forEach(m => {
+    mailSeen[m.threadId] = true;
+    mailLines.push('　💳 ' + m.subject + (m.amount ? '｜應繳 ' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : ''));
+  });
+  (ctx.gmail || []).forEach(m => {
+    if (mailSeen[m.threadId]) return;
+    mailLines.push('　' + (m.important ? '💳' : '・') + ' ' + m.subject + '（' + m.from + '）');
+  });
+  if (mailLines.length) {
+    lines.push('📬 重要信件（' + mailLines.length + ' 封）：');
+    mailLines.forEach(l => lines.push(l));
     lines.push('');
   }
   const news = ctx.news || {};
@@ -828,7 +835,7 @@ function dailyBriefImpl() {
   } catch (err) { reportError('Telegram 晨報', err, 24); /* Email 已經寄出 */ }
 }
 
-// Telegram 版晨報：手機上掃一眼用，所以只放天氣、撞期、今明行程、🔴🟠待辦、帳單、Ybot 的話。
+// Telegram 版晨報：手機上掃一眼用，所以只放天氣、撞期、今明行程、🔴🟠待辦、重要信件（帳單類）、Ybot 的話。
 // 不放新聞與信件寄件者（太長，也不必把信件資訊送到 Telegram）。
 function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stockLine) {
   const L = ['🌅 Ybot 晨報　' + tpeDateStr()];
@@ -862,7 +869,7 @@ function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stoc
     L.push('', '🎯 今天沒有必須處理的待辦');
   }
   if ((ctx.bills || []).length) {
-    L.push('', '💳 帳單：');
+    L.push('', '📬 重要信件：');
     ctx.bills.slice(0, 3).forEach(m => L.push('　・' + m.subject + (m.amount ? '｜' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
   }
   if (stockLine) L.push('', stockLine);
@@ -1132,14 +1139,14 @@ function standupWatchImpl() {
 
 // ── Telegram 通知 ───────────────────────────────
 // iPhone 上 Ybot 網頁要開著才會跳通知；改由後台每 10 分鐘檢查一次、直接傳 Telegram，
-// 手機鎖著也會響。推：新的【差勤批核】筆記、聯邦帳單、行程前提醒。
+// 手機鎖著也會響。推：新的【差勤批核】筆記、重要信件（含聯邦帳單）、行程前提醒。
 // token 和 chat id 只存在「指令碼屬性」，不寫進程式碼。
 const TG_TOKEN_PROP = 'TELEGRAM_BOT_TOKEN';
 const TG_CHAT_PROP = 'TELEGRAM_CHAT_ID';
 const TG_SENT_PROP = 'TELEGRAM_SENT_IDS';
 const TG_APPROVAL_TAG = '【差勤批核】';
 const TG_APPROVAL_FRESH_MS = 36 * 3600000;   // 跟前端首頁一樣：一天半內的才算新的
-const TG_BILL_FRESH_MS = 2 * 86400000;       // 帳單只推 2 天內寄來的，舊信不吵
+const TG_BILL_FRESH_MS = 2 * 86400000;       // 帳單類重要信件只推 2 天內寄來的，舊信不吵
 function tgProps() { return PropertiesService.getScriptProperties(); }
 function tgConfig() {
   const p = tgProps();
@@ -1190,7 +1197,7 @@ function telegramSend(text) {
   tgApi('sendMessage', { chat_id: chatId, text: String(text).slice(0, 4000), disable_web_page_preview: true });
 }
 function testTelegram() {
-  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、聯邦帳單、行程前提醒會傳到這裡。');
+  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、重要信件、行程前提醒會傳到這裡。');
   console.log('✅ 已傳出測試訊息，請看 Telegram');
   return '✅ 已傳出測試訊息，請看 Telegram';
 }
@@ -1223,7 +1230,7 @@ function telegramWatchImpl() {
   getBillDigest().forEach(m => {
     if (!(now - new Date(m.date).getTime() <= TG_BILL_FRESH_MS)) return;
     const info = [m.amount ? '應繳 ' + m.amount + ' 元' : '', m.due ? '截止 ' + m.due : ''].filter(Boolean).join('｜');
-    outbox.push({ key: 'bill:' + m.threadId, text: '💳 聯邦帳單\n' + m.subject + (info ? '\n' + info : '') });
+    outbox.push({ key: 'bill:' + m.threadId, text: '📬 重要信件\n' + m.subject + (info ? '\n' + info : '') });
   });
   // 行程前提醒：30 分鐘內要開始、有明確時間的行程（全天活動不提醒）
   getSoonEvents().forEach(ev => {

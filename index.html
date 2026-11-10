@@ -2763,7 +2763,7 @@ function briefBillSegments(){
     const d=m.due&&m.due.match(/^(\d{2,4})\/(\d{1,2})\/(\d{1,2})$/);
     if(d){const y=+d[1]<1000?+d[1]+1911:+d[1];return `${y}-${d[2].padStart(2,'0')}-${d[3].padStart(2,'0')}`>=today;}
     return !m.date||Date.now()-new Date(m.date).getTime()<7*86400000;
-  }).map(m=>({text:'聯邦帳單：'+String(m.subject||'').trim()+'。'+
+  }).map(m=>({text:'重要信件，帳單：'+String(m.subject||'').trim()+'。'+
     (m.amount?`本期應繳${m.amount.replace(/,/g,'')}元。`:'')+(m.due?`繳款截止日是${m.due}。`:'')}));
 }
 function briefMailSegments(){
@@ -3790,8 +3790,8 @@ function usefulMails(c){
   return ((ctx&&ctx.gmail)||[]).filter(m=>!isNoiseMail(m));
 }
 // ── 💳 聯邦帳單 ─────────────────────────
-// 主旨／寄件者／內文有「聯邦」兩個字的信就是聯邦銀行的帳單，單獨拉出來放在首頁，
-// 不跟一般信件混在一起。後台新版會另外給 bills（近 45 天、已讀未讀都算，
+// 主旨／寄件者／內文有「聯邦」兩個字的信就是聯邦銀行的帳單；首頁不再另開「聯邦帳單」一類，
+// 而是併進「重要 EMAIL」（帳單排前面，帶應繳金額／截止日）。後台新版會另外給 bills（近 45 天、已讀未讀都算，
 // 金額和截止日從全文抓）；舊版後台沒有 bills，就從一般未讀信件裡挑。
 const BILL_RE=/聯邦/;
 const BILL_KEEP_MS=45*86400000;
@@ -3816,7 +3816,7 @@ function billMails(c){
     out.push(Object.assign({},m,{amount:m.amount||p.amount,due:m.due||p.due}));
   });
   const cutoff=Date.now()-BILL_KEEP_MS;
-  return out.filter(m=>!m.date||new Date(m.date).getTime()>=cutoff)
+  return out.filter(m=>!isNoiseMail(m)&&(!m.date||new Date(m.date).getTime()>=cutoff))
     .sort((a,b)=>new Date(b.date||0)-new Date(a.date||0)).slice(0,3);
 }
 // 一般信件清單：把帳單拿掉，避免同一封在首頁出現兩次。
@@ -3954,23 +3954,20 @@ function renderOverview(){
 
   const mails=generalMails(c);
   const bills=billMails(c);
-  const billHtml=bills.length
-    ? `<div class="ovSection" id="ovSectionBills"><a class="ovHead" href="https://mail.google.com/mail/#search/${encodeURIComponent('聯邦')}" target="_blank" rel="noopener"><span class="ovHeadIcon bill">${OV_ICONS.bill}</span><span class="ovHeadTitle">聯邦帳單</span><span class="chev">›</span></a>`+
-      bills.map(m=>{
-        const info=billLine(m);
-        const inner=`<span class="ovMailBadge">💳</span><span>${esc(m.subject)}${info?`<br><b class="billInfo">${esc(info)}</b>`:''}${m.date?` <span class="ovSub">（${esc(fmtDate(m.date,{month:'numeric',day:'numeric'}))}）</span>`:''}</span>`;
-        return m.threadId
-          ? `<a class="ovMailItem" href="https://mail.google.com/mail/#all/${esc(m.threadId)}" target="_blank" rel="noopener">${inner}</a>`
-          : `<div class="ovMailItem">${inner}</div>`;
-      }).join('')+`</div>`
-    : '';
-  const mailHtml=mails.length
-    ? mails.map(m=>{
-        const inner=`<span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span>`;
-        return m.threadId
-          ? `<a class="ovMailItem" href="https://mail.google.com/mail/#all/${esc(m.threadId)}" target="_blank" rel="noopener">${inner}</a>`
-          : `<div class="ovMailItem">${inner}</div>`;
-      }).join('')
+  const mailItem=(m,withInfo)=>{
+    const info=withInfo?billLine(m):'';
+    const badge=withInfo||m.important?'💳':'✉️';
+    const plain=withInfo||m.important?'':' plain';
+    const sub=withInfo
+      ? `${info?`<br><b class="billInfo">${esc(info)}</b>`:''}${m.date?` <span class="ovSub">（${esc(fmtDate(m.date,{month:'numeric',day:'numeric'}))}）</span>`:''}`
+      : ` <span class="ovSub">（${esc(m.from)}）</span>`;
+    const inner=`<span class="ovMailBadge${plain}">${badge}</span><span>${esc(m.subject)}${sub}</span>`;
+    return m.threadId
+      ? `<a class="ovMailItem" href="https://mail.google.com/mail/#all/${esc(m.threadId)}" target="_blank" rel="noopener">${inner}</a>`
+      : `<div class="ovMailItem">${inner}</div>`;
+  };
+  const mailHtml=(bills.length||mails.length)
+    ? bills.map(m=>mailItem(m,true)).join('')+mails.map(m=>mailItem(m,false)).join('')
     : `<div class="ovItem ovEmpty">沒有未讀的重要信件</div>`;
 
   const news=c.news||{};
@@ -3998,7 +3995,6 @@ function renderOverview(){
     approvalHtml()+
     conflictHtml+
     paTodayHtml()+
-    billHtml+
     `<div class="ovSection"><a class="ovHead" href="https://mail.google.com/mail/" target="_blank" rel="noopener"><span class="ovHeadIcon mail">${OV_ICONS.mail}</span><span class="ovHeadTitle">重要 EMAIL</span><span class="chev">›</span></a>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovHead ovLabelToggle" onclick="toggleNewsCollapse()"><span class="ovHeadIcon news">${OV_ICONS.news}</span><span class="ovHeadTitle">今日新聞 <span class="ovToggleIcon">${newsArrow}</span></span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
     ``;
@@ -5434,7 +5430,7 @@ function buildContextText(question){
       lines.push('今天的行程（僅列今天，就是上面對照表「←今天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(todayEvents.length?todayEvents.map(evLabel).join('；'):'（無）'));
       lines.push('明天的行程（僅列明天，就是上面對照表「←明天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(tomorrowEvents.length?tomorrowEvents.map(evLabel).join('；'):'（無）'));
     }
-    if(billMails(c).length)lines.push('聯邦帳單：'+billMails(c).map(m=>m.subject+(billLine(m)?`（${billLine(m)}）`:'')).join('；'));
+    if(billMails(c).length)lines.push('重要信件（帳單類）：'+billMails(c).map(m=>m.subject+(billLine(m)?`（${billLine(m)}）`:'')).join('；'));
     if(usefulMails(c).length)lines.push('未讀重要信件：'+usefulMails(c).map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
       const n=c.news;
@@ -5853,7 +5849,7 @@ function renderPushStatus(){
     // 這裡的通知是 App 自己每分鐘檢查一次跳的，沒有推播伺服器；iPhone 切到別的 App
     // 一陣子就會把網頁 App 暫停，所以要照實講清楚，免得以為關掉了也會收到。
     st.textContent=isIOSDevice()
-      ?'已開啟。iPhone 上要 Ybot 開著時才會跳通知；切到別的 App 一陣子後 iOS 會把它暫停，就不會再跳了（到點提醒信照常會寄到信箱）。想鎖著也收到差勤批核、聯邦帳單，可以在後台設定 Telegram 通知。'
+      ?'已開啟。iPhone 上要 Ybot 開著時才會跳通知；切到別的 App 一陣子後 iOS 會把它暫停，就不會再跳了（到點提醒信照常會寄到信箱）。想鎖著也收到差勤批核、重要信件，可以在後台設定 Telegram 通知。'
       :'已開啟。App 開著時到點提醒與新的重要信件會跳出通知。';
   }else{
     btn.textContent='🔔 開啟主動通知';
@@ -5908,7 +5904,7 @@ function checkProactiveNotifications(){
     state.pushedMailIds.push(mid);
     // 帳單有可能是已讀的舊信（後台撈 45 天內），只有 2 天內寄來的才跳通知
     if(m.date&&Date.now()-new Date(m.date).getTime()>2*86400000)return;
-    notifyLocal('💳 聯邦帳單',[m.subject,billLine(m)].filter(Boolean).join('\n'),'mail-'+mid);
+    notifyLocal('📬 重要 EMAIL',[m.subject,billLine(m)].filter(Boolean).join('\n'),'mail-'+mid);
   });
   const mails=usefulMails();
   mails.filter(m=>m.important).forEach(m=>{

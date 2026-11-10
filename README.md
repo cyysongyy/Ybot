@@ -20,7 +20,7 @@
 | 📝 待辦與筆記 | 三種類型：📌 瑣事筆記／✅ 待辦／⏰ 定時提醒，本機優先、可選雲端同步 |
 | ⏰ 到點提醒 | 提醒時間一到，後台每 10 分鐘檢查一次：有設定 Telegram 就傳訊息並附「✅ 完成／⏰ 延後 1 小時」按鈕（按鈕約 1 分鐘內生效，需先執行 `setupTelegramPoll()`）；沒設定或傳失敗才寄 Email |
 | ⚠️ 出錯通知 | 每日簡報、提醒、Telegram 等排程出錯時，自動傳 Telegram（沒設定就寄 Email），同一項 6 小時內不重複，訊息會遮掉網址與金鑰。另可執行 `setupHealthCheck()`：每天 8:30 檢查今天的簡報有沒有產生、核心排程有沒有被刪掉，有問題才通知。可用 `testErrorReport()` 測試 |
-| 🌅 每日簡報 | 每天早上 7 點自動寄「Ybot 每日簡報」：今日行程、🔴🟠🟢 優先分級的待辦、未讀信件重點、AI 個人化提醒 |
+| 🌅 每日簡報 | 每天早上 6 點自動寄「Ybot 每日簡報」：今日行程、🔴🟠🟢 優先分級的待辦、未讀信件重點、AI 個人化提醒 |
 | 🌅 Telegram 晨報 | 每日簡報產生時，同步把精簡版傳到 Telegram：天氣、撞期、今明行程、🔴🟠待辦、帳單、Ybot 的話（不含新聞與信件寄件者）。需先設定 Telegram（`setTelegramConfig`＋`findTelegramChatId`），沒設定就只寄 Email |
 | 📈 台股持股摘要 | 選填。在 Apps Script 執行 `setStockConfig('台股同步後台網址','密碼')`，晨報（Email 與 Telegram）會多一行「持股 N 檔、以昨收計總未實現損益 %」，只算彙總、不輸出每檔股數與成本。可執行 `testStockSummary()` 測試。也可改成直接讀自己的持股 Sheet（不需要同步後台與金鑰）：執行 `setStockSheet('試算表ID')`，會自動找第一列有 code／qty／cost 的分頁 |
 | 🎯 優先分級 | 待辦／提醒自動分成 🔴今天必須／🟠建議今天／🟢可延後，規則先判斷到期日，AI 只負責「升級」看起來緊急但沒填到期日的項目 |
@@ -60,7 +60,7 @@ ybot-manifest.webmanifest    ← PWA manifest
 
 1. 開啟一份 Google 試算表 → **擴充功能** → **Apps Script**
 2. 貼上 `ybot-backend.gs` 的內容（取代原有內容）
-3. 執行一次 `setupDailyBrief()`（授權後排程每日 7 點自動簡報，含 🔴🟠🟢 優先分級）
+3. 執行一次 `setupDailyBrief()`（授權後排程每日 6 點自動簡報，含 🔴🟠🟢 優先分級）
 4. 再執行一次 `setupReminderWatch()`（排程每 30 分鐘檢查一次到點提醒）
 5. 再執行一次 `setupEveningDigest()`（排程晚上 8 點檢查，只有還有未處理事項才寄信）
 6. **部署** → 新增部署作業 → 網頁應用程式
