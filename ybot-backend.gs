@@ -718,7 +718,7 @@ function setupDailyBrief() {
   return '✅ 已排程每日早上 7 點自動產生 Ybot 簡報（台北時間）' + tzWarn();
 }
 
-function dailyBrief() {
+function dailyBriefImpl() {
   const ctx = buildContext();
   const email = NOTIFY_EMAIL || getOwnerEmail();
   if (!email) return;
@@ -825,7 +825,7 @@ function dailyBrief() {
     if (tg.token && tg.chatId) {
       telegramSend(buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stockLine));
     }
-  } catch (err) { /* Telegram 失敗就算了，Email 已經寄出 */ }
+  } catch (err) { reportError('Telegram 晨報', err, 24); /* Email 已經寄出 */ }
 }
 
 // Telegram 版晨報：手機上掃一眼用，所以只放天氣、撞期、今明行程、🔴🟠待辦、帳單、Ybot 的話。
@@ -951,26 +951,32 @@ function setupReminderWatch() {
   ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'reminderWatch') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('reminderWatch').timeBased().everyMinutes(30).create();
+  ScriptApp.newTrigger('reminderWatch').timeBased().everyMinutes(10).create();
   return '✅ 已排程每 30 分鐘檢查一次到點提醒' + tzWarn();
 }
 
-function reminderWatch() {
+function reminderWatchImpl() {
   const { note } = setupSheets();
   const all = sheetToObjects(note, NOTE_COLS);
   const now = new Date();
   const email = NOTIFY_EMAIL || getOwnerEmail();
-  if (!email) return;
+  const tgReady = !!(tgConfig().token && tgConfig().chatId);
+  if (!email && !tgReady) return;
 
   const due = all.filter(n => n.type === 'reminder' && n.done !== 'true' && !n.notifiedAt && n.dueAt && new Date(n.dueAt) <= now);
   due.forEach(n => {
     try {
-      MailApp.sendEmail(email, '⏰ Ybot 提醒：' + n.content, '到了你設定的提醒時間：\n\n' + n.content + '\n\n（設定時間：' + n.dueAt + '）');
-      updatePartial(note, NOTE_COLS, n.id, { notifiedAt: new Date().toISOString() });
+      // 先傳 Telegram（附「完成／延後 1 小時」按鈕）；沒設定或傳失敗才退回寄 Email
+      let sent = tgReady && sendReminderTelegram(n);
+      if (!sent && email) {
+        MailApp.sendEmail(email, '⏰ Ybot 提醒：' + n.content, '到了你設定的提醒時間：\n\n' + n.content + '\n\n（設定時間：' + n.dueAt + '）');
+        sent = true;
+      }
+      if (sent) updatePartial(note, NOTE_COLS, n.id, { notifiedAt: new Date().toISOString() });
     } catch (err) { /* 忽略單筆寄送失敗 */ }
   });
 
-  autoEscalateStaleReminders(note, all, now, email);
+  if (email) autoEscalateStaleReminders(note, all, now, email);
 }
 
 // 自主動作：提醒已經到點寄過信，卻超過 AUTO_ESCALATE_HOURS 小時還沒被標記完成，
@@ -1004,7 +1010,7 @@ function setupWeeklyReview() {
   return '✅ 已排程每週一早上 7 點產生本週回顧（台北時間）' + tzWarn();
 }
 
-function weeklyReview() {
+function weeklyReviewImpl() {
   const email = NOTIFY_EMAIL || getOwnerEmail();
   if (!email) return;
   const ctx = buildContext();
@@ -1061,7 +1067,7 @@ function setupEveningDigest() {
   return '✅ 已排程每天晚上 8 點檢查（台北時間；有未處理的🔴/🟠事項才會寄信，沒有就不打擾）' + tzWarn();
 }
 
-function eveningDigest() {
+function eveningDigestImpl() {
   const ctx = buildContext();
   const email = NOTIFY_EMAIL || getOwnerEmail();
   if (!email) return;
@@ -1091,7 +1097,7 @@ function setupStandupWatch() {
   return '✅ 已排程每 15 分鐘檢查一次起立提醒（時段判斷用台北時間）' + tzWarn();
 }
 
-function standupWatch() {
+function standupWatchImpl() {
   const s = getStandupSettings();
   if (!s.enabled) return;
   const now = new Date();
@@ -1200,7 +1206,7 @@ function setupTelegramWatch() {
   console.log(msg);
   return msg;
 }
-function telegramWatch() {
+function telegramWatchImpl() {
   const cfg = tgConfig();
   if (!cfg.token || !cfg.chatId) return;
   const p = tgProps();
@@ -1388,7 +1394,7 @@ function getStockSummaryLine() {
     if (!hs.length) return '';
     const r = stockSummaryCompute(hs, getStockPrices(hs.map(h => String(h.code).trim())));
     return r.n && isFinite(r.pct) ? stockSummaryText(r) : '';
-  } catch (err) { return ''; }
+  } catch (err) { reportError('台股持股摘要', err, 24); return ''; }
 }
 // 手動測試：在編輯器執行，逐步回報卡在哪一步（只顯示欄位名稱與筆數，不顯示網址、密碼或數字）。
 function testStockSummary() {
@@ -1430,6 +1436,158 @@ function testStockSummary() {
   log(line || '⑥ 仍然沒有摘要：請把上面 ③④ 的欄位名稱貼給我');
   return line;
 }
+
+// ── Telegram 提醒按鈕（✅ 完成／⏰ 延後 1 小時）＋ 每分鐘輪詢按鈕 ─────────────
+// 不用 webhook（不必公開後台網址、也不會有 Apps Script 302 重送問題），
+// 改由 setupTelegramPoll() 排程的觸發器每分鐘用 getUpdates 收按鈕，約 1 分鐘內生效。
+// 只處理來自你自己 chat id 的按鈕，其他人按了無效。
+const TG_OFFSET_PROP = 'TELEGRAM_UPDATE_OFFSET';
+const SNOOZE_MS = 3600000;
+function telegramSendButtons(text, keyboard) {
+  const { chatId } = tgConfig();
+  if (!chatId) throw new Error('還沒設定 chat id');
+  return tgApi('sendMessage', { chat_id: chatId, text: String(text).slice(0, 4000),
+    disable_web_page_preview: true, reply_markup: { inline_keyboard: keyboard } });
+}
+function sendReminderTelegram(n) {
+  try {
+    telegramSendButtons('⏰ 提醒\n' + n.content, [[
+      { text: '✅ 完成', callback_data: 'done:' + n.id },
+      { text: '⏰ 延後 1 小時', callback_data: 'snz:' + n.id }
+    ]]);
+    return true;
+  } catch (err) { return false; }
+}
+function setupTelegramPoll() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'telegramPoll') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('telegramPoll').timeBased().everyMinutes(1).create();
+  const msg = '✅ 已排程每分鐘接收 Telegram 按鈕（提醒的「完成／延後」）' + tzWarn();
+  console.log(msg);
+  return msg;
+}
+function telegramPollImpl() {
+  const cfg = tgConfig();
+  if (!cfg.token || !cfg.chatId) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;          // 上一輪還沒跑完就跳過，避免同一個按鈕處理兩次
+  try {
+    const p = tgProps();
+    const offset = Number(p.getProperty(TG_OFFSET_PROP) || 0);
+    const updates = tgApi('getUpdates', { offset: offset || undefined, timeout: 0, allowed_updates: ['message', 'callback_query'] }) || [];
+    if (!updates.length) return;
+    let next = offset;
+    updates.forEach(u => {
+      next = Math.max(next, u.update_id + 1);
+      if (u.callback_query) {
+        try { handleReminderCallback(u.callback_query, cfg.chatId); } catch (err) { /* 單一按鈕失敗不擋其他 */ }
+      }
+    });
+    p.setProperty(TG_OFFSET_PROP, String(next));
+  } finally { lock.releaseLock(); }
+}
+function handleReminderCallback(cq, chatId) {
+  const msg = cq.message;
+  if (!msg || !msg.chat || String(msg.chat.id) !== String(chatId)) {
+    try { tgApi('answerCallbackQuery', { callback_query_id: cq.id }); } catch (e) { /* 忽略 */ }
+    return;
+  }
+  const m = String(cq.data || '').match(/^(done|snz):(.+)$/);
+  let reply = '無法辨識的按鈕';
+  if (m) {
+    const { note } = setupSheets();
+    const n = sheetToObjects(note, NOTE_COLS).find(x => String(x.id) === m[2]);
+    if (!n) {
+      reply = '找不到這筆提醒（可能已刪除）';
+    } else if (m[1] === 'done') {
+      updatePartial(note, NOTE_COLS, n.id, { done: 'true' });
+      reply = '✅ 已完成';
+    } else {
+      const due = new Date(Date.now() + SNOOZE_MS);
+      updatePartial(note, NOTE_COLS, n.id, { dueAt: due.toISOString(), notifiedAt: '' });
+      reply = '⏰ 已延後，' + tpeFormat(due, 'HH:mm') + ' 再提醒';
+    }
+  }
+  try { tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: reply }); } catch (e) { /* 忽略 */ }
+  // 把訊息改成結果並拿掉按鈕（不給 reply_markup 就會移除按鈕），避免重複按
+  try { tgApi('editMessageText', { chat_id: chatId, message_id: msg.message_id, text: String(msg.text || '').slice(0, 3900) + '\n\n' + reply }); } catch (e) { /* 忽略 */ }
+}
+
+// ── 出錯自動通知（Telegram，沒設定就寄 Email）────────────────────────
+// 同一項在 quietHours 小時內只通知一次，不會洗版。訊息只放項目名稱與錯誤摘要，
+// 並把網址與 secret 參數遮掉，不會把任何內容資料送出去。
+const ERR_PROP = 'ERROR_ALERT_SENT';
+function scrubError(text) {
+  return String(text || '').replace(/https?:\/\/\S+/g, '[網址]').replace(/(secret|token|key|pass|password)=\S+/gi, '$1=***').slice(0, 300);
+}
+function reportError(name, err, quietHours) {
+  try {
+    const q = (quietHours === undefined ? 6 : quietHours) * 3600000;
+    const p = tgProps();
+    let seen = {};
+    try { seen = JSON.parse(p.getProperty(ERR_PROP) || '{}'); } catch (e) { seen = {}; }
+    const now = Date.now();
+    if (seen[name] && now - seen[name] < q) return;
+    seen[name] = now;
+    p.setProperty(ERR_PROP, JSON.stringify(seen));
+    const text = '⚠️ Ybot 後台異常：' + name + '\n' + scrubError((err && err.message) || err) +
+      '\n（' + tpeDateTimeStr(new Date()) + '；同一項 ' + (q / 3600000) + ' 小時內不重複通知）';
+    const tg = tgConfig();
+    if (tg.token && tg.chatId) { try { telegramSend(text); return; } catch (e) { /* 退回 Email */ } }
+    const email = NOTIFY_EMAIL || getOwnerEmail();
+    if (email) MailApp.sendEmail(email, '⚠️ Ybot 後台異常：' + name, text);
+  } catch (e) { /* 通知本身失敗不能再讓程式出錯 */ }
+}
+function guard(name, fn) {
+  try { return fn(); } catch (err) { reportError(name, err); throw err; }
+}
+function testErrorReport() {
+  reportError('測試', new Error('這是一則測試訊息，代表出錯通知正常（可忽略）'), 0);
+  console.log('已送出測試通知，請看 Telegram（沒設定 Telegram 就看 Email）');
+}
+
+// 每天早上 8:30 檢查：今天的每日簡報有沒有產生、核心排程有沒有被刪掉。
+function setupHealthCheck() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'healthCheck') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('healthCheck').timeBased().everyDays(1).atHour(8).nearMinute(30).create();
+  const msg = '✅ 已排程每天早上 8:30 檢查晨報與排程是否正常（有問題才通知）' + tzWarn();
+  console.log(msg);
+  return msg;
+}
+function healthCheckImpl() {
+  const problems = [];
+  const sh = setupSheets().brief;
+  const last = sh.getLastRow();
+  let lastAt = null;
+  if (last > 1) { const d = new Date(sh.getRange(last, 1).getValue()); if (!isNaN(d)) lastAt = d; }
+  if (!lastAt || tpeDateStr(lastAt) !== tpeDateStr(new Date())) {
+    problems.push('今天的每日簡報沒有產生（最後一次：' + (lastAt ? tpeDateTimeStr(lastAt) : '從未') + '）');
+  }
+  const have = {};
+  ScriptApp.getProjectTriggers().forEach(t => { have[t.getHandlerFunction()] = true; });
+  const need = ['dailyBrief', 'reminderWatch'];
+  if (tgConfig().token) need.push('telegramWatch', 'telegramPoll');
+  const missing = need.filter(h => !have[h]);
+  if (missing.length) problems.push('缺少排程：' + missing.join('、') + '（請重新執行對應的 setup 函式）');
+  if (problems.length) reportError('健康檢查', { message: problems.join('；') }, 20);
+}
+function testHealthCheck() {
+  healthCheckImpl();
+  console.log('已執行健康檢查；有問題才會通知，沒有通知就代表正常');
+}
+
+// ── 排程入口：出錯時自動通知 ──
+function dailyBrief() { return guard('dailyBrief', dailyBriefImpl); }
+function reminderWatch() { return guard('reminderWatch', reminderWatchImpl); }
+function eveningDigest() { return guard('eveningDigest', eveningDigestImpl); }
+function weeklyReview() { return guard('weeklyReview', weeklyReviewImpl); }
+function standupWatch() { return guard('standupWatch', standupWatchImpl); }
+function telegramWatch() { return guard('telegramWatch', telegramWatchImpl); }
+function healthCheck() { return guard('healthCheck', healthCheckImpl); }
+function telegramPoll() { return guard('telegramPoll', telegramPollImpl); }
 
 function getOwnerEmail() {
   try { return Session.getEffectiveUser().getEmail() || ''; } catch (e) { return ''; }
