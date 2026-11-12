@@ -355,8 +355,16 @@ function doPost(e) {
     if (!email) return jsonResp({ ok: false, error: '找不到通知信箱' });
     try {
       const subject = String(body.subject || '通知').slice(0, 120);
-      MailApp.sendEmail(email, '🔔 Ybot：' + subject, String(body.message || subject));
-      return jsonResp({ ok: true, message: '已寄出通知' });
+      const message = String(body.message || subject);
+      MailApp.sendEmail(email, '🔔 Ybot：' + subject, message);
+      // 差勤批核結果：除了寄信，也要存進待辦／筆記清單（內容以【差勤批核】開頭），
+      // 首頁差勤卡片、App 內通知、Telegram 推播都是靠這個開頭認的。
+      // 過去只寄信不存，所以差勤推播從來沒進過清單。
+      let noteId = '';
+      if (/差勤|批核/.test(subject + message) || body.saveNote) {
+        noteId = saveApprovalNote_(subject, message, body.noteType);
+      }
+      return jsonResp({ ok: true, message: noteId ? '已寄出通知並存入待辦' : '已寄出通知', id: noteId });
     } catch (err) {
       return jsonResp({ ok: false, error: '寄信失敗：' + err.message });
     }
@@ -384,6 +392,25 @@ function doPost(e) {
     return jsonResp({ ok: true, message: '已儲存起立提醒設定' });
   }
   return jsonResp({ ok: false, error: 'Unknown action: ' + action });
+}
+
+// 把差勤批核通知存成一則待辦（預設 todo，可用 noteType 指定 note）。
+// 同樣內容 36 小時內已存過就不重複存（外部腳本重跑也不會洗版）。
+function saveApprovalNote_(subject, message, noteType) {
+  const text = String(message || subject).trim();
+  const content = text.startsWith(TG_APPROVAL_TAG) ? text : TG_APPROVAL_TAG + text;
+  const { note } = setupSheets();
+  const now = Date.now();
+  const dup = sheetToObjects(note, NOTE_COLS).find(n =>
+    String(n.content || '').trim() === content.trim() &&
+    now - new Date(n.createdAt).getTime() <= 36 * 3600000);
+  if (dup) return dup.id;
+  const id = Utilities.getUuid();
+  appendObj(note, NOTE_COLS, {
+    id, type: noteType === 'note' ? 'note' : 'todo', content: content, dueAt: '',
+    done: '', createdAt: new Date().toISOString(), notifiedAt: '', owner: ''
+  });
+  return id;
 }
 
 // ── 聯邦帳單 ──────────────────────────────────
