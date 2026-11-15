@@ -599,7 +599,8 @@ a.ovMailItem:hover{text-decoration:underline;}
     <nav class="menuPanel" id="menuPanel">
       <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 對話</button>
       <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</button>
-      <button class="tab" data-tab="pa" onclick="switchTab('pa')">🏫 校長助理</button>
+      <!-- 「🏫 校長助理」選單項依使用者要求拿掉（2026-11-15）：首頁已有校長助理區塊，重複。
+           分頁本身（pane-pa）還在，從首頁「校長助理」區塊的標題或快速連結進去。 -->
       <button class="tab" data-tab="apps" onclick="switchTab('apps')">🧩 其他 App</button>
       <button class="tab" data-tab="game" onclick="switchTab('game')">🧠 記憶遊戲</button>
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
@@ -1686,8 +1687,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-15-5';
+const APP_VERSION='2026-11-15-6';
 const CHANGELOG=[
+  {v:'2026-11-15-6',d:'11/15',items:[
+    '☰ 選單的「🏫 校長助理」拿掉了（首頁已經看得到）。要開完整的校長助理，點首頁「校長助理」區塊的標題，或用快速連結。',
+  ]},
   {v:'2026-11-15-5',d:'11/15',items:[
     'Ybot 會自己更新：開 App 或切回 App 時發現有新版本就自動重新載入，不必再手動按「重新載入 App」。正在打字或錄音時不會打斷，改在首頁顯示「有新版本」讓你點。',
   ]},
