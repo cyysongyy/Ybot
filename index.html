@@ -606,6 +606,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="menuSep"></div>
       <button class="tab" id="themeBtn" onclick="toggleTheme()">🌓 深淺色</button>
       <button class="tab" id="reloadAppBtn" onclick="reloadApp()">🔄 重新載入 App</button>
+      <button class="tab" id="whatsNewBtn" onclick="closeMenu();switchTab('chat');renderWhatsNew(true)">🆕 更新紀錄</button>
     </nav>
   </header>
 
@@ -703,6 +704,8 @@ a.ovMailItem:hover{text-decoration:underline;}
         <div class="heroScheduleMini" id="heroScheduleMini"></div>
       </div>
     </div>
+    <div class="statusLine bad" id="homeBackendWarn" style="display:none;margin:0 0 12px;cursor:pointer;" onclick="switchTab('settings');setTimeout(()=>{const e=document.getElementById('backendVerStatus');if(e)e.scrollIntoView({block:'center'});},300)"></div>
+    <div class="card" id="newsCard" style="display:none;"></div>
     <div class="card" id="chatCard">
       <div class="chatHead" onclick="document.getElementById('chatInput').focus()">
         <div class="chatHeadIcon">
@@ -1606,6 +1609,48 @@ function showTokenStatus(kind,text){
 // 後台（Apps Script）不會跟著 GitHub 自動更新，得手動貼程式再重新部署。
 // 這一步漏了手機上完全看不出來，所以每次打開設定頁就比一次版本、明講出來，
 // 並且把「複製最新程式」做成一顆按鈕——在手機上不必開 GitHub 全選 2000 多行。
+// ── 更新紀錄 ──────────────────────────────────────
+// 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
+// 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
+// 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
+const APP_VERSION='2026-11-15-2';
+const CHANGELOG=[
+  {v:'2026-11-15-2',d:'11/15',items:[
+    '首頁會顯示這張「更新紀錄」卡片：每次 Ybot 更新，這裡會寫多了什麼、去哪裡用。',
+    '後台需要更新時，首頁最上面會出現紅色提醒，點一下就到設定頁照步驟做。',
+  ]},
+  {v:'2026-11-15',d:'11/15',items:[
+    '設定 → 雲端後台：會顯示後台是不是最新版，並可一鍵「📋 複製最新後台程式」。',
+    'Telegram 指令（在 Telegram 對機器人打字，約 1 分鐘內回覆）：直接打字＝加待辦；「提醒 明天 9:00 開會」；「筆記 內容」；「待辦」；「今天」；「狀態」；「問 問題」；「說明」。',
+    '每天 8:30 自動健康檢查：排程被刪會自己補回、晨報沒發會補發，再通知你修了什麼。',
+  ]},
+  {v:'2026-11-10',d:'11/10',items:[
+    '到點提醒改走 Telegram，附「完成／延後」按鈕；後台出錯會自動通知。',
+    '晨報加入台股持股摘要，可直接讀你自己的持股 Sheet。',
+  ]},
+];
+const SEEN_VER_KEY='ybot_seen_version';
+function renderWhatsNew(force){
+  const card=document.getElementById('newsCard');
+  if(!card)return;
+  let seen='';
+  try{seen=localStorage.getItem(SEEN_VER_KEY)||'';}catch(e){}
+  if(!force&&seen===APP_VERSION){card.style.display='none';return;}
+  // 沒看過的全部列出來；手動打開（force）就列全部。
+  const idx=force?-1:CHANGELOG.findIndex(c=>c.v===seen);
+  const list=idx>0?CHANGELOG.slice(0,idx):CHANGELOG;
+  card.innerHTML='<div class="section-title">🆕 Ybot 更新了什麼</div>'+
+    list.map(c=>'<div style="margin:8px 0 2px;font-weight:700;font-size:.85rem;">'+esc(c.d)+'</div><ul style="margin:0;padding-left:1.2em;font-size:.85rem;line-height:1.6;">'+
+      c.items.map(i=>'<li>'+esc(i)+'</li>').join('')+'</ul>').join('')+
+    '<div class="hint" style="margin-top:8px;">目前版本：'+esc(APP_VERSION)+'</div>'+
+    '<button class="btn" style="margin-top:8px;" onclick="dismissWhatsNew()">知道了</button>';
+  card.style.display='block';
+  if(force)card.scrollIntoView({block:'start',behavior:'smooth'});
+}
+function dismissWhatsNew(){
+  try{localStorage.setItem(SEEN_VER_KEY,APP_VERSION);}catch(e){}
+  const card=document.getElementById('newsCard');if(card)card.style.display='none';
+}
 let latestBackendCode='';
 async function loadLatestBackend(){
   const r=await fetch('./ybot-backend.gs',{cache:'no-cache'});
@@ -1616,6 +1661,7 @@ async function loadLatestBackend(){
 }
 async function checkBackendVersion(deployed){
   const el=document.getElementById('backendVerStatus'),box=document.getElementById('backendUpdateBox');
+  const home=document.getElementById('homeBackendWarn');
   if(!el||!box)return;
   let latest='';
   try{latest=await loadLatestBackend();}catch(e){el.style.display='none';box.style.display='none';return;}
@@ -1623,10 +1669,12 @@ async function checkBackendVersion(deployed){
   if(deployed===latest){
     el.className='statusLine ok';el.textContent='✅ 後台是最新版（'+latest+'）';
     box.style.display='none';
+    if(home)home.style.display='none';
   }else{
     el.className='statusLine bad';
     el.textContent='⚠️ 後台不是最新版（目前：'+(deployed||'舊版，沒有版本號')+'；最新：'+latest+'）。新功能要更新後台才會生效，照下面步驟做一次。';
     box.style.display='block';
+    if(home){home.textContent='⚠️ 後台還沒更新，新功能還不能用。點這裡照步驟更新 ›';home.style.display='block';}
   }
   el.style.display='block';
 }
@@ -6002,6 +6050,9 @@ if(state.useSchoolDb)refreshSelRotationCache();
 mpFbEnsureInit();
 maybeStartQuickRec();
 registerSW();
+renderWhatsNew(false);
+// 一開 App 就比對後台版本，沒更新就在首頁最上面提醒（不必進設定頁才知道）。
+if(state.gasUrl)checkBackendLock();
 // 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。
 qrFlushQueue();
 qaAutoSync();   // 問答庫在背景跟雲端對齊，不必手動按
