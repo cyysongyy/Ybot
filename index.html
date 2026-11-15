@@ -705,6 +705,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       </div>
     </div>
     <div class="statusLine bad" id="homeBackendWarn" style="display:none;margin:0 0 12px;cursor:pointer;" onclick="switchTab('settings');setTimeout(()=>{const e=document.getElementById('backendVerStatus');if(e)e.scrollIntoView({block:'center'});},300)"></div>
+    <div class="statusLine ok" id="homeUpdateWarn" style="display:none;margin:0 0 12px;cursor:pointer;" onclick="reloadApp()">🔄 Ybot 有新版本，點這裡更新 ›</div>
     <div class="card" id="newsCard" style="display:none;"></div>
     <div class="card" id="chatCard">
       <div class="chatHead" onclick="document.getElementById('chatInput').focus()">
@@ -1685,8 +1686,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-15-4';
+const APP_VERSION='2026-11-15-5';
 const CHANGELOG=[
+  {v:'2026-11-15-5',d:'11/15',items:[
+    'Ybot 會自己更新：開 App 或切回 App 時發現有新版本就自動重新載入，不必再手動按「重新載入 App」。正在打字或錄音時不會打斷，改在首頁顯示「有新版本」讓你點。',
+  ]},
   {v:'2026-11-15-4',d:'11/15',items:[
     '台股、健康、校長助理三個系統融進 Ybot（要先更新後台才會生效，首頁有紅色提醒就照步驟做）。',
     '首頁多了「📈 台股持股」和「🫀 健康」兩塊：今日漲跌、總損益%、健康分。點標題會直接請 Ybot 分析。只顯示百分比，不顯示股數和金額。',
@@ -1712,6 +1716,44 @@ const CHANGELOG=[
   ]},
 ];
 const SEEN_VER_KEY='ybot_seen_version';
+// ── 自動更新 ──────────────────────────────────────
+// 手機把 Ybot 加到主畫面後，iOS 會一直留著舊畫面不重新載入，更新上線了也看不到
+// （使用者回報過「刪掉的區塊還在」）。所以 App 自己去問：線上的版本號跟我不一樣嗎？
+// 不一樣就自動重新載入；正在打字、錄音時不打斷，改在首頁顯示「有新版本」讓他自己點。
+let _updChecking=false;
+function busyForReload(){
+  try{
+    if(typeof recording!=='undefined'&&recording)return true;
+    if(typeof qrState!=='undefined'&&qrState!=='idle')return true;
+    if(typeof mtRecorder!=='undefined'&&mtRecorder&&mtRecorder.state==='recording')return true;
+    const ci=document.getElementById('chatInput');
+    if(ci&&ci.value.trim())return true;
+    const a=document.activeElement;
+    if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return true;
+  }catch(e){}
+  return false;
+}
+async function checkAppUpdate(){
+  if(_updChecking||navigator.onLine===false)return;
+  _updChecking=true;
+  try{
+    const r=await fetch('./index.html?v='+Date.now(),{cache:'no-store'});
+    if(!r.ok)return;
+    const m=(await r.text()).match(/const APP_VERSION='([^']+)'/);
+    if(!m||m[1]===APP_VERSION)return;
+    let tried='';
+    try{tried=sessionStorage.getItem('ybot_upd_tried')||'';}catch(e){}
+    // 同一個版本只自動重載一次：重載後還是舊的（快取卡住）就改顯示提示，不要無限重載。
+    if(tried!==m[1]&&!busyForReload()){
+      try{sessionStorage.setItem('ybot_upd_tried',m[1]);}catch(e){}
+      reloadApp();
+    }else{
+      const el=document.getElementById('homeUpdateWarn');
+      if(el)el.style.display='block';
+    }
+  }catch(e){/* 沒網路就下次再問 */}
+  finally{_updChecking=false;}
+}
 function renderWhatsNew(force){
   const card=document.getElementById('newsCard');
   if(!card)return;
@@ -6131,6 +6173,10 @@ mpFbEnsureInit();
 maybeStartQuickRec();
 registerSW();
 renderWhatsNew(false);
+// 開 App、切回 App、每 30 分鐘各問一次有沒有新版本。
+setTimeout(checkAppUpdate,3000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkAppUpdate();});
+setInterval(checkAppUpdate,30*60000);
 pushPaDays();   // 把校長助理今明的事同步到雲端，晨報和 Telegram 才講得到
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)pushPaDays();});
 // 一開 App 就比對後台版本，沒更新就在首頁最上面提醒（不必進設定頁才知道）。
