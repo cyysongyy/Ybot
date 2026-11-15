@@ -1613,8 +1613,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-15-2';
+const APP_VERSION='2026-11-15-3';
 const CHANGELOG=[
+  {v:'2026-11-15-3',d:'11/15',items:[
+    '首頁的「聯邦帳單」區塊已拿掉。',
+  ]},
   {v:'2026-11-15-2',d:'11/15',items:[
     '首頁會顯示這張「更新紀錄」卡片：每次 Ybot 更新，這裡會寫多了什麼、去哪裡用。',
     '後台需要更新時，首頁最上面會出現紅色提醒，點一下就到設定頁照步驟做。',
@@ -4050,17 +4053,9 @@ function renderOverview(){
   }
 
   const mails=generalMails(c);
-  const bills=billMails(c);
-  const billHtml=bills.length
-    ? `<div class="ovSection" id="ovSectionBills"><a class="ovHead" href="https://mail.google.com/mail/#search/${encodeURIComponent('聯邦')}" target="_blank" rel="noopener"><span class="ovHeadIcon bill">${OV_ICONS.bill}</span><span class="ovHeadTitle">聯邦帳單</span><span class="chev">›</span></a>`+
-      bills.map(m=>{
-        const info=billLine(m);
-        const inner=`<span class="ovMailBadge">💳</span><span>${esc(m.subject)}${info?`<br><b class="billInfo">${esc(info)}</b>`:''}${m.date?` <span class="ovSub">（${esc(fmtDate(m.date,{month:'numeric',day:'numeric'}))}）</span>`:''}</span>`;
-        return m.threadId
-          ? `<a class="ovMailItem" href="https://mail.google.com/mail/#all/${esc(m.threadId)}" target="_blank" rel="noopener">${inner}</a>`
-          : `<div class="ovMailItem">${inner}</div>`;
-      }).join('')+`</div>`
-    : '';
+  // 首頁的「聯邦帳單」區塊依使用者要求拿掉（2026-11-15）。只拿掉首頁這一塊；
+  // Telegram／主動通知／語音摘要裡的帳單提醒沒有動。
+  const billHtml='';
   const mailHtml=mails.length
     ? mails.map(m=>{
         const inner=`<span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span>`;
