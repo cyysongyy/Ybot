@@ -1009,6 +1009,14 @@ a.ovMailItem:hover{text-decoration:underline;}
         <button class="btn ghost" onclick="syncNotesToCloud()">⬆️ 同步待辦至雲端</button>
       </div>
       <div id="connStatus"></div>
+      <div id="backendVerStatus" class="statusLine" style="display:none;"></div>
+      <div id="backendUpdateBox" style="display:none;margin-top:8px;">
+        <div class="row2">
+          <button class="btn" onclick="copyBackendCode()" style="flex:1 1 auto;">📋 複製最新後台程式</button>
+          <a class="btn ghost" href="https://script.google.com/home" target="_blank" rel="noopener" style="flex:0 0 auto;text-decoration:none;text-align:center;">開啟 Apps Script</a>
+        </div>
+        <div class="hint" style="margin-top:6px;">手機也能做：① 按「複製最新後台程式」→ ② 開啟 Apps Script，點進 Ybot 專案，把原本的程式全選刪掉、貼上、儲存 → ③ 右上「部署 → 管理部署 → ✏️ → 版本選『新版本』→ 部署」（網址不會變）→ ④ 函式選 <b>setupAll</b> 按「執行」一次。做完回來按「🔌 測試連線」。</div>
+      </div>
     </div>
 
     <div class="card">
@@ -1595,10 +1603,51 @@ function showTokenStatus(kind,text){
   if(!text){el.style.display='none';return;}
   el.className='statusLine '+kind;el.textContent=text;el.style.display='block';
 }
+// 後台（Apps Script）不會跟著 GitHub 自動更新，得手動貼程式再重新部署。
+// 這一步漏了手機上完全看不出來，所以每次打開設定頁就比一次版本、明講出來，
+// 並且把「複製最新程式」做成一顆按鈕——在手機上不必開 GitHub 全選 2000 多行。
+let latestBackendCode='';
+async function loadLatestBackend(){
+  const r=await fetch('./ybot-backend.gs',{cache:'no-cache'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  latestBackendCode=await r.text();
+  const m=latestBackendCode.match(/BACKEND_VERSION\s*=\s*'([^']+)'/);
+  return m?m[1]:'';
+}
+async function checkBackendVersion(deployed){
+  const el=document.getElementById('backendVerStatus'),box=document.getElementById('backendUpdateBox');
+  if(!el||!box)return;
+  let latest='';
+  try{latest=await loadLatestBackend();}catch(e){el.style.display='none';box.style.display='none';return;}
+  if(!latest){el.style.display='none';box.style.display='none';return;}
+  if(deployed===latest){
+    el.className='statusLine ok';el.textContent='✅ 後台是最新版（'+latest+'）';
+    box.style.display='none';
+  }else{
+    el.className='statusLine bad';
+    el.textContent='⚠️ 後台不是最新版（目前：'+(deployed||'舊版，沒有版本號')+'；最新：'+latest+'）。新功能要更新後台才會生效，照下面步驟做一次。';
+    box.style.display='block';
+  }
+  el.style.display='block';
+}
+async function copyBackendCode(){
+  const el=document.getElementById('backendVerStatus');
+  const done=(ok,msg)=>{el.className='statusLine '+(ok?'ok':'bad');el.textContent=msg;el.style.display='block';};
+  try{
+    // iOS 只允許在「按下去的那一刻」寫剪貼簿；程式通常在打開設定頁時就已經抓好，
+    // 這裡多半不用再等網路。
+    if(!latestBackendCode)await loadLatestBackend();
+    await navigator.clipboard.writeText(latestBackendCode);
+    done(true,'✅ 已複製最新後台程式。接著開啟 Apps Script，全選舊程式刪掉後貼上。');
+  }catch(e){
+    done(false,'複製沒成功，請再按一次；還是不行就開這個網址全選複製：'+new URL('./ybot-backend.gs',location.href).href);
+  }
+}
 async function checkBackendLock(){
   if(!state.gasUrl){showTokenStatus('','');return;}
   try{
     const d=await (await gasGet('ping')).json();
+    if(d&&d.ok)checkBackendVersion(d.version||'');
     if(d&&d.authRequired){showTokenStatus('bad','🔒 後台已上鎖，但這裡的通關密語不對或還沒填。');return;}
     if(d&&d.ok&&d.tokenRequired===false){
       showTokenStatus('bad','⚠️ 後台目前沒有上鎖：任何知道網址的人都讀得到你的信件摘要、行程與全部筆記。請到 Apps Script 執行一次 generateApiToken()。');return;
