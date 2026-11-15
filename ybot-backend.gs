@@ -8,8 +8,9 @@
  * 2. 貼上此程式碼（取代所有內容）
  * 3. 執行一次 generateApiToken()，把回傳的那串通關密語貼進
  *    Ybot「設定 → 雲端後台 → 通關密語」（沒設的話，任何知道網址的人都讀得到你的資料）
- * 3-1. 執行一次 setupDailyBrief()（授權後排程「每日簡報」）
- *    再執行一次 setupReminderWatch()（排程「到點提醒」，每 30 分鐘檢查一次）
+ * 3-1. 最簡單：執行一次 setupAll()，會把下面所有排程一次裝好（已存在的不動）。
+ *    想分開裝也可以：執行一次 setupDailyBrief()（授權後排程「每日簡報」）
+ *    再執行一次 setupReminderWatch()（排程「到點提醒」，每 10 分鐘檢查一次）
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
  *    再執行一次 setupWeeklyReview()（排程「本週回顧」，每週一早上 7 點）
@@ -719,6 +720,8 @@ function setupDailyBrief() {
 }
 
 function dailyBriefImpl() {
+  // 順手確認核心排程都還在（例如健康檢查被刪掉時由這裡補回），失敗不影響簡報
+  try { ensureTriggers(false); } catch (err) { /* 略過 */ }
   const ctx = buildContext();
   const email = NOTIFY_EMAIL || getOwnerEmail();
   if (!email) return;
@@ -952,7 +955,7 @@ function setupReminderWatch() {
     if (t.getHandlerFunction() === 'reminderWatch') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('reminderWatch').timeBased().everyMinutes(10).create();
-  return '✅ 已排程每 30 分鐘檢查一次到點提醒' + tzWarn();
+  return '✅ 已排程每 10 分鐘檢查一次到點提醒' + tzWarn();
 }
 
 function reminderWatchImpl() {
@@ -1482,6 +1485,8 @@ function telegramPollImpl() {
       next = Math.max(next, u.update_id + 1);
       if (u.callback_query) {
         try { handleReminderCallback(u.callback_query, cfg.chatId); } catch (err) { /* 單一按鈕失敗不擋其他 */ }
+      } else if (u.message) {
+        try { handleTelegramText(u.message, cfg.chatId); } catch (err) { reportError('Telegram 指令', err); }
       }
     });
     p.setProperty(TG_OFFSET_PROP, String(next));
@@ -1493,6 +1498,9 @@ function handleReminderCallback(cq, chatId) {
     try { tgApi('answerCallbackQuery', { callback_query_id: cq.id }); } catch (e) { /* 忽略 */ }
     return;
   }
+  // 待辦清單上的「✅」與剛新增待辦的「↩️ 取消」（見下方 Telegram 指令）
+  const lm = String(cq.data || '').match(/^(ld|del):(.+)$/);
+  if (lm) { handleListCallback(cq, chatId, lm[1], lm[2]); return; }
   const m = String(cq.data || '').match(/^(done|snz):(.+)$/);
   let reply = '無法辨識的按鈕';
   if (m) {
@@ -1566,17 +1574,284 @@ function healthCheckImpl() {
   if (!lastAt || tpeDateStr(lastAt) !== tpeDateStr(new Date())) {
     problems.push('今天的每日簡報沒有產生（最後一次：' + (lastAt ? tpeDateTimeStr(lastAt) : '從未') + '）');
   }
-  const have = {};
-  ScriptApp.getProjectTriggers().forEach(t => { have[t.getHandlerFunction()] = true; });
-  const need = ['dailyBrief', 'reminderWatch'];
-  if (tgConfig().token) need.push('telegramWatch', 'telegramPoll');
-  const missing = need.filter(h => !have[h]);
-  if (missing.length) problems.push('缺少排程：' + missing.join('、') + '（請重新執行對應的 setup 函式）');
-  if (problems.length) reportError('健康檢查', { message: problems.join('；') }, 20);
+  // 自我修復：核心排程被刪掉就直接補回來，不必等使用者回來重跑 setup
+  const fixed = [];
+  try {
+    const repaired = ensureTriggers(false);
+    if (repaired.length) fixed.push('已自動補回排程：' + repaired.join('、'));
+  } catch (err) {
+    problems.push('排程檢查失敗：' + scrubError(err && err.message));
+  }
+  // 自我修復：今天的簡報沒產生就補發一次；補發也失敗才算問題
+  if (problems.length && problems[0].indexOf('今天的每日簡報沒有產生') === 0) {
+    try {
+      dailyBriefImpl();
+      fixed.push('今天的每日簡報原本沒有產生，已自動補發');
+      problems.shift();
+    } catch (err) {
+      problems[0] += '；自動補發也失敗：' + scrubError(err && err.message);
+    }
+  }
+  if (problems.length) reportError('健康檢查', { message: problems.concat(fixed).join('；') }, 20);
+  else if (fixed.length) reportError('健康檢查（已自動修復）', { message: fixed.join('；') }, 20);
 }
 function testHealthCheck() {
   healthCheckImpl();
   console.log('已執行健康檢查；有問題才會通知，沒有通知就代表正常');
+}
+
+// ── 排程自我修復＋一鍵安裝 ─────────────────────────────────────────
+// 每個排程原本要各自執行一次 setup 函式，漏掉一個、或排程被刪掉，那項功能就默默停擺。
+// ensureTriggers 只補「缺少的」，已存在的不動（不會重設時間）。
+//   core：一定要有；tg：有設定 Telegram 才需要；其餘是選用，只有 setupAll() 會裝。
+const TRIGGER_SPECS = [
+  { h: 'dailyBrief', kind: 'core', make: function () { ScriptApp.newTrigger('dailyBrief').timeBased().everyDays(1).atHour(7).create(); } },
+  { h: 'reminderWatch', kind: 'core', make: function () { ScriptApp.newTrigger('reminderWatch').timeBased().everyMinutes(10).create(); } },
+  { h: 'healthCheck', kind: 'core', make: function () { ScriptApp.newTrigger('healthCheck').timeBased().everyDays(1).atHour(8).nearMinute(30).create(); } },
+  { h: 'telegramWatch', kind: 'tg', make: function () { ScriptApp.newTrigger('telegramWatch').timeBased().everyMinutes(10).create(); } },
+  { h: 'telegramPoll', kind: 'tg', make: function () { ScriptApp.newTrigger('telegramPoll').timeBased().everyMinutes(1).create(); } },
+  { h: 'eveningDigest', kind: 'optional', make: function () { ScriptApp.newTrigger('eveningDigest').timeBased().everyDays(1).atHour(20).create(); } },
+  { h: 'weeklyReview', kind: 'optional', make: function () { ScriptApp.newTrigger('weeklyReview').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create(); } },
+  { h: 'standupWatch', kind: 'optional', make: function () { ScriptApp.newTrigger('standupWatch').timeBased().everyMinutes(15).create(); } }
+];
+// 回傳這次補回來的排程名稱（沒有缺就回傳空陣列）
+function ensureTriggers(includeOptional) {
+  const have = {};
+  ScriptApp.getProjectTriggers().forEach(function (t) { have[t.getHandlerFunction()] = true; });
+  const tg = tgConfig();
+  const tgReady = !!(tg.token && tg.chatId);
+  const created = [];
+  TRIGGER_SPECS.forEach(function (s) {
+    if (have[s.h]) return;
+    if (s.kind === 'tg' && !tgReady) return;
+    if (s.kind === 'optional' && !includeOptional) return;
+    s.make();
+    created.push(s.h);
+  });
+  return created;
+}
+// 一鍵安裝：把所有排程一次裝好（已經有的不動）。新部署或懷疑漏裝時執行這一個就好。
+function setupAll() {
+  const created = ensureTriggers(true);
+  const tg = tgConfig();
+  const msg = (created.length ? '✅ 已補上排程：' + created.join('、') : '✅ 所有排程都已存在，沒有變動') +
+    ((tg.token && tg.chatId) ? '' : '\n（還沒設定 Telegram，所以沒有裝 telegramWatch／telegramPoll）') + tzWarn();
+  console.log(msg);
+  return msg;
+}
+
+// ── Telegram 指令：在手機上直接對 Ybot 下指令 ──────────────────────────
+// 由 telegramPoll（每分鐘）收訊息，所以約 1 分鐘內回覆。只理會自己 chat id 傳來的文字，
+// 超過 10 分鐘的舊訊息不處理（避免剛裝好時把以前傳的「hi」變成待辦）。
+//   直接打字            → 加成待辦（附「↩️ 取消」按鈕）
+//   提醒 明天 9:00 開會  → 定時提醒（也接受 14:30、下午3點、30分鐘後、2小時後、11/20 9:00）
+//   筆記 內容            → 瑣事筆記
+//   待辦（或 /list）     → 列出未完成事項，每筆一個 ✅ 按鈕
+//   今天（或 /now）      → 今明行程＋要處理的事
+//   狀態（或 /status）   → 排程與最近一次簡報
+//   問 問題（或 /ask）   → 用已設定的 AI 依待辦與行事曆回答（只送待辦與行程，不送信件）
+//   說明（或 /help）
+const TG_MSG_MAX_AGE_MS = 10 * 60000;
+const TG_HELP = [
+  '🤖 Ybot 指令',
+  '直接打字 → 加成待辦',
+  '提醒 明天 9:00 開會 → 定時提醒',
+  '　（也可以：14:30、下午3點、30分鐘後、2小時後、11/20 9:00）',
+  '筆記 內容 → 存成筆記',
+  '待辦 → 未完成清單（可按 ✅）',
+  '今天 → 今明行程與要處理的事',
+  '狀態 → 排程是否正常',
+  '問 問題 → 請 AI 依待辦與行程回答'
+].join('\n');
+
+function tgOpenItems() {
+  return sheetToObjects(setupSheets().note, NOTE_COLS)
+    .filter(function (n) { return (n.type === 'todo' || n.type === 'reminder') && n.done !== 'true'; });
+}
+function tgAddNote(type, content, dueAt) {
+  const id = Utilities.getUuid();
+  appendObj(setupSheets().note, NOTE_COLS, {
+    id: id, type: type, content: content, dueAt: dueAt || '', done: '',
+    createdAt: new Date().toISOString(), notifiedAt: '', owner: ''
+  });
+  return id;
+}
+// 把「提醒」後面的文字拆成時間與內容；拆不出來回傳 null。時間一律當台北時間。
+function parseTgReminder(body, now) {
+  const s = String(body || '').trim();
+  now = now || new Date();
+  let m = s.match(/^(\d{1,3})\s*(分鐘|分|小時|個小時)後\s*(.+)$/);
+  if (m) {
+    const ms = Number(m[1]) * (m[2].indexOf('分') === 0 ? 60000 : 3600000);
+    return { dueAt: new Date(now.getTime() + ms), content: m[3].trim() };
+  }
+  const pad = function (n) { return (Number(n) < 10 ? '0' : '') + Number(n); };
+  const at = function (y, mo, d, h, mi) {
+    return new Date(y + '-' + pad(mo) + '-' + pad(d) + 'T' + pad(h) + ':' + pad(mi) + ':00+08:00');
+  };
+  const today = tpeFormat(now, 'yyyy-M-d').split('-').map(Number);
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2})[:：](\d{2})\s*(.+)$/);
+  if (m) {
+    if (Number(m[1]) < 1 || Number(m[1]) > 12 || Number(m[2]) < 1 || Number(m[2]) > 31 || Number(m[3]) > 23 || Number(m[4]) > 59) return null;
+    let due = at(today[0], m[1], m[2], m[3], m[4]);
+    if (due <= now) due = at(today[0] + 1, m[1], m[2], m[3], m[4]);   // 日期已過就當明年
+    return isNaN(due) ? null : { dueAt: due, content: m[5].trim() };
+  }
+  m = s.match(/^(今天|明天|後天)?\s*(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:：](\d{2})|點(?:(\d{1,2})分?|半)?)\s*(.+)$/);
+  if (m) {
+    let h = Number(m[3]);
+    const mi = m[4] !== undefined ? Number(m[4]) : (m[5] !== undefined ? Number(m[5]) : (/點半/.test(s) ? 30 : 0));
+    if ((m[2] === '下午' || m[2] === '晚上') && h < 12) h += 12;
+    if (m[2] === '中午' && h < 11) h += 12;
+    if (h > 23 || mi > 59) return null;
+    const base = at(today[0], today[1], today[2], h, mi);
+    if (isNaN(base)) return null;
+    const add = m[1] === '明天' ? 1 : (m[1] === '後天' ? 2 : 0);
+    let due = new Date(base.getTime() + add * 86400000);
+    if (!m[1] && due <= now) due = new Date(due.getTime() + 86400000);   // 沒指定哪天、時間已過就當明天
+    return { dueAt: due, content: m[6].trim() };
+  }
+  return null;
+}
+function tgListView() {
+  const now = new Date();
+  const items = tgOpenItems();
+  if (!items.length) return { text: '🎉 沒有未完成的待辦', keyboard: [] };
+  const order = { red: 0, orange: 1, green: 2 };
+  const icon = { red: '🔴', orange: '🟠', green: '🟢' };
+  const rows = items.map(function (n) { return { n: n, level: ruleLevel(n, now) }; })
+    .sort(function (a, b) { return order[a.level] - order[b.level]; });
+  const shown = rows.slice(0, 12);
+  const L = ['📝 未完成 ' + items.length + ' 項' + (items.length > shown.length ? '（列前 ' + shown.length + ' 項）' : '') + '：'];
+  shown.forEach(function (r, i) {
+    L.push((i + 1) + '. ' + icon[r.level] + ' ' + String(r.n.content).slice(0, 60) + (r.n.dueAt ? '（' + fmtDue(r.n.dueAt) + '）' : ''));
+  });
+  const keyboard = shown.map(function (r, i) {
+    return [{ text: '✅ ' + (i + 1) + '. ' + String(r.n.content).slice(0, 24), callback_data: 'ld:' + r.n.id }];
+  }).filter(function (row) { return row[0].callback_data.length <= 64; });   // Telegram 上限 64 bytes
+  return { text: L.join('\n'), keyboard: keyboard };
+}
+function tgNowText() {
+  const now = new Date();
+  const L = ['📍 ' + tpeDateTimeStr(now) + ' 現況'];
+  const todayStr = tpeFormat(now, 'yyyy-MM-dd');
+  const tomorrowStr = tpeFormat(new Date(now.getTime() + 86400000), 'yyyy-MM-dd');
+  const near = (getCalendarDigest() || []).filter(function (ev) {
+    const d = tpeFormat(new Date(ev.start), 'yyyy-MM-dd');
+    return d === todayStr || d === tomorrowStr;
+  });
+  if (near.length) {
+    L.push('', '📅 今明行程：');
+    near.slice(0, 10).forEach(function (ev) {
+      L.push('　' + (ev.allDay ? '全天' : tpeDateTimeStr(new Date(ev.start))) + ' ' + ev.title);
+    });
+  } else {
+    L.push('', '📅 今明沒有行程');
+  }
+  const items = tgOpenItems();
+  const red = items.filter(function (n) { return ruleLevel(n, now) === 'red'; });
+  const orange = items.filter(function (n) { return ruleLevel(n, now) === 'orange'; });
+  if (red.length || orange.length) {
+    L.push('', '🎯 要處理：');
+    red.forEach(function (n) { L.push('🔴 ' + String(n.content).slice(0, 60)); });
+    orange.slice(0, 5).forEach(function (n) { L.push('🟠 ' + String(n.content).slice(0, 60)); });
+  } else {
+    L.push('', '🎯 沒有今明到期的待辦');
+  }
+  L.push('', '其他未完成：' + (items.length - red.length - orange.length) + ' 項（傳「待辦」看清單）');
+  return L.join('\n');
+}
+function tgStatusText() {
+  const have = {};
+  ScriptApp.getProjectTriggers().forEach(function (t) { have[t.getHandlerFunction()] = true; });
+  const L = ['🩺 Ybot 後台狀態　' + tpeDateTimeStr(new Date())];
+  TRIGGER_SPECS.forEach(function (s) {
+    L.push((have[s.h] ? '✅ ' : (s.kind === 'optional' ? '➖ ' : '❌ ')) + s.h + (have[s.h] ? '' : (s.kind === 'optional' ? '（選用，未安裝）' : '（缺少，健康檢查會自動補回）')));
+  });
+  const sh = setupSheets().brief;
+  const last = sh.getLastRow();
+  let lastAt = null;
+  if (last > 1) { const d = new Date(sh.getRange(last, 1).getValue()); if (!isNaN(d)) lastAt = d; }
+  L.push('', '最近一次每日簡報：' + (lastAt ? tpeDateTimeStr(lastAt) : '從未'));
+  L.push('AI：' + (hasAnyAiKey(getAiConfig()) ? '已設定' : '未設定'));
+  return L.join('\n');
+}
+function tgAskAi(question) {
+  if (!hasAnyAiKey(getAiConfig())) return '還沒設定 AI 金鑰（在 Apps Script 執行 setAiConfig），所以無法回答問題。';
+  const now = new Date();
+  const items = tgOpenItems().slice(0, 40).map(function (n) {
+    return '- [' + n.type + '] ' + n.content + (n.dueAt ? '（到期 ' + fmtDue(n.dueAt) + '）' : '');
+  });
+  const events = (getCalendarDigest() || []).slice(0, 40).map(function (ev) {
+    return '- ' + (ev.allDay ? tpeFormat(new Date(ev.start), 'M/d') + ' 全天' : tpeDateTimeStr(new Date(ev.start))) + ' ' + ev.title;
+  });
+  const prompt = '你是 Ybot，使用者的個人助理。現在是台北時間 ' + tpeFormat(now, 'yyyy/M/d (E) HH:mm') + '。\n' +
+    '只根據下面的資料回答，資料裡沒有就說不知道，不要編造。用繁體中文、簡短（200 字內）、不要用 Markdown。\n\n' +
+    '【未完成待辦與提醒】\n' + (items.join('\n') || '（無）') + '\n\n' +
+    '【未來 14 天行事曆】\n' + (events.join('\n') || '（無）') + '\n\n' +
+    '【問題】' + question;
+  const ans = callAI(prompt);
+  return ans ? String(ans).slice(0, 1500) : 'AI 沒有回應（可能是金鑰或模型失效），請稍後再試。';
+}
+function handleTelegramText(msg, chatId) {
+  if (!msg || !msg.chat || String(msg.chat.id) !== String(chatId)) return;   // 只理自己
+  if (!msg.text) return;
+  if (msg.date && Date.now() - msg.date * 1000 > TG_MSG_MAX_AGE_MS) return;    // 舊訊息不處理
+  const text = String(msg.text).trim();
+  if (!text) return;
+  const lower = text.toLowerCase();
+  let m;
+  if (/^(\/help|\/start|說明|幫助|指令)$/.test(lower)) { telegramSend(TG_HELP); return; }
+  if (/^(\/list|待辦|清單)$/.test(lower)) {
+    const v = tgListView();
+    if (v.keyboard.length) telegramSendButtons(v.text, v.keyboard); else telegramSend(v.text);
+    return;
+  }
+  if (/^(\/now|\/brief|今天|現況|簡報)$/.test(lower)) { telegramSend(tgNowText()); return; }
+  if (/^(\/status|狀態)$/.test(lower)) { telegramSend(tgStatusText()); return; }
+  m = text.match(/^(?:\/ask|問)[\s:：]+([\s\S]+)$/i);
+  if (m) { telegramSend(tgAskAi(m[1].trim())); return; }
+  m = text.match(/^(?:\/note|筆記)[\s:：]+([\s\S]+)$/i);
+  if (m) { tgAddNote('note', m[1].trim()); telegramSend('📌 已存成筆記：' + m[1].trim().slice(0, 100)); return; }
+  m = text.match(/^(\/remind|提醒)([\s:：]*)([\s\S]+)$/i);
+  // 「提醒老師交成績」這種沒有空格、也拆不出時間的句子不是指令，往下當一般待辦
+  if (m && !m[2] && m[1] === '提醒' && !parseTgReminder(m[3], new Date())) m = null;
+  if (m) {
+    m = [m[0], m[3]];
+    const r = parseTgReminder(m[1], new Date());
+    if (!r || !r.content) {
+      telegramSend('看不懂提醒時間。請這樣寫：\n提醒 明天 9:00 開會\n提醒 14:30 打電話\n提醒 30分鐘後 收衣服\n提醒 11/20 9:00 繳費');
+      return;
+    }
+    const rid = tgAddNote('reminder', r.content, r.dueAt.toISOString());
+    telegramSendButtons('⏰ 已設定提醒：' + r.content.slice(0, 100) + '\n時間：' + tpeDateTimeStr(r.dueAt),
+      [[{ text: '↩️ 取消', callback_data: 'del:' + rid }]]);
+    return;
+  }
+  if (text.charAt(0) === '/') { telegramSend('不認得這個指令。\n\n' + TG_HELP); return; }
+  const id = tgAddNote('todo', text);
+  telegramSendButtons('✅ 已加入待辦：' + text.slice(0, 100), [[{ text: '↩️ 取消', callback_data: 'del:' + id }]]);
+}
+// ld：待辦清單上按 ✅ → 標記完成並把清單重畫；del：剛新增的那筆按「↩️ 取消」→ 刪除
+function handleListCallback(cq, chatId, kind, id) {
+  const msg = cq.message;
+  const { note } = setupSheets();
+  const n = sheetToObjects(note, NOTE_COLS).find(function (x) { return String(x.id) === String(id); });
+  let reply;
+  if (!n) reply = '找不到這筆（可能已刪除）';
+  else if (kind === 'ld') { updatePartial(note, NOTE_COLS, n.id, { done: 'true' }); reply = '✅ 已完成'; }
+  else { deleteRow(note, n.id); reply = '↩️ 已取消'; }
+  try { tgApi('answerCallbackQuery', { callback_query_id: cq.id, text: reply }); } catch (e) { /* 忽略 */ }
+  try {
+    if (kind === 'ld') {
+      const v = tgListView();
+      const payload = { chat_id: chatId, message_id: msg.message_id, text: v.text };
+      if (v.keyboard.length) payload.reply_markup = { inline_keyboard: v.keyboard };
+      tgApi('editMessageText', payload);
+    } else {
+      tgApi('editMessageText', { chat_id: chatId, message_id: msg.message_id, text: String(msg.text || '').slice(0, 3900) + '\n\n' + reply });
+    }
+  } catch (e) { /* 訊息沒變或已過期就略過 */ }
 }
 
 // ── 排程入口：出錯時自動通知 ──
