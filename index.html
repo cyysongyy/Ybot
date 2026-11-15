@@ -487,6 +487,16 @@ textarea.fi{resize:vertical;min-height:56px;}
 .typeTag.idea{background:rgba(109,40,217,.14);color:#7c3aed;}
 .delBtn{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:2px 6px;transition:color .15s;}
 .delBtn:hover{color:var(--bad);}
+.shareBtn{font-size:.9rem;}
+.shareBtn:hover{color:var(--pri);}
+.expRow{margin:-4px 0 12px;}
+.expRow button,.expBox button{white-space:nowrap;border:1px solid var(--line);background:var(--card);color:inherit;border-radius:10px;padding:7px 11px;font-size:.8rem;font-weight:700;cursor:pointer;}
+.expBox{margin:0 0 12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--bg);display:none;}
+.expBox textarea{width:100%;box-sizing:border-box;min-height:180px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.85rem;line-height:1.6;background:var(--card);color:inherit;font-family:inherit;}
+.expBox .expOpt{display:flex;align-items:center;gap:6px;font-size:.8rem;margin-bottom:8px;}
+.expBox .expBtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.expBox .expLine{background:#06c755;border-color:#06c755;color:#fff;}
+.expBox .expMsg{font-size:.75rem;color:var(--tx3);margin-top:6px;min-height:1em;}
 .empty{text-align:center;color:var(--tx3);font-size:.84rem;padding:28px 0;}
 /* 🧠 記憶小遊戲 */
 .memChips{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 10px;}
@@ -798,6 +808,17 @@ a.ovMailItem:hover{text-decoration:underline;}
         <span class="chip" data-f="reminder" onclick="setFilter('reminder')">⏰ 提醒</span>
         <span class="chip" data-f="idea" onclick="setFilter('idea')">💡 心法</span>
         <span class="chip" data-f="owned" onclick="setFilter('owned')">🤝 我交辦的</span>
+      </div>
+      <div class="expRow"><button type="button" onclick="toggleExport()">📤 匯出文字</button></div>
+      <div class="expBox" id="expBox">
+        <label class="expOpt"><input type="checkbox" id="expDone" onchange="buildExportText()"> 包含已完成的項目</label>
+        <textarea id="expText" aria-label="匯出內容，可直接修改"></textarea>
+        <div class="expBtns">
+          <button type="button" class="expLine" onclick="exportToLine()">💬 傳到 LINE</button>
+          <button type="button" onclick="exportShare()">📤 其他平台</button>
+          <button type="button" onclick="exportCopy()">📋 複製</button>
+        </div>
+        <div class="expMsg" id="expMsg"></div>
       </div>
       <div class="xfTools" id="xfTools" style="display:none;">
         <div class="xfRow">
@@ -1687,8 +1708,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-15-6';
+const APP_VERSION='2026-11-16';
 const CHANGELOG=[
+  {v:'2026-11-16',d:'11/16',items:[
+    '📝 筆記頁新增「📤 匯出文字」：把目前篩選的清單整理成文字，可以改一改再按「💬 傳到 LINE」、「📤 其他平台」（系統分享，Telegram、Email 等都行）或「📋 複製」。每一則筆記右邊也有 📤，可以單獨分享。',
+  ]},
   {v:'2026-11-15-6',d:'11/15',items:[
     '☰ 選單的「🏫 校長助理」拿掉了（首頁已經看得到）。要開完整的校長助理，點首頁「校長助理」區塊的標題，或用快速連結。',
   ]},
@@ -3548,9 +3572,96 @@ function renderNotes(){
         ${n.paRaw?`<details class="paRaw"><summary>看原文</summary><div>${esc(n.paRaw)}</div></details>`:''}
         ${dueTxt?`<div class="noteMeta ${overdue?'overdue':''}">${overdue?'🔴 已逾期 · ':'⏰ '}${dueTxt}</div>`:''}
       </div>
+      <button class="delBtn shareBtn" onclick="shareOneNote('${n.id}')" aria-label="分享這則">📤</button>
       <button class="delBtn" onclick="deleteNote('${n.id}')">✕</button>
     </div>`;
   }).join('');
+  if(document.getElementById('expBox').style.display==='block')buildExportText();
+}
+
+// ── 📤 文字匯出：把目前篩選的筆記整理成純文字，傳到 LINE／其他平台／複製 ──
+// LINE 用官方的分享網址（line.me/R/msg/text），手機會直接開 LINE 讓你選聊天室；
+// 其他平台走系統分享面板（navigator.share），不支援的瀏覽器就退回複製。
+const EXP_TYPE_ORDER=['todo','reminder','note','idea'];
+function noteToText(n){
+  const mark=n.type==='todo'||n.type==='reminder'?(n.done?'☑ ':'☐ '):'• ';
+  let t=mark+String(n.content||'').trim();
+  const extra=[];
+  if(n.owner)extra.push('🤝 負責：'+n.owner);
+  if(n.dueAt)extra.push('⏰ '+fmtDateTime(n.dueAt,{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  if(extra.length)t+='\n   '+extra.join('　');
+  return t;
+}
+function exportItems(){
+  const withDone=document.getElementById('expDone').checked;
+  return liveNotes().filter(n=>
+    (noteFilter==='all'?true:(noteFilter==='owned'?!!String(n.owner||'').trim():n.type===noteFilter))
+    &&(withDone||!n.done));
+}
+function buildExportText(){
+  const items=exportItems();
+  const label=noteFilter==='all'?'全部':noteFilter==='owned'?'🤝 我交辦的':TYPE_LABEL[noteFilter];
+  const d=new Date();
+  const head='Ybot 筆記｜'+label+'｜'+(d.getMonth()+1)+'/'+d.getDate()+'（共 '+items.length+' 則）';
+  let body='';
+  if(!items.length){body='（目前沒有可匯出的項目）';}
+  else if(noteFilter==='all'||noteFilter==='owned'){
+    body=EXP_TYPE_ORDER.map(t=>{
+      const g=items.filter(n=>n.type===t);
+      return g.length?TYPE_LABEL[t]+'\n'+g.map(noteToText).join('\n'):'';
+    }).filter(Boolean).join('\n\n');
+  }else body=items.map(noteToText).join('\n');
+  document.getElementById('expText').value=head+'\n\n'+body;
+  expMsg('');
+}
+function expMsg(m){const e=document.getElementById('expMsg');if(e)e.textContent=m;}
+function toggleExport(){
+  const b=document.getElementById('expBox');
+  const open=b.style.display==='block';
+  b.style.display=open?'none':'block';
+  if(!open)buildExportText();
+}
+async function copyTextSafe(text){
+  try{await navigator.clipboard.writeText(text);return true;}catch(e){
+    try{
+      const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();return ok;
+    }catch(e2){return false;}
+  }
+}
+async function exportCopy(text){
+  text=typeof text==='string'?text:document.getElementById('expText').value;
+  const ok=await copyTextSafe(text);
+  expMsg(ok?'✅ 已複製，可以貼到任何地方':'複製失敗，請長按上面文字框手動全選拷貝');
+  return ok;
+}
+async function exportShare(text){
+  text=typeof text==='string'?text:document.getElementById('expText').value;
+  if(navigator.share){
+    try{await navigator.share({text});expMsg('');return;}
+    catch(e){if(e&&e.name==='AbortError')return;}
+  }
+  await exportCopy(text);
+  expMsg('這個瀏覽器不支援分享面板，已改為複製，請自己貼到想傳的 App。');
+}
+async function exportToLine(text){
+  text=typeof text==='string'?text:document.getElementById('expText').value;
+  const url='https://line.me/R/msg/text/?'+encodeURIComponent(text);
+  // 網址太長 LINE 可能吃不下：先複製起來，再開 LINE 讓使用者貼上
+  if(url.length>6000){
+    await copyTextSafe(text);
+    expMsg('內容較長，已複製。LINE 開啟後請在聊天室貼上。');
+    window.location.href='https://line.me/R/';
+    return;
+  }
+  window.location.href=url;
+}
+function shareOneNote(id){
+  const n=state.notes.find(x=>x.id===id);if(!n)return;
+  const text=noteToText(n).replace(/^[☐☑•] /,'');
+  // 單則直接走系統分享面板，裡面就有 LINE；不支援時退回 LINE 網址
+  if(navigator.share){navigator.share({text}).catch(()=>{});}
+  else window.location.href='https://line.me/R/msg/text/?'+encodeURIComponent(text);
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
