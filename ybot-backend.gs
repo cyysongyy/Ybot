@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-15-2';
+const BACKEND_VERSION = '2026-11-16';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -107,6 +107,14 @@ function setAiConfig(provider, key) {
   const props = PropertiesService.getScriptProperties();
   props.setProperty('AI_KEY_' + provider.toUpperCase(), key || '');
   return '✅ 已儲存 ' + provider + ' 的 AI Key';
+}
+// 中央氣象署開放資料的授權碼（免費，到 https://opendata.cwa.gov.tw 註冊後取得）。
+// 只存在這個後台的 PropertiesService，不要貼進程式碼。在 Apps Script 編輯器
+// 執行 setCwaKey('CWA-xxxx') 一次即可；沒設就維持原本的 Open-Meteo 溫度範圍。
+function setCwaKey(key) {
+  PropertiesService.getScriptProperties().setProperty('CWA_API_KEY', String(key || '').trim());
+  CacheService.getScriptCache().remove('weatherDigest');
+  return key ? '✅ 已儲存中央氣象署授權碼' : '✅ 已清除中央氣象署授權碼（改回 Open-Meteo）';
 }
 function setAiPriority(provider) {
   const props = PropertiesService.getScriptProperties();
@@ -606,8 +614,22 @@ function getWeatherDigest() {
         humidity: cur.relative_humidity_2m,
         tMax: (daily.temperature_2m_max || [])[0] ?? null,
         tMin: (daily.temperature_2m_min || [])[0] ?? null,
-        rainChance: (daily.precipitation_probability_max || [])[0] ?? cur.precipitation_probability ?? null
+        rainChance: (daily.precipitation_probability_max || [])[0] ?? cur.precipitation_probability ?? null,
+        src: 'open-meteo'
       };
+      // 有設中央氣象署授權碼就改用氣象署的當日最高／最低溫（和手機氣象 App 對得上）
+      try {
+        const cwa = getCwaTodayRange(kv.weatherLat && kv.weatherLon ? null : (kv.weatherCity || '台北'), coords);
+        if (cwa) {
+          // 傍晚 17 時以後氣象署只發「今晚」以後的預報，白天那一段已經不在了，
+          // 直接用會把今天最高溫低估；這時和 Open-Meteo 的全天值取較極端的。
+          const hi = cwa.hasDay ? cwa.tMax : Math.max(cwa.tMax, out.tMax == null ? -99 : out.tMax);
+          const lo = cwa.hasDay ? cwa.tMin : Math.min(cwa.tMin, out.tMin == null ? 99 : out.tMin);
+          out.tMax = hi; out.tMin = lo;
+          if (cwa.rain != null) out.rainChance = cwa.rain;
+          out.src = 'cwa';
+        }
+      } catch (err) { /* 氣象署連不上就維持 Open-Meteo 的值 */ }
     }
   } catch (err) { out = null; }
 
@@ -632,6 +654,66 @@ const DEFAULT_WEATHER_COORDS = {
   '雲林': { lat: 23.7092, lon: 120.5414, name: '雲林' },
   'Yunlin': { lat: 23.7092, lon: 120.5414, name: '雲林' }
 };
+// ── 中央氣象署（CWA）今明 36 小時預報：取今天的最高／最低溫 ──────────
+// 資料集 F-C0032-001，以縣市為單位、每 12 小時一段，要授權碼（見 setCwaKey）。
+// 縣市名稱要用「臺」「縣／市」的正式寫法；GPS 定位時挑離座標最近的縣市。
+const CWA_COUNTIES = [
+  ['臺北市', 25.033, 121.565], ['新北市', 25.012, 121.465], ['桃園市', 24.994, 121.301],
+  ['臺中市', 24.148, 120.674], ['臺南市', 22.999, 120.227], ['高雄市', 22.627, 120.301],
+  ['基隆市', 25.128, 121.739], ['新竹市', 24.804, 120.969], ['新竹縣', 24.839, 121.007],
+  ['苗栗縣', 24.560, 120.821], ['彰化縣', 24.075, 120.542], ['南投縣', 23.961, 120.972],
+  ['雲林縣', 23.709, 120.541], ['嘉義市', 23.480, 120.449], ['嘉義縣', 23.459, 120.293],
+  ['屏東縣', 22.668, 120.488], ['宜蘭縣', 24.757, 121.753], ['花蓮縣', 23.991, 121.611],
+  ['臺東縣', 22.756, 121.150], ['澎湖縣', 23.571, 119.579], ['金門縣', 24.449, 118.377],
+  ['連江縣', 26.158, 119.950]
+];
+function cwaCountyName(cityLabel, coords) {
+  if (cityLabel) {
+    const t = String(cityLabel).replace(/台/g, '臺').trim();
+    for (let i = 0; i < CWA_COUNTIES.length; i++) {
+      if (CWA_COUNTIES[i][0] === t || CWA_COUNTIES[i][0].indexOf(t) === 0) return CWA_COUNTIES[i][0];
+    }
+  }
+  if (!coords) return null;
+  let best = null, bestD = Infinity;
+  CWA_COUNTIES.forEach(c => {
+    const dLat = c[1] - Number(coords.lat), dLon = (c[2] - Number(coords.lon)) * 0.9;
+    const d = dLat * dLat + dLon * dLon;
+    if (d < bestD) { bestD = d; best = c[0]; }
+  });
+  return best;
+}
+function getCwaTodayRange(cityLabel, coords) {
+  const key = PropertiesService.getScriptProperties().getProperty('CWA_API_KEY');
+  if (!key) return null;
+  const county = cwaCountyName(cityLabel, coords);
+  if (!county) return null;
+  const url = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=' + encodeURIComponent(key) +
+    '&format=JSON&locationName=' + encodeURIComponent(county) + '&elementName=MinT,MaxT,PoP';
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return null;
+  const d = JSON.parse(res.getContentText());
+  const loc = d && d.records && d.records.location && d.records.location[0];
+  if (!loc) return null;
+  const today = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
+  const pick = name => {
+    const el = (loc.weatherElement || []).filter(e => e.elementName === name)[0];
+    return el ? el.time || [] : [];
+  };
+  // 只取「開始時間在今天」的時段；時間字串是台北時間，如 2026-11-16 06:00:00
+  const todayOnly = arr => arr.filter(t => String(t.startTime).slice(0, 10) === today);
+  const num = t => Number(t.parameter && t.parameter.parameterName);
+  const mins = todayOnly(pick('MinT')).map(num).filter(isFinite);
+  const maxs = todayOnly(pick('MaxT')).map(num).filter(isFinite);
+  if (!mins.length || !maxs.length) return null;
+  const rains = todayOnly(pick('PoP')).map(num).filter(isFinite);
+  // 今天有從早上（18 點以前）開始的時段，表示白天預報還在
+  const hasDay = todayOnly(pick('MaxT')).some(t => Number(String(t.startTime).slice(11, 13)) < 18);
+  return {
+    tMin: Math.min.apply(null, mins), tMax: Math.max.apply(null, maxs),
+    rain: rains.length ? Math.max.apply(null, rains) : null, hasDay: hasDay, county: county
+  };
+}
 function geocodeCity(name) {
   const cache = CacheService.getScriptCache();
   const key = 'geo_' + name;
