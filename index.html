@@ -1520,10 +1520,82 @@ function paTodayHtml(){
   }catch(e){return '';}
 }
 
+// ── 📈 台股／🫀 健康（首頁區塊）──────────
+// 資料由後台算好放在 context 裡。台股只有百分比與公開股價，沒有股數、成本、金額。
+function pctTxt(v){v=Number(v)||0;return (v>=0?'+':'')+v.toFixed(1)+'%';}
+function pctHtml(v){v=Number(v)||0;return `<b style="color:${v>0?'var(--bad)':(v<0?'var(--ok)':'inherit')}">${pctTxt(v)}</b>`;}   // 台股習慣：紅漲綠跌
+function stockHomeHtml(c){
+  try{
+    const s=c&&c.stock;
+    if(!s||!Array.isArray(s.items)||!s.items.length)return '';
+    const movers=s.items.filter(i=>Math.abs(i.dayPct)>=0.05).slice(0,4);
+    return `<div class="ovSection" id="ovSectionStock"><div class="ovHead" style="cursor:pointer;" onclick="askAbout('我的台股持股今天表現如何？')"><span class="ovHeadIcon bill">📈</span><span class="ovHeadTitle">台股持股</span><span class="chev">›</span></div>`
+      +`<div class="ovItem">・${s.n} 檔　${s.live?'今日 '+pctHtml(s.dayPct)+'　':''}總未實現損益 ${pctHtml(s.plPct)}</div>`
+      +(s.live&&movers.length?`<div class="ovItem">・`+movers.map(i=>`${esc(i.name||i.code)} ${pctHtml(i.dayPct)}`).join('　')+`</div>`:'')
+      +(s.live?'':`<div class="ovItem ovSub">・今天還沒有成交價</div>`)
+      +`</div>`;
+  }catch(e){return '';}
+}
+function healthHomeHtml(c){
+  try{
+    const hl=c&&c.linked&&c.linked.health;
+    if(!hl||hl.score===undefined)return '';
+    const t=new Date(hl.date).getTime();
+    const age=isNaN(t)?null:Math.floor((Date.now()-t)/86400000);
+    return `<div class="ovSection" id="ovSectionHealth"><div class="ovHead" style="cursor:pointer;" onclick="askAbout('我最近的健康狀況如何？該注意什麼？')"><span class="ovHeadIcon warn">🫀</span><span class="ovHeadTitle">健康</span><span class="chev">›</span></div>`
+      +`<div class="ovItem">・健康分 <b>${esc(hl.score)}</b>　生理年齡 <b>${esc(hl.bio)}</b>${age===null?'':`　<span class="ovSub">（${age<=0?'今天':age+' 天前'}記錄）</span>`}</div>`
+      +(age!==null&&age>=7?`<div class="ovItem" style="color:var(--bad);">・已經 ${age} 天沒有更新健康數據</div>`:'')
+      +`</div>`;
+  }catch(e){return '';}
+}
+// 點首頁區塊的標題 = 直接幫你把問題丟給 Ybot
+function askAbout(q){
+  const el=document.getElementById('chatInput');
+  if(!el)return;
+  el.value=q;
+  if(typeof sendChat==='function')sendChat();else el.focus();
+}
+
+// ── 🏫 校長助理 → 雲端 ──────────
+// 校長助理的資料只在這支手機的瀏覽器裡，後台看不到，晨報和 Telegram 就講不到學校的事。
+// 所以把「未來 14 天的手動記事」和「每天代課幾節」推上去。老師姓名、班級不上傳，
+// 只傳節數——那些是別人的個資，留在手機裡就好。內容沒變就不重傳。
+const PA_PUSH_HASH_KEY='ybot_pa_days_hash';
+function collectPaDays(){
+  const days={};
+  const subs=readLS('pa_sub_records');
+  const base=new Date();
+  for(let i=0;i<14;i++){
+    const d=new Date(base);d.setDate(d.getDate()+i);
+    const k=paYmd(d);
+    const it=readLS('pa_today_'+k);
+    const items=Array.isArray(it)?it.map(x=>`${x&&x.time?x.time+' ':''}${(x&&x.name)||''}`.trim()).filter(Boolean):[];
+    const n=Array.isArray(subs)?subs.filter(r=>r&&r.date===k).length:0;
+    if(items.length||n)days[k]={items,subs:n};
+  }
+  return days;
+}
+let _paDaysTimer=null;
+function pushPaDays(){
+  if(!state.gasUrl)return;
+  clearTimeout(_paDaysTimer);
+  _paDaysTimer=setTimeout(async()=>{
+    try{
+      const days=collectPaDays();
+      const sig=paYmd(new Date())+JSON.stringify(days);
+      let last='';try{last=localStorage.getItem(PA_PUSH_HASH_KEY)||'';}catch(e){}
+      if(sig===last)return;
+      const d=await (await gasPost({action:'savePaDays',days})).json();
+      // 舊版後台不認得這個動作會回錯誤，那就不要記「已傳」，等後台更新後自然會補傳。
+      if(d&&d.ok)try{localStorage.setItem(PA_PUSH_HASH_KEY,sig);}catch(e){}
+    }catch(e){/* 沒網路或後台沒更新：下次再試 */}
+  },1500);
+}
+
 // 校長助理（iframe 內）改了 pa_ideas，同網域的 storage 事件會直接通知到這裡
 window.addEventListener('storage',e=>{
   if(e.key===PA_IDEAS_KEY||e.key===null)try{importPaIdeas();}catch(err){}
-  if(e.key===null||/^pa_today_|^pa_sub_records$/.test(e.key))try{renderOverview();}catch(err){}
+  if(e.key===null||/^pa_today_|^pa_sub_records$/.test(e.key)){try{renderOverview();}catch(err){}pushPaDays();}
 });
 setTimeout(()=>{try{importPaIdeas();}catch(e){}},0);
 function loadPaFrame(force){
@@ -1613,8 +1685,18 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-15-2';
+const APP_VERSION='2026-11-15-4';
 const CHANGELOG=[
+  {v:'2026-11-15-4',d:'11/15',items:[
+    '台股、健康、校長助理三個系統融進 Ybot（要先更新後台才會生效，首頁有紅色提醒就照步驟做）。',
+    '首頁多了「📈 台股持股」和「🫀 健康」兩塊：今日漲跌、總損益%、健康分。點標題會直接請 Ybot 分析。只顯示百分比，不顯示股數和金額。',
+    'Telegram 新指令：打「股票」「健康」「校長」各回一則現況；「今天」和「問 …」也會一起參考這三個系統。',
+    '自動通知（每種一天最多一次）：盤中持股漲跌超過 5%、13:35 後收盤小結、健康分掉 5 分以上或超過 7 天沒量、早上 7:30 後「今天學校的事」。',
+    '校長助理的今明記事和代課節數會自動同步到雲端，晨報也會寫進去。老師姓名不會上傳。',
+  ]},
+  {v:'2026-11-15-3',d:'11/15',items:[
+    '首頁的「聯邦帳單」區塊已拿掉。',
+  ]},
   {v:'2026-11-15-2',d:'11/15',items:[
     '首頁會顯示這張「更新紀錄」卡片：每次 Ybot 更新，這裡會寫多了什麼、去哪裡用。',
     '後台需要更新時，首頁最上面會出現紅色提醒，點一下就到設定頁照步驟做。',
@@ -4050,17 +4132,9 @@ function renderOverview(){
   }
 
   const mails=generalMails(c);
-  const bills=billMails(c);
-  const billHtml=bills.length
-    ? `<div class="ovSection" id="ovSectionBills"><a class="ovHead" href="https://mail.google.com/mail/#search/${encodeURIComponent('聯邦')}" target="_blank" rel="noopener"><span class="ovHeadIcon bill">${OV_ICONS.bill}</span><span class="ovHeadTitle">聯邦帳單</span><span class="chev">›</span></a>`+
-      bills.map(m=>{
-        const info=billLine(m);
-        const inner=`<span class="ovMailBadge">💳</span><span>${esc(m.subject)}${info?`<br><b class="billInfo">${esc(info)}</b>`:''}${m.date?` <span class="ovSub">（${esc(fmtDate(m.date,{month:'numeric',day:'numeric'}))}）</span>`:''}</span>`;
-        return m.threadId
-          ? `<a class="ovMailItem" href="https://mail.google.com/mail/#all/${esc(m.threadId)}" target="_blank" rel="noopener">${inner}</a>`
-          : `<div class="ovMailItem">${inner}</div>`;
-      }).join('')+`</div>`
-    : '';
+  // 首頁的「聯邦帳單」區塊依使用者要求拿掉（2026-11-15）。只拿掉首頁這一塊；
+  // Telegram／主動通知／語音摘要裡的帳單提醒沒有動。
+  const billHtml='';
   const mailHtml=mails.length
     ? mails.map(m=>{
         const inner=`<span class="ovMailBadge${m.important?'':' plain'}">${m.important?'💳':'✉️'}</span><span>${esc(m.subject)} <span class="ovSub">（${esc(m.from)}）</span></span>`;
@@ -4095,6 +4169,8 @@ function renderOverview(){
     approvalHtml()+
     conflictHtml+
     paTodayHtml()+
+    stockHomeHtml(c)+
+    healthHomeHtml(c)+
     billHtml+
     `<div class="ovSection"><a class="ovHead" href="https://mail.google.com/mail/" target="_blank" rel="noopener"><span class="ovHeadIcon mail">${OV_ICONS.mail}</span><span class="ovHeadTitle">重要 EMAIL</span><span class="chev">›</span></a>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovHead ovLabelToggle" onclick="toggleNewsCollapse()"><span class="ovHeadIcon news">${OV_ICONS.news}</span><span class="ovHeadTitle">今日新聞 <span class="ovToggleIcon">${newsArrow}</span></span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
@@ -5540,6 +5616,10 @@ function buildContextText(question){
     }
     if(c.linked?.remediation)lines.push('考卷批改系統摘要：'+JSON.stringify(c.linked.remediation));
     if(c.linked?.health)lines.push('健康預測系統摘要：'+JSON.stringify(c.linked.health));
+    if(c.stock&&Array.isArray(c.stock.items)){
+      const s=c.stock;
+      lines.push('台股持股（只有百分比，沒有股數與金額，不要自己推算金額）：共 '+s.n+' 檔，'+(s.live?'今日 '+pctTxt(s.dayPct)+'，':'今天還沒有成交價，')+'總未實現損益 '+pctTxt(s.plPct)+'。各檔今日漲跌：'+s.items.map(i=>`${i.name||i.code}(${i.code}) ${pctTxt(i.dayPct)}`).join('、'));
+    }
     if(c.linked?.other&&Object.keys(c.linked.other).length)lines.push('其他串聯 App 摘要：'+JSON.stringify(c.linked.other));
   }
   return lines.join('\n')||'（目前沒有額外資料，如需行程/信件請先在「設定」連接雲端後台）';
@@ -6051,6 +6131,8 @@ mpFbEnsureInit();
 maybeStartQuickRec();
 registerSW();
 renderWhatsNew(false);
+pushPaDays();   // 把校長助理今明的事同步到雲端，晨報和 Telegram 才講得到
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pushPaDays();});
 // 一開 App 就比對後台版本，沒更新就在首頁最上面提醒（不必進設定頁才知道）。
 if(state.gasUrl)checkBackendLock();
 // 上次離線錄的東西，開 App 就補轉；中途連上網也會立刻補轉。

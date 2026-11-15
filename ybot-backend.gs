@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-15';
+const BACKEND_VERSION = '2026-11-15-2';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -340,6 +340,9 @@ function doPost(e) {
     writeKv({ remediationBackendUrl: body.remediationBackendUrl || '', healthBackendUrl: body.healthBackendUrl || '' });
     return jsonResp({ ok: true, message: '已儲存整合設定' });
   }
+  if (action === 'savePaDays') {
+    return jsonResp({ ok: true, message: savePaDays(body.days) });
+  }
   if (action === 'saveOtherLinks') {
     writeKv({ otherLinksJson: JSON.stringify(body.links || []) });
     return jsonResp({ ok: true, message: '已儲存其他 App 設定' });
@@ -432,7 +435,9 @@ function buildContext() {
     news: getNewsDigest(),
     weather: getWeatherDigest(),
     standup: getStandupSettings(),
-    linked: getLinkedSummaries()
+    linked: getLinkedSummaries(),
+    stock: getStockDetail(),
+    pa: getPaDay()
   };
 }
 function getStandupSettings() {
@@ -692,6 +697,7 @@ function getLinkedSummaries() {
           date: d.snapshot.date, score: d.snapshot.score, bio: d.snapshot.bio,
           cvdLevel: d.snapshot.cvdLevel, dmLevel: d.snapshot.dmLevel
         };
+        try { PropertiesService.getScriptProperties().setProperty('HEALTH_LATEST', JSON.stringify(out.health)); } catch (e) { /* 只是快取 */ }
       }
     } catch (err) { /* 忽略連線失敗 */ }
   }
@@ -804,6 +810,8 @@ function dailyBriefImpl() {
     const r = ctx.linked.remediation;
     lines.push('🎯 考卷批改：累計 ' + r.totalSubmissions + ' 筆，近期平均 ' + (r.recentAvgPercentage ?? '—') + '%，常見迷思：' + ((r.topMisconceptions || []).join('、') || '無'));
   }
+  const paLines = paDayLines();
+  if (paLines.length) { lines.push('🏫 校長助理：'); paLines.forEach(function (t) { lines.push('　・' + t); }); lines.push(''); }
   const stockLine = getStockSummaryLine();
   if (stockLine) lines.push(stockLine);
   if (ctx.linked.health) {
@@ -1613,6 +1621,7 @@ const TRIGGER_SPECS = [
   { h: 'healthCheck', kind: 'core', make: function () { ScriptApp.newTrigger('healthCheck').timeBased().everyDays(1).atHour(8).nearMinute(30).create(); } },
   { h: 'telegramWatch', kind: 'tg', make: function () { ScriptApp.newTrigger('telegramWatch').timeBased().everyMinutes(10).create(); } },
   { h: 'telegramPoll', kind: 'tg', make: function () { ScriptApp.newTrigger('telegramPoll').timeBased().everyMinutes(1).create(); } },
+  { h: 'autoWatch', kind: 'tg', make: function () { ScriptApp.newTrigger('autoWatch').timeBased().everyMinutes(15).create(); } },
   { h: 'eveningDigest', kind: 'optional', make: function () { ScriptApp.newTrigger('eveningDigest').timeBased().everyDays(1).atHour(20).create(); } },
   { h: 'weeklyReview', kind: 'optional', make: function () { ScriptApp.newTrigger('weeklyReview').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create(); } },
   { h: 'standupWatch', kind: 'optional', make: function () { ScriptApp.newTrigger('standupWatch').timeBased().everyMinutes(15).create(); } }
@@ -1663,6 +1672,9 @@ const TG_HELP = [
   '筆記 內容 → 存成筆記',
   '待辦 → 未完成清單（可按 ✅）',
   '今天 → 今明行程與要處理的事',
+  '股票 → 持股今日漲跌與總損益%',
+  '健康 → 最新健康分與提醒',
+  '校長 → 校長助理今明記事與代課節數',
   '狀態 → 排程是否正常',
   '問 問題 → 請 AI 依待辦與行程回答'
 ].join('\n');
@@ -1762,6 +1774,12 @@ function tgNowText() {
     L.push('', '🎯 沒有今明到期的待辦');
   }
   L.push('', '其他未完成：' + (items.length - red.length - orange.length) + ' 項（傳「待辦」看清單）');
+  const pa = paDayLines();
+  if (pa.length) { L.push('', '🏫 校長助理：'); pa.forEach(function (t) { L.push('　' + t); }); }
+  const st = getStockDetail();
+  if (st) L.push('', stockOneLine(st));
+  const hl = healthLatest();
+  if (hl) L.push('', healthOneLine(hl));
   return L.join('\n');
 }
 function tgStatusText() {
@@ -1792,6 +1810,9 @@ function tgAskAi(question) {
     '只根據下面的資料回答，資料裡沒有就說不知道，不要編造。用繁體中文、簡短（200 字內）、不要用 Markdown。\n\n' +
     '【未完成待辦與提醒】\n' + (items.join('\n') || '（無）') + '\n\n' +
     '【未來 14 天行事曆】\n' + (events.join('\n') || '（無）') + '\n\n' +
+    '【校長助理今明記事】\n' + (paDayLines().join('\n') || '（無）') + '\n\n' +
+    '【台股持股（只有百分比）】\n' + (function () { const s = getStockDetail(); return s ? stockReportText(s) : '（無）'; })() + '\n\n' +
+    '【健康】\n' + (function () { const h = healthLatest(); return h ? healthOneLine(h) : '（無）'; })() + '\n\n' +
     '【問題】' + question;
   const ans = callAI(prompt);
   return ans ? String(ans).slice(0, 1500) : 'AI 沒有回應（可能是金鑰或模型失效），請稍後再試。';
@@ -1812,6 +1833,9 @@ function handleTelegramText(msg, chatId) {
   }
   if (/^(\/now|\/brief|今天|現況|簡報)$/.test(lower)) { telegramSend(tgNowText()); return; }
   if (/^(\/status|狀態)$/.test(lower)) { telegramSend(tgStatusText()); return; }
+  if (/^(\/stock|股票|台股|持股)$/.test(lower)) { telegramSend(stockReportText(getStockDetail(true))); return; }
+  if (/^(\/health|健康)$/.test(lower)) { telegramSend(healthReportText()); return; }
+  if (/^(\/pa|校長|校長助理|代課)$/.test(lower)) { telegramSend(paReportText()); return; }
   m = text.match(/^(?:\/ask|問)[\s:：]+([\s\S]+)$/i);
   if (m) { telegramSend(tgAskAi(m[1].trim())); return; }
   m = text.match(/^(?:\/note|筆記)[\s:：]+([\s\S]+)$/i);
@@ -1857,6 +1881,229 @@ function handleListCallback(cq, chatId, kind, id) {
   } catch (e) { /* 訊息沒變或已過期就略過 */ }
 }
 
+
+// ══ 三合一：台股／健康／校長助理 的自動化 ═══════════════════════════
+// 原則：能自動的就自動，但每一種通知一天最多一次，不洗版。
+// 隱私：台股只輸出百分比與公開股價，不輸出股數、成本、金額；
+//       校長助理只收「今明手動記事」與「代課節數」，不收老師姓名（那些留在手機裡）。
+
+// ── 台股明細 ──
+// 報價連名稱、昨收、成交日一起拿（getStockPrices 只拿價格，留著給舊的晨報用）。
+function getStockQuotes(codes) {
+  const exch = [];
+  codes.forEach(c => { exch.push('tse_' + c + '.tw'); exch.push('otc_' + c + '.tw'); });
+  const out = {};
+  for (let i = 0; i < exch.length; i += 40) {
+    const r = UrlFetchApp.fetch('https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=' +
+      encodeURIComponent(exch.slice(i, i + 40).join('|')) + '&json=1&delay=0', { muteHttpExceptions: true });
+    const d = JSON.parse(r.getContentText());
+    (d.msgArray || []).forEach(m => {
+      const z = stockToNum(m.z), y = stockToNum(m.y);
+      const price = z > 0 ? z : y;
+      if (m.c && price > 0) out[m.c] = { price: price, prev: y > 0 ? y : price, name: String(m.n || ''), traded: z > 0, day: String(m.d || '') };
+    });
+  }
+  return out;
+}
+// 純計算：持股 + 報價 → 彙總與每檔今日漲跌%。同一檔分多筆買的會合併。
+function stockDetailCompute(hs, quotes, todayYmd) {
+  let cost = 0, value = 0, prevValue = 0;
+  const byCode = {};
+  hs.forEach(h => {
+    const code = String(h.code).trim(), x = quotes[code];
+    if (!x) return;
+    const q = stockToNum(h.qty), c = stockToNum(h.cost);
+    if (!(q > 0) || !(c > 0)) return;
+    cost += q * c; value += q * x.price; prevValue += q * x.prev;
+    // 成交日不是今天（假日、盤前）就不算「今天有交易」，不發漲跌通知
+    const live = x.traded && (!x.day || !todayYmd || x.day === todayYmd);
+    byCode[code] = { code: code, name: x.name, price: x.price, dayPct: x.prev > 0 ? (x.price - x.prev) / x.prev * 100 : 0, live: live };
+  });
+  const items = Object.keys(byCode).map(k => byCode[k]).sort((a, b) => Math.abs(b.dayPct) - Math.abs(a.dayPct));
+  if (!items.length) return null;
+  return {
+    n: items.length,
+    plPct: cost > 0 ? (value - cost) / cost * 100 : 0,
+    dayPct: prevValue > 0 ? (value - prevValue) / prevValue * 100 : 0,
+    live: items.some(i => i.live),
+    items: items
+  };
+}
+function getStockDetail(noCache) {
+  try {
+    const cache = CacheService.getScriptCache();
+    if (!noCache) { const hit = cache.get('stockDetail_v1'); if (hit) return JSON.parse(hit); }
+    const hs = getStockHoldings();
+    if (!hs.length) return null;
+    const now = new Date();
+    const out = stockDetailCompute(hs, getStockQuotes(hs.map(h => String(h.code).trim())), tpeFormat(now, 'yyyyMMdd'));
+    if (!out) return null;
+    out.at = now.toISOString();
+    cache.put('stockDetail_v1', JSON.stringify(out), 300);
+    return out;
+  } catch (err) { reportError('台股明細', err, 24); return null; }
+}
+function pctStr(v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%'; }
+function stockOneLine(s) {
+  return '📈 台股 ' + s.n + ' 檔：' + (s.live ? '今日 ' + pctStr(s.dayPct) + '，' : '') + '總未實現損益 ' + pctStr(s.plPct);
+}
+function stockReportText(s) {
+  if (!s) return '📈 還讀不到台股持股。請先在 Apps Script 執行 setStockSheet(\'試算表ID\')（或 setStockConfig），再執行 testStockSummary 檢查。';
+  const L = [stockOneLine(s) + '　' + tpeDateTimeStr(new Date(s.at || Date.now()))];
+  if (!s.live) L.push('（今天還沒有成交價，漲跌以昨收計）');
+  const up = s.items.filter(i => i.dayPct > 0).sort((a, b) => b.dayPct - a.dayPct).slice(0, 5);
+  const down = s.items.filter(i => i.dayPct < 0).sort((a, b) => a.dayPct - b.dayPct).slice(0, 5);
+  const nm = i => (i.name || i.code) + ' ' + pctStr(i.dayPct);
+  if (up.length) L.push('', '🔺 漲：' + up.map(nm).join('、'));
+  if (down.length) L.push('🔻 跌：' + down.map(nm).join('、'));
+  return L.join('\n');
+}
+
+// ── 健康 ──
+function healthLatest() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('HEALTH_LATEST');
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* 往下重新抓 */ }
+  return getLinkedSummaries().health || null;
+}
+function healthAgeDays(h) {
+  const t = new Date(h && h.date).getTime();
+  return isNaN(t) ? null : Math.floor((Date.now() - t) / 86400000);
+}
+function healthOneLine(h) {
+  const age = healthAgeDays(h);
+  return '🫀 健康分 ' + h.score + '、生理年齡 ' + h.bio + (age === null ? '' : '（' + (age <= 0 ? '今天' : age + ' 天前') + '記錄）');
+}
+function healthReportText() {
+  const h = getLinkedSummaries().health || healthLatest();
+  if (!h) return '🫀 還讀不到健康資料。請在 Ybot「設定 → 整合其他系統」填入 LifeSpan 健康的後台網址。';
+  const L = [healthOneLine(h)];
+  if (h.cvdLevel !== undefined && h.cvdLevel !== '') L.push('心血管風險：' + h.cvdLevel);
+  if (h.dmLevel !== undefined && h.dmLevel !== '') L.push('糖尿病風險：' + h.dmLevel);
+  const age = healthAgeDays(h);
+  if (age !== null && age >= 7) L.push('', '⏰ 已經 ' + age + ' 天沒有更新健康數據了。');
+  return L.join('\n');
+}
+
+// ── 校長助理 ──
+// 校長助理的資料只存在手機瀏覽器裡，後台看不到。所以 Ybot App 每次打開（或資料有變）
+// 會把「未來 14 天的手動記事」和「每天代課節數」推上來，晨報和 Telegram 才讀得到。
+function savePaDays(days) {
+  const clean = {};
+  Object.keys(days || {}).slice(0, 40).forEach(function (k) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
+    const d = days[k] || {};
+    clean[k] = {
+      items: (Array.isArray(d.items) ? d.items : []).slice(0, 30).map(function (s) { return String(s).slice(0, 80); }),
+      subs: Number(d.subs) || 0
+    };
+  });
+  writeKv({ paDaysJson: JSON.stringify(clean), paDaysAt: new Date().toISOString() });
+  return '已同步校長助理 ' + Object.keys(clean).length + ' 天';
+}
+function getPaDay() {
+  try {
+    const kv = readKv();
+    const days = JSON.parse(kv.paDaysJson || '{}');
+    const now = new Date();
+    const t = tpeFormat(now, 'yyyy-MM-dd'), m = tpeFormat(new Date(now.getTime() + 86400000), 'yyyy-MM-dd');
+    return { today: days[t] || null, tomorrow: days[m] || null, syncedAt: kv.paDaysAt || '' };
+  } catch (e) { return { today: null, tomorrow: null, syncedAt: '' }; }
+}
+function paDayLines() {
+  const p = getPaDay(), L = [];
+  [['今天', p.today], ['明天', p.tomorrow]].forEach(function (x) {
+    const d = x[1];
+    if (!d) return;
+    (d.items || []).forEach(function (s) { L.push(x[0] + ' ' + s); });
+    if (d.subs > 0) L.push(x[0] + '代課 ' + d.subs + ' 節');
+  });
+  return L;
+}
+function paReportText() {
+  const L = paDayLines(), p = getPaDay();
+  if (!p.syncedAt) return '🏫 還沒有校長助理的資料。打開 Ybot App 一次，它會自動把今明記事同步上來。';
+  return '🏫 校長助理' + '\n' + (L.length ? L.join('\n') : '今明沒有手動記事，也沒有代課。') +
+    '\n\n（資料同步於 ' + tpeDateTimeStr(new Date(p.syncedAt)) + '；代課的老師姓名只留在手機裡）';
+}
+
+// ── 每 15 分鐘的自動巡邏 ──
+// 台股：盤中任一檔漲跌超過門檻（預設 5%，指令碼屬性 STOCK_ALERT_PCT 可改）通知一次；收盤後發一次收盤小結。
+// 健康：一天看一次，健康分掉 5 分以上、風險等級改變、或超過 7 天沒更新就提醒（7 天最多提醒一次）。
+// 校長助理：早上 7:30 後，今天有記事或代課就推一次「今天學校的事」。
+function autoWatchImpl() {
+  const cfg = tgConfig();
+  if (!cfg.token || !cfg.chatId) return;
+  const p = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const ymd = tpeFormat(now, 'yyyy-MM-dd');
+  let st = {};
+  try { st = JSON.parse(p.getProperty('AUTO_WATCH_STATE') || '{}'); } catch (e) { st = {}; }
+  if (st.date !== ymd) st = { date: ymd, stockCodes: [], stockClose: false, health: false, pa: false, healthNudge: st.healthNudge || '' };
+  const hm = Number(tpeFormat(now, 'H')) * 60 + Number(tpeFormat(now, 'm'));
+  // 台北的星期幾：0＝週日 … 6＝週六（用台北日期的正午換算，不受專案時區影響）
+  const dow = new Date(ymd + 'T12:00:00Z').getUTCDay();
+  const out = [];
+
+  if (dow >= 1 && dow <= 5 && hm >= 9 * 60 + 5 && hm <= 14 * 60 + 30 && !st.stockClose) {
+    const s = getStockDetail(true);
+    if (s && s.live) {
+      const th = Number(p.getProperty('STOCK_ALERT_PCT')) || 5;
+      if (hm <= 13 * 60 + 30) {
+        const hits = s.items.filter(function (i) { return i.live && Math.abs(i.dayPct) >= th && st.stockCodes.indexOf(i.code) < 0; });
+        if (hits.length) {
+          hits.forEach(function (i) { st.stockCodes.push(i.code); });
+          out.push('📈 持股大幅波動（±' + th + '% 以上）\n' + hits.map(function (i) { return (i.dayPct > 0 ? '🔺 ' : '🔻 ') + (i.name || i.code) + ' ' + pctStr(i.dayPct); }).join('\n'));
+        }
+      } else if (hm >= 13 * 60 + 35) {
+        st.stockClose = true;
+        out.push('🔔 收盤小結\n' + stockReportText(s));
+      }
+    }
+  }
+
+  if (!st.health && hm >= 9 * 60) {
+    st.health = true;
+    const h = getLinkedSummaries().health;
+    if (h) {
+      let prev = null;
+      try { prev = JSON.parse(p.getProperty('HEALTH_SEEN') || 'null'); } catch (e) { prev = null; }
+      const msgs = [];
+      if (prev && String(prev.date) !== String(h.date)) {
+        const diff = Number(h.score) - Number(prev.score);
+        if (isFinite(diff) && Math.abs(diff) >= 5) msgs.push('健康分 ' + prev.score + ' → ' + h.score + '（' + (diff > 0 ? '+' : '') + diff + '）');
+        if (String(prev.cvdLevel) !== String(h.cvdLevel)) msgs.push('心血管風險：' + prev.cvdLevel + ' → ' + h.cvdLevel);
+        if (String(prev.dmLevel) !== String(h.dmLevel)) msgs.push('糖尿病風險：' + prev.dmLevel + ' → ' + h.dmLevel);
+      }
+      p.setProperty('HEALTH_SEEN', JSON.stringify(h));
+      const age = healthAgeDays(h);
+      const nudgeAge = st.healthNudge ? Math.floor((now.getTime() - new Date(st.healthNudge).getTime()) / 86400000) : 99;
+      if (age !== null && age >= 7 && nudgeAge >= 7) { msgs.push('已經 ' + age + ' 天沒有更新健康數據，找時間量一下。'); st.healthNudge = now.toISOString(); }
+      if (msgs.length) out.push('🫀 健康提醒\n' + msgs.join('\n'));
+    }
+  }
+
+  if (!st.pa && hm >= 7 * 60 + 30 && hm <= 12 * 60) {
+    st.pa = true;
+    const d = getPaDay().today;
+    if (d && ((d.items || []).length || d.subs > 0)) {
+      out.push('🏫 今天學校的事\n' + (d.items || []).map(function (s) { return '・' + s; }).join('\n') + (d.subs > 0 ? '\n・代課 ' + d.subs + ' 節' : ''));
+    }
+  }
+
+  // 先存狀態再送：就算送到一半失敗，也不會下一輪又重送一次
+  p.setProperty('AUTO_WATCH_STATE', JSON.stringify(st));
+  out.forEach(function (t) { telegramSend(t); });
+}
+// 手動測試：在編輯器執行，會把三個系統目前讀到的內容各傳一則到 Telegram。
+function testThreeAgents() {
+  telegramSend(stockReportText(getStockDetail(true)));
+  telegramSend(healthReportText());
+  telegramSend(paReportText());
+  console.log('✅ 已傳出台股／健康／校長助理三則訊息，請看 Telegram');
+}
+
 // ── 排程入口：出錯時自動通知 ──
 function dailyBrief() { return guard('dailyBrief', dailyBriefImpl); }
 function reminderWatch() { return guard('reminderWatch', reminderWatchImpl); }
@@ -1866,6 +2113,7 @@ function standupWatch() { return guard('standupWatch', standupWatchImpl); }
 function telegramWatch() { return guard('telegramWatch', telegramWatchImpl); }
 function healthCheck() { return guard('healthCheck', healthCheckImpl); }
 function telegramPoll() { return guard('telegramPoll', telegramPollImpl); }
+function autoWatch() { return guard('autoWatch', autoWatchImpl); }
 
 function getOwnerEmail() {
   try { return Session.getEffectiveUser().getEmail() || ''; } catch (e) { return ''; }
