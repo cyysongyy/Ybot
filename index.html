@@ -615,7 +615,6 @@ a.ovMailItem:hover{text-decoration:underline;}
       <button class="tab" data-tab="game" onclick="switchTab('game')">🧠 記憶遊戲</button>
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
       <div class="menuSep"></div>
-      <button class="tab" id="themeBtn" onclick="toggleTheme()">🌓 深淺色</button>
       <button class="tab" id="reloadAppBtn" onclick="reloadApp()">🔄 重新載入 App</button>
       <button class="tab" id="whatsNewBtn" onclick="closeMenu();switchTab('chat');renderWhatsNew(true)">🆕 更新紀錄</button>
     </nav>
@@ -1336,16 +1335,6 @@ function pushSharedAiKeys(){
 }
 hydrateSharedAiKeys();
 
-// ── 主題 ────────────────────────────────
-function applyTheme(t){document.documentElement.setAttribute('data-theme',t);}
-function toggleTheme(){
-  const sysDark=window.matchMedia('(prefers-color-scheme:dark)').matches;
-  const now=state.theme||(sysDark?'dark':'light');
-  state.theme=now==='dark'?'light':'dark';applyTheme(state.theme);save();
-  closeMenu();
-}
-if(state.theme)applyTheme(state.theme);
-
 // ── 字體大小 ────────────────────────────
 function applyFontScale(){
   document.documentElement.style.setProperty('--font-scale',state.fontScale);
@@ -1708,8 +1697,14 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16';
+const APP_VERSION='2026-11-16-3';
 const CHANGELOG=[
+  {v:'2026-11-16-3',d:'11/16',items:[
+    '首頁天氣的溫度範圍改寫成「最高／最低」，並可改用中央氣象署的當日最高、最低溫（要先更新後台並設定氣象署授權碼；沒設定就維持原本的來源）。',
+  ]},
+  {v:'2026-11-16-2',d:'11/16',items:[
+    '☰ 選單的「🌓 深淺色」切換拿掉了。外觀改成自動跟著手機的深色／淺色模式。',
+  ]},
   {v:'2026-11-16',d:'11/16',items:[
     '📝 筆記頁新增「📤 匯出文字」：把目前篩選的清單整理成文字，可以改一改再按「💬 傳到 LINE」、「📤 其他平台」（系統分享，Telegram、Email 等都行）或「📋 複製」。每一則筆記右邊也有 📤，可以單獨分享。',
   ]},
@@ -2195,7 +2190,6 @@ function applySettingsText(text,fromClipboard){
   state.context=null;state.contextAt=null;
   save();
   pushSharedAiKeys();
-  if(state.theme)applyTheme(state.theme);
   applyFontScale();
   fillSettings();
   hideTransferBox();
@@ -4090,13 +4084,15 @@ function applySkyMood(w){
   hero.dataset.sky=skyMood(w);
 }
 // ── 首頁主動總覽：今日行程／重要 Email／今日新聞 ──
+// 氣象署給整數、Open-Meteo 給一位小數：四捨五入到整數，兩邊顯示一致
+function fmtTemp(v){return Math.round(Number(v));}
 function renderHeroWeather(w){
   applySkyMood(w);
   const el=document.getElementById('heroWeatherMini');
   if(!el)return;
   const hasRange=w&&w.tMax!=null&&w.tMin!=null;
   el.innerHTML=w
-    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div><div class="d">${esc(w.desc||'')}</div>${hasRange?`<div class="hl"><span>↑${w.tMax}°</span><span>↓${w.tMin}°</span></div>`:''}</div>`
+    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div><div class="d">${esc(w.desc||'')}</div>${hasRange?`<div class="hl"><span>最高${fmtTemp(w.tMax)}°</span><span>最低${fmtTemp(w.tMin)}°</span></div>`:''}${hasRange&&w.src==='cwa'?'<div class="hl" style="font-weight:600;opacity:.8;font-size:.7rem;">中央氣象署</div>':''}</div>`
     : `<a href="javascript:void(0)" onclick="useGpsLocation()">📍 定位天氣</a>`;
 }
 // 往後 n 天（0＝今天）的日期字串。用 setDate 而不是加 86400000 毫秒，
