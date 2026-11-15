@@ -40,6 +40,9 @@
  */
 
 // ── 試算表設定 ──────────────────────────────────
+// 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
+// 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
+const BACKEND_VERSION = '2026-11-15';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -249,7 +252,7 @@ function doGet(e) {
   if (action === 'ping') {
     // tokenRequired 讓前端知道這個後台到底有沒有上鎖，沒上鎖就在設定頁提醒。
     return jsonResp({ ok: true, message: 'Ybot 後台連線正常', time: new Date().toISOString(),
-      tokenRequired: !!getApiToken() });
+      tokenRequired: !!getApiToken(), version: BACKEND_VERSION });
   }
   if (action === 'notes') {
     const { note } = setupSheets();
