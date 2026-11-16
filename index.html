@@ -611,7 +611,8 @@ a.ovMailItem:hover{text-decoration:underline;}
       <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 待辦與筆記</button>
       <!-- 「🏫 校長助理」選單項依使用者要求拿掉（2026-11-15）：首頁已有校長助理區塊，重複。
            分頁本身（pane-pa）還在，從首頁「校長助理」區塊的標題或快速連結進去。 -->
-      <button class="tab" data-tab="apps" onclick="switchTab('apps')">🧩 其他 App</button>
+      <!-- 「🧩 其他 App」選單項依使用者要求拿掉（2026-11-16）。設定裡的「我的其他 App」清單
+           還在（首頁常用連結會用到），只是不再有內嵌的分頁入口。 -->
       <button class="tab" data-tab="game" onclick="switchTab('game')">🧠 記憶遊戲</button>
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">⚙️ 設定</button>
       <div class="menuSep"></div>
@@ -1697,8 +1698,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-7';
+const APP_VERSION='2026-11-16-8';
 const CHANGELOG=[
+  {v:'2026-11-16-8',d:'11/16',items:[
+    '☰ 選單的「🧩 其他 App」拿掉了。設定裡的「我的其他 App」清單還在，首頁的常用連結照常使用。',
+  ]},
   {v:'2026-11-16-7',d:'11/16',items:[
     '對話遇到網路瞬斷（只顯示「Load failed」）時，會自動再試一次；還是連不上才會告訴你是哪一組 AI 連不上、該怎麼辦。',
   ]},
