@@ -1697,8 +1697,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-6';
+const APP_VERSION='2026-11-16-7';
 const CHANGELOG=[
+  {v:'2026-11-16-7',d:'11/16',items:[
+    '對話遇到網路瞬斷（只顯示「Load failed」）時，會自動再試一次；還是連不上才會告訴你是哪一組 AI 連不上、該怎麼辦。',
+  ]},
   {v:'2026-11-16-6',d:'11/16',items:[
     '對話現在查得到健康系統「檢驗數據庫」裡的數值，例如糖化血色素、空腹血糖、血脂（每項取最新一筆）。要先更新後台：設定頁會出現「後台不是最新版」，按「📋 複製最新後台程式」，貼進 Apps Script 後重新部署。',
   ]},
@@ -4372,8 +4375,21 @@ async function callAI(prompt,image,opts){
   const order=aiOrder();
   if(!order.length)throw new Error('請先在「設定」填入至少一組 AI API Key');
   let lastErr;
+  const names={gemini:'Gemini',openai:'OpenAI',nvidia:'NVIDIA'};
   for(const id of order){
-    try{return await callProvider(id,prompt,image,opts);}catch(e){lastErr=e;}
+    // 手機瀏覽器的網路偶爾會瞬斷（Safari 只會丟「Load failed」），同一組先自動再試一次。
+    for(let attempt=0;attempt<2;attempt++){
+      try{return await callProvider(id,prompt,image,opts);}
+      catch(e){
+        lastErr=e;
+        const netErr=/Load failed|Failed to fetch|NetworkError|network connection/i.test(String((e&&e.message)||e));
+        if(netErr){
+          lastErr=new Error('連不上 '+(names[id]||id)+'（網路瞬斷或被擋住）。請確認網路後再送一次；若一直發生，到設定檢查這組 AI Key，或換另一組 AI。');
+          if(attempt===0){await new Promise(r=>setTimeout(r,1200));continue;}
+        }
+        break;
+      }
+    }
   }
   throw lastErr||new Error('AI 呼叫失敗');
 }
