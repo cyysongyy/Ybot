@@ -52,3 +52,16 @@
   `index.html` 的 `CHANGELOG` 最上面加一筆，並把 `APP_VERSION` 改成同一個值。
   使用者只看手機首頁，很多更新首頁長得一樣，他會回報「什麼都沒變」；這張卡片是他
   知道「更新到了、多了什麼、去哪裡用」的唯一管道。用白話寫，不要寫函式名稱。
+
+## Agent（工具迴圈，2026-11-16 起）
+
+- `ybot-backend.gs` 最後面的「🤖 Agent」區塊是對話的主路徑：`runAgent()` 用 Gemini／OpenAI
+  的 function calling 跑工具迴圈，`AGENT_TOOLS` 是工具清單（每個有 name/description/parameters/run）。
+  要讓 Ybot 多會一件事，就在 `AGENT_TOOLS` 加一個工具，並在 `AGENT_TOOL_LABELS` 補中文名稱；
+  前端 `AGENT_WRITE_TOOLS` 列的是「做完要重新拉雲端」的寫入工具。
+- 安全邊界是刻意的：Gmail 只讀不寄不刪；行事曆與待辦不提供刪除工具。要放寬先問使用者。
+- 前端 `sendChatViaAgent()` 走後台 `action:'agent'`；後台沒金鑰或舊版就退回手機端 AI
+  （`callAI` + `<<<ACTION>>>` 那套還在，別刪）。設定頁「對話走後台 Agent」可關。
+- Telegram：自由文字 → `tgAgentReply`；`agent off` 回到「打字＝加待辦」的舊行為；
+  對話記憶放 CacheService 兩小時，「重來」清掉。
+- 工具呼叫只支援 Gemini 與 OpenAI；NVIDIA 只當純文字備援。

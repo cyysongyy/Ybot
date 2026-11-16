@@ -1020,6 +1020,13 @@ a.ovMailItem:hover{text-decoration:underline;}
         <div id="gasTokenStatus" class="statusLine" style="display:none;"></div>
       </div>
       <div class="field">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:.86rem;cursor:pointer;">
+          <input type="checkbox" id="agentMode" style="width:18px;height:18px;accent-color:var(--pri);" onchange="state.agentMode=this.checked;save();">
+          🤖 對話走後台 Agent（可自己查持股、檢驗、行事曆、郵件，再做事）
+        </label>
+        <div class="hint" style="margin-top:6px;">需要後台有設 AI 金鑰（Apps Script 執行 setAiConfig）。後台沒金鑰或連不上時會自動退回手機端 AI。附圖的問題一律走手機端。</div>
+      </div>
+      <div class="field">
         <label>天氣地點</label>
         <div class="row2">
           <input id="weatherCity" class="fi" placeholder="台北" style="margin-bottom:0;">
@@ -1269,7 +1276,7 @@ const LS_KEY='ybot_v1';
 function defaults(){return{
   theme:'',fontScale:1,newsCollapsed:false,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
-  useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,qa:[],qaSyncedAt:'',
+  useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,agentMode:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],pushedApprovalIds:[],seenApprovalIds:[],
   gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
@@ -1698,8 +1705,14 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-8';
+const APP_VERSION='2026-11-16-9';
 const CHANGELOG=[
+  {v:'2026-11-16-9',d:'11/16',items:[
+    'Ybot 變成真正的 agent：對話（App 與 Telegram）會自己決定要查什麼、做什麼，可以連續好幾步。能查持股每檔損益、單檔報價、檢驗數據歷史、行事曆（查／加／改）、搜尋與讀取郵件、待辦（查／加／改／完成），也會記住你交代的事。',
+    '回覆下方會顯示「🔧 查了什麼」，看得到它做了哪些事。Gmail 只能讀不能寄；行事曆與待辦不能刪。',
+    'Telegram 直接打字就是問 agent；「待辦 內容」一定加成待辦；「重來」清除對話記憶；「agent off」關掉回到舊行為。',
+    '要先更新後台：設定頁會出現「後台不是最新版」，按「📋 複製最新後台程式」，貼進 Apps Script 後重新部署；後台要有 AI 金鑰（setAiConfig）。設定 → 雲端後台可以關掉 agent 模式。',
+  ]},
   {v:'2026-11-16-8',d:'11/16',items:[
     '☰ 選單的「🧩 其他 App」拿掉了。設定裡的「我的其他 App」清單還在，首頁的常用連結照常使用。',
   ]},
@@ -1881,6 +1894,7 @@ function fillSettings(){
   document.getElementById('hltUrl').value=state.hltUrl;
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
+  document.getElementById('agentMode').checked=state.agentMode!==false;
   document.getElementById('useMicroPolitics').checked=!!state.useMicroPolitics;
   renderAppsDataStatus();
   renderSchoolDbStatus();
@@ -2098,7 +2112,7 @@ const TRANSFER_PREFIX='YBOT-SETTINGS-1:';
 // 只搬「設定」和使用者自己的長期資料。刻意不搬的：
 // chat（對話紀錄）、notes（會從雲端同步回來）、context（快取，重抓就有）、
 // pushEnabled／pushed*（通知權限是跟著瀏覽器走的，新的那邊要自己重新允許）。
-const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply',
+const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply','agentMode',
   'gasUrl','gasToken','remUrl','hltUrl','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
 function transferEncode(obj){
   const bytes=new TextEncoder().encode(JSON.stringify(obj));
@@ -5977,6 +5991,12 @@ async function sendChat(){
     return;
   }
   const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;setSendLabel('思考中…');
+  // 後台 Agent：AI 自己決定要查持股／檢驗／行事曆／郵件、要加什麼，做完才回話。
+  // 附圖、沒設後台、後台沒金鑰、或後台連不上，就退回下面原本的手機端 AI。
+  if(!image&&state.agentMode!==false&&state.gasUrl){
+    const handled=await sendChatViaAgent(text,byVoice);
+    if(handled){sendBtn.disabled=false;setSendLabel('送出');return;}
+  }
   const history=state.chat.slice(-8).map(m=>`${m.role==='user'?'使用者':'Ybot'}：${m.text}`).join('\n');
   const imgNote=image?'\n\n使用者這則訊息附加了一張圖片，請先仔細看圖片內容再回答（例如辨識文字、描述內容、回答關於圖片的問題；若圖片裡有多個待辦事項或行程，也可以一次全部整理成多個 add_note／add_calendar_event 動作）。':'';
   const actionSpec=`\n\n如果使用者是在「下指令」要你做事（新增待辦/瑣事/提醒/心法、把某件事加入行事曆、把某個待辦標記完成、修改某筆內容或時間、刪除某個待辦或筆記），除了正常的自然語言回覆之外，請在回覆最後面另起一段附加動作指令，格式如下（單純問答、沒有要做事就完全不要附加這段）：
@@ -6041,6 +6061,58 @@ ${buildDateRef(21)}
     // 放在 finally，動作執行那段丟錯時送出鍵才不會永遠卡在「思考中…」。
     sendBtn.disabled=false;setSendLabel('送出');
   }
+}
+// 把問題交給後台 agent。回傳 true＝已經回覆；false＝後台做不到，改走手機端。
+const AGENT_WRITE_TOOLS=new Set(['add_note','update_note','complete_note','add_calendar_event','update_calendar_event','remember','forget']);
+async function sendChatViaAgent(text,byVoice){
+  // 送最近幾輪（不含剛剛 push 進去的這一句），讓它記得上下文
+  const history=state.chat.filter(m=>m.role==='user'||m.role==='bot').slice(-9,-1).map(m=>({role:m.role,text:String(m.text||'').slice(0,2000)}));
+  setSendLabel('Agent 查詢中…');
+  let d;
+  try{
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),150000);   // 後台最多跑約兩分鐘，再多就是真的卡住了
+    const u=gasUrlOrThrow();
+    const r=await fetch(u.toString(),{method:'POST',headers:{'Content-Type':'text/plain'},signal:ctrl.signal,
+      body:JSON.stringify({t:state.gasToken||'',action:'agent',question:text,history})});
+    clearTimeout(timer);
+    d=await r.json();
+  }catch(e){
+    // 連不上後台（離線、網址錯、逾時）→ 退回手機端，但讓使用者知道
+    state.chat.push({role:'sys',text:'ℹ️ 後台 agent 連不上（'+gasErrText(e)+'），改用手機端 AI 回答。'});
+    save();renderChat();
+    return false;
+  }
+  if(!d||!d.ok){
+    const err=String((d&&d.error)||'');
+    // 後台沒金鑰、舊版後台不認得 agent → 退回手機端
+    if(/金鑰|Unknown action/.test(err)){
+      state.chat.push({role:'sys',text:'ℹ️ '+(/Unknown action/.test(err)?'後台還不是 agent 版（設定頁按「複製最新後台程式」更新）':err)+'，改用手機端 AI 回答。'});
+      save();renderChat();
+      return false;
+    }
+    state.chat.push({role:'bot',text:'⚠️ '+(err||'後台沒有回覆')});
+    save();renderChat();
+    return true;
+  }
+  const reply=String(d.text||'').trim()||'（沒有取得回覆）';
+  state.chat.push({role:'bot',text:reply});
+  const steps=Array.isArray(d.steps)?d.steps:[];
+  if(steps.length){
+    const seen=new Set();const labels=[];
+    steps.forEach(s=>{const l=s.label||s.tool;if(!seen.has(l)){seen.add(l);labels.push(l+(s.ok===false?'（失敗）':''));}});
+    state.chat.push({role:'sys',text:'🔧 '+labels.join('、')});
+  }
+  if(d.warning)state.chat.push({role:'sys',text:'⚠️ '+d.warning});
+  if(byVoice)speakText(reply);
+  qaAdd(text,reply,'chat');
+  save();renderChat();
+  // 有動到待辦／行程／記憶就把雲端拉回來，首頁和清單才會跟著變
+  if(steps.some(s=>AGENT_WRITE_TOOLS.has(s.tool))){
+    refreshContext().catch(()=>{});
+    if(steps.some(s=>s.tool==='remember'||s.tool==='forget'))qaSync({silent:true}).catch(()=>{});
+  }
+  return true;
 }
 document.getElementById('chatInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}

@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-16-2';
+const BACKEND_VERSION = '2026-11-16-3';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -388,6 +388,14 @@ function doPost(e) {
     } catch (err) {
       return jsonResp({ ok: false, error: '建立日曆事件失敗：' + err.message });
     }
+  }
+  if (action === 'agent') {
+    // App 對話：前端把問題與最近幾輪對話送來，後台跑 agent 迴圈後回答。
+    const q = String(body.question || '').trim();
+    if (!q) return jsonResp({ ok: false, error: '問題是空的' });
+    const r = runAgent(q, Array.isArray(body.history) ? body.history : [], { channel: 'app' });
+    if (r.error && !r.text) return jsonResp({ ok: false, error: r.error, steps: r.steps || [] });
+    return jsonResp({ ok: true, text: r.text, steps: (r.steps || []).map(st => ({ tool: st.tool, label: agentToolLabel(st.tool), ok: st.ok })), warning: r.error || '' });
   }
   if (action === 'saveStandupSettings') {
     writeKv({
@@ -1757,7 +1765,10 @@ function setupAll() {
 const TG_MSG_MAX_AGE_MS = 10 * 60000;
 const TG_HELP = [
   '🤖 Ybot 指令',
-  '直接打字 → 加成待辦',
+  '直接打字 → 由 AI 判斷：查資料、做事、或加成待辦（agent 模式）',
+  '待辦 內容 → 一定加成待辦',
+  '重來 → 清除這段對話的記憶',
+  'agent off / agent on → 關閉／開啟 agent 模式',
   '提醒 明天 9:00 開會 → 定時提醒',
   '　（也可以：14:30、下午3點、30分鐘後、2小時後、11/20 9:00）',
   '筆記 內容 → 存成筆記',
@@ -1767,7 +1778,7 @@ const TG_HELP = [
   '健康 → 最新健康分與提醒',
   '校長 → 校長助理今明記事與代課節數',
   '狀態 → 排程是否正常',
-  '問 問題 → 請 AI 依待辦與行程回答'
+  '問 問題 → 請 AI 回答（可查持股、檢驗、行事曆、郵件）'
 ].join('\n');
 
 function tgOpenItems() {
@@ -1927,8 +1938,21 @@ function handleTelegramText(msg, chatId) {
   if (/^(\/stock|股票|台股|持股)$/.test(lower)) { telegramSend(stockReportText(getStockDetail(true))); return; }
   if (/^(\/health|健康)$/.test(lower)) { telegramSend(healthReportText()); return; }
   if (/^(\/pa|校長|校長助理|代課)$/.test(lower)) { telegramSend(paReportText()); return; }
+  if (/^(\/agent|agent)\s+(on|off|開|關)$/i.test(lower)) {
+    const on = /on|開/.test(lower);
+    writeKv({ tgAgent: on ? 'on' : 'off' });
+    telegramSend(on ? '🤖 Agent 模式開啟：直接打字就會由 AI 判斷要查什麼、做什麼。' : '🤖 Agent 模式關閉：直接打字＝加待辦，「問 …」才會問 AI。');
+    return;
+  }
+  if (/^(\/reset|重來|清除對話)$/.test(lower)) { agentHistClear(chatId); telegramSend('🧹 對話記憶已清除。'); return; }
+  m = text.match(/^(?:\/todo|待辦)[\s:：]+([\s\S]+)$/i);
+  if (m) {
+    const tid = tgAddNote('todo', m[1].trim());
+    telegramSendButtons('✅ 已加入待辦：' + m[1].trim().slice(0, 100), [[{ text: '↩️ 取消', callback_data: 'del:' + tid }]]);
+    return;
+  }
   m = text.match(/^(?:\/ask|問)[\s:：]+([\s\S]+)$/i);
-  if (m) { telegramSend(tgAskAi(m[1].trim())); return; }
+  if (m) { if (agentEnabledForTelegram()) tgAgentReply(m[1].trim(), chatId); else telegramSend(tgAskAi(m[1].trim())); return; }
   m = text.match(/^(?:\/note|筆記)[\s:：]+([\s\S]+)$/i);
   if (m) { tgAddNote('note', m[1].trim()); telegramSend('📌 已存成筆記：' + m[1].trim().slice(0, 100)); return; }
   m = text.match(/^(\/remind|提醒)([\s:：]*)([\s\S]+)$/i);
@@ -1947,6 +1971,10 @@ function handleTelegramText(msg, chatId) {
     return;
   }
   if (text.charAt(0) === '/') { telegramSend('不認得這個指令。\n\n' + TG_HELP); return; }
+  // Agent 模式：其餘文字交給 AI 判斷（查東西、做事、或加成待辦）。失敗就退回原本的「加成待辦」。
+  if (agentEnabledForTelegram()) {
+    try { if (tgAgentReply(text, chatId)) return; } catch (err) { reportError('Telegram agent', err); }
+  }
   const id = tgAddNote('todo', text);
   telegramSendButtons('✅ 已加入待辦：' + text.slice(0, 100), [[{ text: '↩️ 取消', callback_data: 'del:' + id }]]);
 }
@@ -2284,4 +2312,580 @@ function updatePartial(sheet, cols, id, patch) {
 function deleteRow(sheet, id) {
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) { if (String(data[i][0]) === String(id)) { sheet.deleteRow(i + 1); break; } }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 🤖 Agent（工具迴圈）
+// ─────────────────────────────────────────────────────────────────
+// 以前的「問」是一次問答：把待辦、行程、台股一行摘要塞進 prompt，AI 只能照著回。
+// 這裡改成真正的 agent：AI 拿到一組工具（查台股、查檢驗、查行事曆、搜郵件、
+// 加待辦……），自己決定要呼叫哪個、拿到結果再決定下一步，做完才回話。
+// Telegram 的自由文字和 App 的對話都走這條路。
+//
+// 安全邊界（刻意的，不是漏做）：
+// - Gmail 只能搜尋與讀取，不能寄信、不能刪信。
+// - 行事曆可以查、加、改，不能刪。
+// - 待辦可以查、加、改、標完成，不能刪（App 裡自己刪）。
+// - 每次最多 AGENT_MAX_STEPS 步、AGENT_TIME_BUDGET_MS 毫秒，超過就停下來回報做到哪。
+// ═══════════════════════════════════════════════════════════════════
+const AGENT_MAX_STEPS = 8;
+const AGENT_TIME_BUDGET_MS = 110000;   // Apps Script 單次上限 6 分鐘，Telegram 輪詢又每分鐘跑一次，留寬裕
+const AGENT_HISTORY_MAX = 10;
+const AGENT_HIST_PROP = 'agentHist_';   // CacheService key 前綴（Telegram 對話記憶）
+
+const HEALTH_METRIC_NAMES = {
+  hba1c: '糖化血色素', glucose: '空腹血糖', ldl: 'LDL 低密度膽固醇', hdl: 'HDL 高密度膽固醇',
+  chol: '總膽固醇', tg: '三酸甘油酯', sbp: '收縮壓', dbp: '舒張壓', weight: '體重', waist: '腰圍',
+  height: '身高', hr: '心率', bmi: 'BMI', egfr: 'eGFR 腎絲球過濾率', cr: '肌酸酐', ua: '尿酸',
+  ast: 'AST(GOT)', alt: 'ALT(GPT)', ggt: 'γ-GT', hb: '血紅素', tsh: 'TSH 甲狀腺刺激素', k: '鉀', na: '鈉'
+};
+
+// ── 工具定義 ──
+// 每個工具：name / description（給 AI 看的，要寫清楚什麼時候用）/ parameters（JSON Schema）/ run(args)。
+// run 回傳的物件會原封不動 JSON 給 AI，所以只放 AI 需要的欄位，不放網址與密鑰。
+const AGENT_TOOLS = [
+  {
+    name: 'get_today_overview',
+    description: '取得今明行程、到期待辦、校長助理記事、台股一行摘要、健康一行摘要。使用者問「今天」「現在狀況」「有什麼要做」時先用這個。',
+    parameters: { type: 'object', properties: {} },
+    run: function () { return { overview: tgNowText() }; }
+  },
+  {
+    name: 'list_notes',
+    description: '列出待辦／提醒／筆記／心法。可用 status 篩未完成或已完成、type 篩類型、query 做關鍵字比對。回傳每筆的 id（要修改或標完成時用）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', enum: ['open', 'done', 'all'], description: '預設 open（未完成）' },
+        type: { type: 'string', enum: ['todo', 'reminder', 'note', 'idea'], description: '不給就全部類型' },
+        query: { type: 'string', description: '內容關鍵字（可省略）' }
+      }
+    },
+    run: function (a) {
+      a = a || {};
+      let rows = sheetToObjects(setupSheets().note, NOTE_COLS);
+      const st = a.status || 'open';
+      if (st === 'open') rows = rows.filter(n => n.done !== 'true');
+      if (st === 'done') rows = rows.filter(n => n.done === 'true');
+      if (a.type) rows = rows.filter(n => n.type === a.type);
+      if (a.query) { const q = String(a.query).toLowerCase(); rows = rows.filter(n => String(n.content).toLowerCase().indexOf(q) >= 0); }
+      rows.sort((x, y) => String(y.createdAt).localeCompare(String(x.createdAt)));
+      return {
+        count: rows.length,
+        items: rows.slice(0, 60).map(n => ({
+          id: n.id, type: n.type, content: n.content, dueAt: n.dueAt ? tpeFormat(new Date(n.dueAt), 'yyyy/M/d HH:mm') : '',
+          done: n.done === 'true', owner: n.owner || '', createdAt: tpeFormat(new Date(n.createdAt), 'M/d')
+        }))
+      };
+    }
+  },
+  {
+    name: 'add_note',
+    description: '新增一筆。type：todo=待辦、reminder=特定時間要提醒（必須給 dueAt）、note=瑣事筆記、idea=想法與心法。owner 是「交辦給誰」，使用者自己要做的不要填。',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['todo', 'reminder', 'note', 'idea'] },
+        content: { type: 'string' },
+        dueAt: { type: 'string', description: '到期或提醒時間，台北時間，格式 2026-11-20 09:00（可省略）' },
+        owner: { type: 'string', description: '交辦對象（可省略）' }
+      },
+      required: ['type', 'content']
+    },
+    run: function (a) {
+      const due = agentParseTime(a.dueAt);
+      if (a.type === 'reminder' && !due) return { error: '提醒一定要有時間，請給 dueAt' };
+      const id = Utilities.getUuid();
+      appendObj(setupSheets().note, NOTE_COLS, {
+        id: id, type: a.type || 'todo', content: String(a.content || '').trim(), dueAt: due ? due.toISOString() : '',
+        done: '', createdAt: new Date().toISOString(), notifiedAt: '', owner: a.owner || ''
+      });
+      return { ok: true, id: id, dueAt: due ? tpeFormat(due, 'M/d HH:mm') : '' };
+    }
+  },
+  {
+    name: 'update_note',
+    description: '修改既有的待辦／提醒／筆記。只放要改的欄位。改時間給 dueAt、改交辦對象給 owner（收回自己做給空字串）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' }, content: { type: 'string' }, dueAt: { type: 'string', description: '台北時間，格式 2026-11-20 09:00' },
+        type: { type: 'string', enum: ['todo', 'reminder', 'note', 'idea'] }, owner: { type: 'string' }
+      },
+      required: ['id']
+    },
+    run: function (a) {
+      const patch = {};
+      if (a.content !== undefined) patch.content = String(a.content);
+      if (a.type !== undefined) patch.type = a.type;
+      if (a.owner !== undefined) patch.owner = a.owner;
+      if (a.dueAt !== undefined) {
+        const d = agentParseTime(a.dueAt);
+        if (a.dueAt && !d) return { error: '看不懂時間：' + a.dueAt };
+        patch.dueAt = d ? d.toISOString() : '';
+        patch.notifiedAt = '';
+      }
+      if (!Object.keys(patch).length) return { error: '沒有要改的欄位' };
+      const { note } = setupSheets();
+      if (!sheetToObjects(note, NOTE_COLS).some(n => String(n.id) === String(a.id))) return { error: '找不到這筆 id' };
+      updatePartial(note, NOTE_COLS, a.id, patch);
+      return { ok: true };
+    }
+  },
+  {
+    name: 'complete_note',
+    description: '把待辦或提醒標記為完成。',
+    parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    run: function (a) {
+      const { note } = setupSheets();
+      const n = sheetToObjects(note, NOTE_COLS).find(x => String(x.id) === String(a.id));
+      if (!n) return { error: '找不到這筆 id' };
+      updatePartial(note, NOTE_COLS, a.id, { done: 'true' });
+      return { ok: true, content: n.content };
+    }
+  },
+  {
+    name: 'list_calendar',
+    description: '列出 Google 日曆行程（所有看得到的日曆）。預設今天起 14 天；可給 from / to 查更遠或更久以前。回傳 eventId（要修改時用）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: '起日，台北時間，格式 2026-11-20（可省略＝今天）' },
+        to: { type: 'string', description: '迄日，格式 2026-12-04（可省略＝起日 +14 天）' }
+      }
+    },
+    run: function (a) {
+      a = a || {};
+      const from = agentParseTime(a.from) || new Date();
+      const to = agentParseTime(a.to) || new Date(from.getTime() + 14 * 86400000);
+      if (a.to && !a.to.match(/\d{1,2}:\d{2}/)) to.setHours(23, 59, 59, 0);
+      const seen = {}; const out = [];
+      CalendarApp.getAllCalendars().forEach(cal => {
+        try {
+          cal.getEvents(from, to).forEach(ev => {
+            const key = ev.getId() + '_' + ev.getStartTime().getTime();
+            if (seen[key]) return; seen[key] = 1;
+            out.push({
+              eventId: ev.getId(), title: ev.getTitle(), calendar: cal.getName(), allDay: ev.isAllDayEvent(),
+              start: tpeFormat(ev.getStartTime(), 'yyyy/M/d (E) HH:mm'), end: tpeFormat(ev.getEndTime(), 'yyyy/M/d HH:mm'),
+              location: ev.getLocation() || ''
+            });
+          });
+        } catch (e) { /* 單一日曆失敗跳過 */ }
+      });
+      out.sort((x, y) => x.start.localeCompare(y.start));
+      return { range: tpeFormat(from, 'M/d') + '～' + tpeFormat(to, 'M/d'), count: out.length, events: out.slice(0, 80) };
+    }
+  },
+  {
+    name: 'add_calendar_event',
+    description: '在主要 Google 日曆新增一筆行程。沒給 end 就是 1 小時。',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' }, start: { type: 'string', description: '台北時間，格式 2026-11-20 14:00' },
+        end: { type: 'string', description: '格式 2026-11-20 15:00（可省略）' },
+        location: { type: 'string' }, description: { type: 'string' }
+      },
+      required: ['title', 'start']
+    },
+    run: function (a) {
+      const s = agentParseTime(a.start);
+      if (!s) return { error: '看不懂開始時間：' + a.start };
+      const e = agentParseTime(a.end) || new Date(s.getTime() + 3600000);
+      const ev = CalendarApp.getDefaultCalendar().createEvent(String(a.title || '(未命名)'), s, e,
+        { location: a.location || '', description: a.description || '' });
+      ev.addPopupReminder(30);
+      return { ok: true, eventId: ev.getId(), start: tpeFormat(s, 'M/d (E) HH:mm'), end: tpeFormat(e, 'HH:mm') };
+    }
+  },
+  {
+    name: 'update_calendar_event',
+    description: '修改既有行程的標題、時間或地點。eventId 從 list_calendar 取得。只放要改的欄位。',
+    parameters: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string' }, title: { type: 'string' },
+        start: { type: 'string', description: '台北時間，格式 2026-11-20 14:00' }, end: { type: 'string' }, location: { type: 'string' }
+      },
+      required: ['eventId']
+    },
+    run: function (a) {
+      const ev = agentFindEvent(a.eventId);
+      if (!ev) return { error: '找不到這筆行程' };
+      if (a.title) ev.setTitle(String(a.title));
+      if (a.location !== undefined) ev.setLocation(String(a.location));
+      if (a.start || a.end) {
+        const s = agentParseTime(a.start) || ev.getStartTime();
+        const e = agentParseTime(a.end) || new Date(s.getTime() + (ev.getEndTime().getTime() - ev.getStartTime().getTime()));
+        if (a.start && !agentParseTime(a.start)) return { error: '看不懂開始時間：' + a.start };
+        ev.setTime(s, e);
+      }
+      return { ok: true, title: ev.getTitle(), start: tpeFormat(ev.getStartTime(), 'M/d (E) HH:mm'), end: tpeFormat(ev.getEndTime(), 'HH:mm') };
+    }
+  },
+  {
+    name: 'search_gmail',
+    description: '用 Gmail 搜尋語法找信（例如 "from:某人 newer_than:7d"、"帳單 is:unread"、"subject:公文"）。只回主旨、寄件者、日期與摘要片段；要看內文再用 read_gmail_thread。只能讀，不能寄、不能刪。',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' }, limit: { type: 'integer', description: '最多幾封，預設 8，上限 15' } },
+      required: ['query']
+    },
+    run: function (a) {
+      const lim = Math.min(Math.max(Number(a.limit) || 8, 1), 15);
+      const threads = GmailApp.search(String(a.query || ''), 0, lim);
+      return {
+        count: threads.length,
+        threads: threads.map(t => {
+          const msgs = t.getMessages(); const last = msgs[msgs.length - 1];
+          return {
+            threadId: t.getId(), subject: t.getFirstMessageSubject() || '(無主旨)', from: last.getFrom(),
+            date: tpeFormat(last.getDate(), 'M/d HH:mm'), unread: t.isUnread(), messages: msgs.length,
+            snippet: (last.getPlainBody() || '').replace(/\s+/g, ' ').slice(0, 200)
+          };
+        })
+      };
+    }
+  },
+  {
+    name: 'read_gmail_thread',
+    description: '讀一封信的內文（最後一則訊息，最多 3000 字）。threadId 從 search_gmail 取得。',
+    parameters: { type: 'object', properties: { threadId: { type: 'string' } }, required: ['threadId'] },
+    run: function (a) {
+      const t = GmailApp.getThreadById(String(a.threadId || ''));
+      if (!t) return { error: '找不到這封信' };
+      const msgs = t.getMessages(); const last = msgs[msgs.length - 1];
+      return {
+        subject: t.getFirstMessageSubject(), from: last.getFrom(), to: last.getTo(), date: tpeFormat(last.getDate(), 'yyyy/M/d HH:mm'),
+        body: (last.getPlainBody() || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').slice(0, 3000),
+        attachments: last.getAttachments().map(x => x.getName())
+      };
+    }
+  },
+  {
+    name: 'get_stock_holdings',
+    description: '取得台股全部持股明細：每檔的股數、平均成本、現價、今日漲跌%、未實現損益金額與%，以及總成本、總市值、總損益。問「哪一支賺最多」「總共賺多少」「某支現在如何」都用這個。',
+    parameters: { type: 'object', properties: {} },
+    run: function () {
+      const hs = getStockHoldings();
+      if (!hs.length) return { error: '讀不到持股。請先在 Apps Script 執行 setStockSheet 或 setStockConfig。' };
+      const quotes = getStockQuotes(hs.map(h => String(h.code).trim()));
+      const merged = {};
+      hs.forEach(h => {
+        const code = String(h.code).trim(), q = stockToNum(h.qty), c = stockToNum(h.cost);
+        if (!(q > 0) || !(c > 0)) return;
+        if (!merged[code]) merged[code] = { code: code, qty: 0, cost: 0 };
+        merged[code].qty += q; merged[code].cost += q * c;
+      });
+      let tCost = 0, tValue = 0, tPrev = 0;
+      const items = Object.keys(merged).map(code => {
+        const m = merged[code], x = quotes[code];
+        const avg = m.cost / m.qty;
+        if (!x) return { code: code, qty: m.qty, avgCost: round2(avg), note: '查不到報價' };
+        const value = m.qty * x.price, pl = value - m.cost;
+        tCost += m.cost; tValue += value; tPrev += m.qty * x.prev;
+        return {
+          code: code, name: x.name, qty: m.qty, avgCost: round2(avg), price: x.price,
+          dayPct: round2(x.prev > 0 ? (x.price - x.prev) / x.prev * 100 : 0),
+          value: Math.round(value), plAmount: Math.round(pl), plPct: round2(m.cost > 0 ? pl / m.cost * 100 : 0)
+        };
+      }).sort((a, b) => (b.plAmount || 0) - (a.plAmount || 0));
+      return {
+        asOf: tpeDateTimeStr(new Date()), count: items.length,
+        totalCost: Math.round(tCost), totalValue: Math.round(tValue), totalPlAmount: Math.round(tValue - tCost),
+        totalPlPct: round2(tCost > 0 ? (tValue - tCost) / tCost * 100 : 0),
+        dayPct: round2(tPrev > 0 ? (tValue - tPrev) / tPrev * 100 : 0),
+        items: items
+      };
+    }
+  },
+  {
+    name: 'get_stock_quote',
+    description: '查任一檔台股（不一定有持股）的即時報價：代號、名稱、現價、昨收、今日漲跌%。',
+    parameters: { type: 'object', properties: { code: { type: 'string', description: '股票代號，例如 2330' } }, required: ['code'] },
+    run: function (a) {
+      const code = String(a.code || '').trim();
+      const x = getStockQuotes([code])[code];
+      if (!x) return { error: '查不到 ' + code + ' 的報價（可能代號錯或非交易時段）' };
+      return { code: code, name: x.name, price: x.price, prev: x.prev, dayPct: round2(x.prev > 0 ? (x.price - x.prev) / x.prev * 100 : 0), traded: x.traded };
+    }
+  },
+  {
+    name: 'get_health_summary',
+    description: '健康系統最新快照：健康分、生理年齡、心血管與糖尿病風險，以及各檢驗項目的最新一筆數值。',
+    parameters: { type: 'object', properties: {} },
+    run: function () {
+      const h = getLinkedSummaries().health || healthLatest();
+      if (!h) return { error: '讀不到健康資料。請在 Ybot 設定 → 整合其他系統填入健康後台網址。' };
+      const labs = {};
+      Object.keys(h.labs || {}).forEach(k => { labs[HEALTH_METRIC_NAMES[k] || k] = h.labs[k]; });
+      return { date: h.date, score: h.score, bioAge: h.bio, cvdLevel: h.cvdLevel, dmLevel: h.dmLevel, latestLabs: labs };
+    }
+  },
+  {
+    name: 'get_health_labs',
+    description: '健康系統「檢驗數據庫」的歷史紀錄（糖化血色素、血糖、血脂、血壓、體重…）。可用 metric 只看一項（用英文代碼如 hba1c、glucose、ldl、hdl、tg、chol、sbp、dbp、weight、waist、egfr、ua）。問趨勢、上次數值、是否改善時用這個。',
+    parameters: {
+      type: 'object',
+      properties: { metric: { type: 'string', description: '英文代碼，省略＝全部' }, limit: { type: 'integer', description: '每項最多幾筆，預設 12' } }
+    },
+    run: function (a) {
+      a = a || {};
+      const kv = readKv();
+      if (!kv.healthBackendUrl) return { error: '還沒設定健康後台網址' };
+      const r = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=labs', { muteHttpExceptions: true });
+      const d = JSON.parse(r.getContentText());
+      if (!d.ok || !Array.isArray(d.labs)) return { error: '健康後台沒有回傳檢驗資料' };
+      const lim = Math.min(Math.max(Number(a.limit) || 12, 1), 50);
+      const by = {};
+      d.labs.forEach(l => {
+        if (!l || !l.metric || l.value === '' || isNaN(Number(l.value))) return;
+        if (a.metric && String(l.metric) !== String(a.metric)) return;
+        const date = String(l.measuredAt || l.importedAt || '').slice(0, 10);
+        (by[l.metric] = by[l.metric] || []).push({ date: date, value: Number(l.value), unit: l.unit || '' });
+      });
+      const out = {};
+      Object.keys(by).forEach(k => {
+        const seen = {};
+        const rows = by[k].sort((x, y) => y.date.localeCompare(x.date)).filter(r => { if (seen[r.date + '_' + r.value]) return false; seen[r.date + '_' + r.value] = 1; return true; }).slice(0, lim);
+        out[k] = { name: HEALTH_METRIC_NAMES[k] || k, records: rows };
+      });
+      if (!Object.keys(out).length) return { error: a.metric ? ('檢驗數據庫裡沒有 ' + a.metric) : '檢驗數據庫是空的（請在健康系統按「上傳雲端」）' };
+      return { metrics: out };
+    }
+  },
+  {
+    name: 'get_school_assistant',
+    description: '校長助理：今明的學校記事與代課節數。',
+    parameters: { type: 'object', properties: {} },
+    run: function () { return { text: paReportText() }; }
+  },
+  {
+    name: 'remember',
+    description: '把「以後每次對話都用得到」的一句話記下來（怎麼稱呼某人、偏好、固定做事方式、職務範圍）。不要拿來記一次性的待辦或當下心情。',
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    run: function (a) {
+      const t = String(a.text || '').trim();
+      if (!t) return { error: '內容是空的' };
+      const { qa } = setupSheets();
+      const exists = sheetToObjects(qa, QA_COLS).some(r => r.kind === 'profile' && String(r.a).trim() === t);
+      if (exists) return { ok: true, note: '已經記過了' };
+      const id = 'p' + Date.now() + Math.random().toString(36).slice(2, 7);
+      upsertRow(qa, QA_COLS, id, { id: id, q: '__profile__', a: t, kind: 'profile', at: new Date().toISOString() });
+      return { ok: true, id: id };
+    }
+  },
+  {
+    name: 'forget',
+    description: '刪掉一條已經不成立的記憶（換職務、改了習慣）。id 來自「關於使用者」清單。',
+    parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    run: function (a) { deleteRow(setupSheets().qa, String(a.id || '')); return { ok: true }; }
+  }
+];
+function round2(v) { return Math.round(Number(v) * 100) / 100; }
+function agentToolByName(name) { return AGENT_TOOLS.find(t => t.name === name) || null; }
+
+// 「2026-11-20 09:00」「2026/11/20」「2026-11-20T09:00」都當台北時間。只給日期就是當天 00:00。
+function agentParseTime(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (m) {
+    const iso = m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) + 'T' + ('0' + (m[4] || '0')).slice(-2) + ':' + (m[5] || '00') + ':00+08:00';
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function agentFindEvent(id) {
+  const cals = [CalendarApp.getDefaultCalendar()].concat(CalendarApp.getAllCalendars());
+  for (let i = 0; i < cals.length; i++) {
+    try { const ev = cals[i].getEventById(id); if (ev) return ev; } catch (e) { /* 下一個 */ }
+  }
+  return null;
+}
+function agentProfileLines() {
+  try {
+    return sheetToObjects(setupSheets().qa, QA_COLS).filter(r => r.kind === 'profile' && r.a)
+      .sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 60)
+      .map(r => '[' + r.id + '] ' + String(r.a).trim());
+  } catch (e) { return []; }
+}
+
+function agentSystemPrompt(channel) {
+  const now = new Date();
+  const profile = agentProfileLines();
+  return [
+    '你是 Young 的個人助理 Ybot。Young 是教育工作者、批判教育哲學家，也寫詩與散文。你溫暖、直接、不囉嗦，像一個懂他的朋友。',
+    '現在是台北時間 ' + tpeFormat(now, 'yyyy/M/d (E) HH:mm') + '。所有時間都用台北時間。',
+    '',
+    '你有一組工具。回答之前先想：需要哪些資料？能用工具查到的就去查，不要猜、不要編。',
+    '可以連續用好幾個工具（先查持股再查單檔、先查行事曆再加行程）。資料查不到就老實說查不到，並說要去哪裡設定。',
+    '使用者要你做事（加待辦、排行程、改時間、標完成、記住某件事），就直接做，做完簡短回報做了什麼。',
+    '要改或完成某一筆時，先用 list 工具找到正確的 id 再動手；比對到多筆就先問清楚是哪一筆，不要亂猜。',
+    '意思不清楚、或會影響既有資料（改時間、改交辦對象）而你不確定時，先問一句再做。',
+    '使用者只丟一句像待辦的話（沒有問句、沒有要查東西），就幫他加成待辦；有明確時間就加成提醒。',
+    '提到「明天」「下禮拜三」這類相對時間，請自己換算成確切日期再帶給工具。',
+    '',
+    '回答規則：繁體中文；簡短，先講結論；' + (channel === 'telegram' ? '純文字，不要用 Markdown 符號（不要 ** 和 #）；' : '可以用簡單的換行與項目符號；') +
+    '金額用千分位，百分比保留一位小數；不要把工具回傳的 id 唸給使用者聽。',
+    '',
+    '關於使用者（之前記下來的，每條前面是記憶 id）：',
+    profile.length ? profile.join('\n') : '（還沒有）'
+  ].join('\n');
+}
+
+// ── 迴圈本體 ──
+// history：[{role:'user'|'bot', text}]，最近幾輪。回傳 {text, steps:[{tool,args}], error}
+function runAgent(question, history, opts) {
+  opts = opts || {};
+  const cfg = getAiConfig();
+  const order = aiOrder(cfg).filter(p => p === 'gemini' || p === 'openai');   // 工具呼叫只有這兩家支援
+  if (!order.length) return { text: '', error: '後台沒有可用的 AI（Gemini 或 OpenAI）金鑰，請在 Apps Script 執行 setAiConfig。' };
+  const provider = order[0];
+  const started = Date.now();
+  const steps = [];
+  const sys = agentSystemPrompt(opts.channel || 'app');
+  const hist = (history || []).slice(-AGENT_HISTORY_MAX);
+  const ctx = provider === 'gemini' ? agentGeminiStart(sys, hist, question) : agentOpenaiStart(sys, hist, question);
+  let lastErr = '';
+  for (let step = 0; step <= AGENT_MAX_STEPS; step++) {
+    if (Date.now() - started > AGENT_TIME_BUDGET_MS) { lastErr = '這題花太久了，先停在這裡'; break; }
+    let turn;
+    try { turn = provider === 'gemini' ? agentGeminiTurn(ctx, cfg.gemini) : agentOpenaiTurn(ctx, cfg.openai); }
+    catch (e) { lastErr = 'AI 呼叫失敗：' + (e && e.message || e); break; }
+    if (!turn.calls.length) return { text: String(turn.text || '').trim(), steps: steps };
+    if (step === AGENT_MAX_STEPS) { lastErr = '步驟太多，先停在這裡'; break; }
+    const results = turn.calls.map(c => {
+      const tool = agentToolByName(c.name);
+      let res;
+      if (!tool) res = { error: '沒有這個工具：' + c.name };
+      else { try { res = tool.run(c.args || {}); } catch (e) { res = { error: String(e && e.message || e) }; } }
+      steps.push({ tool: c.name, args: c.args || {}, ok: !(res && res.error) });
+      return { call: c, result: res };
+    });
+    if (provider === 'gemini') agentGeminiFeed(ctx, turn, results); else agentOpenaiFeed(ctx, turn, results);
+  }
+  // 中途停下來：把做過的事告訴使用者，不要默默吞掉
+  const done = steps.filter(s => s.ok).map(s => agentToolLabel(s.tool));
+  return { text: (lastErr ? '⚠️ ' + lastErr : '') + (done.length ? '\n已完成：' + done.join('、') : ''), steps: steps, error: lastErr };
+}
+const AGENT_TOOL_LABELS = {
+  get_today_overview: '看今日現況', list_notes: '查待辦筆記', add_note: '新增待辦筆記', update_note: '修改待辦筆記', complete_note: '標記完成',
+  list_calendar: '查行事曆', add_calendar_event: '新增行程', update_calendar_event: '修改行程', search_gmail: '搜尋郵件', read_gmail_thread: '讀信',
+  get_stock_holdings: '查持股', get_stock_quote: '查報價', get_health_summary: '查健康摘要', get_health_labs: '查檢驗紀錄',
+  get_school_assistant: '查校長助理', remember: '記住', forget: '忘記'
+};
+function agentToolLabel(name) { return AGENT_TOOL_LABELS[name] || name; }
+function agentStepsLine(steps) {
+  if (!steps || !steps.length) return '';
+  const seen = {}; const names = [];
+  steps.forEach(s => { const l = agentToolLabel(s.tool); if (!seen[l]) { seen[l] = 1; names.push(l); } });
+  return '🔧 ' + names.join('、');
+}
+
+// ── Gemini（function calling）──
+function agentGeminiStart(sys, hist, question) {
+  const contents = hist.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: String(h.text || '').slice(0, 2000) }] }));
+  contents.push({ role: 'user', parts: [{ text: String(question) }] });
+  return {
+    sys: sys, contents: contents,
+    tools: [{ function_declarations: AGENT_TOOLS.map(t => {
+      const decl = { name: t.name, description: t.description };
+      // Gemini 不接受空的 properties，所以沒參數的工具就不帶 parameters；型別名稱要大寫
+      if (t.parameters && t.parameters.properties && Object.keys(t.parameters.properties).length) decl.parameters = agentGeminiSchema(t.parameters);
+      return decl;
+    }) }]
+  };
+}
+function agentGeminiSchema(sc) {
+  if (Array.isArray(sc)) return sc.map(agentGeminiSchema);
+  if (!sc || typeof sc !== 'object') return sc;
+  const out = {};
+  Object.keys(sc).forEach(k => {
+    if (k === 'type' && typeof sc[k] === 'string') out[k] = sc[k].toUpperCase();
+    else if (k === 'properties') { out[k] = {}; Object.keys(sc[k]).forEach(pk => out[k][pk] = agentGeminiSchema(sc[k][pk])); }
+    else out[k] = agentGeminiSchema(sc[k]);
+  });
+  return out;
+}
+function agentGeminiTurn(ctx, key) {
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=' + key;
+  const res = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    payload: JSON.stringify({
+      system_instruction: { parts: [{ text: ctx.sys }] }, contents: ctx.contents, tools: ctx.tools,
+      generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
+    })
+  });
+  const d = JSON.parse(res.getContentText());
+  if (res.getResponseCode() !== 200) throw new Error((d.error && d.error.message) || ('Gemini ' + res.getResponseCode()));
+  const parts = (d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts) || [];
+  const calls = parts.filter(p => p.functionCall).map(p => ({ name: p.functionCall.name, args: p.functionCall.args || {} }));
+  const text = parts.filter(p => p.text).map(p => p.text).join('');
+  return { parts: parts, calls: calls, text: text };
+}
+function agentGeminiFeed(ctx, turn, results) {
+  ctx.contents.push({ role: 'model', parts: turn.parts });
+  ctx.contents.push({ role: 'user', parts: results.map(r => ({ functionResponse: { name: r.call.name, response: { result: r.result } } })) });
+}
+
+// ── OpenAI（tools）──
+function agentOpenaiStart(sys, hist, question) {
+  const messages = [{ role: 'system', content: sys }];
+  hist.forEach(h => messages.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text || '').slice(0, 2000) }));
+  messages.push({ role: 'user', content: String(question) });
+  return { messages: messages, tools: AGENT_TOOLS.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) };
+}
+function agentOpenaiTurn(ctx, key) {
+  const res = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + key },
+    payload: JSON.stringify({ model: 'gpt-4o-mini', messages: ctx.messages, tools: ctx.tools, temperature: 0.4, max_tokens: 2048 })
+  });
+  const d = JSON.parse(res.getContentText());
+  if (res.getResponseCode() !== 200) throw new Error((d.error && d.error.message) || ('OpenAI ' + res.getResponseCode()));
+  const msg = (d.choices && d.choices[0] && d.choices[0].message) || {};
+  const calls = (msg.tool_calls || []).map(tc => {
+    let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (e) { /* 空參數 */ }
+    return { id: tc.id, name: tc.function.name, args: args };
+  });
+  return { msg: msg, calls: calls, text: msg.content || '' };
+}
+function agentOpenaiFeed(ctx, turn, results) {
+  ctx.messages.push(turn.msg);
+  results.forEach(r => ctx.messages.push({ role: 'tool', tool_call_id: r.call.id, content: JSON.stringify(r.result) }));
+}
+
+// ── Telegram 的對話記憶（CacheService，2 小時）──
+function agentHistLoad(chatId) {
+  try { return JSON.parse(CacheService.getScriptCache().get(AGENT_HIST_PROP + chatId) || '[]'); } catch (e) { return []; }
+}
+function agentHistSave(chatId, hist) {
+  try { CacheService.getScriptCache().put(AGENT_HIST_PROP + chatId, JSON.stringify(hist.slice(-AGENT_HISTORY_MAX)), 7200); } catch (e) { /* 只是記憶 */ }
+}
+function agentHistClear(chatId) { try { CacheService.getScriptCache().remove(AGENT_HIST_PROP + chatId); } catch (e) { /* 忽略 */ } }
+// Telegram 自由文字 → agent。回傳 true 表示已處理（已回覆）。
+function tgAgentReply(text, chatId) {
+  const hist = agentHistLoad(chatId);
+  const r = runAgent(text, hist, { channel: 'telegram' });
+  if (r.error && !r.text) { telegramSend('⚠️ ' + r.error); return true; }
+  const body = String(r.text || '（沒有回覆）').slice(0, 3800);
+  const foot = agentStepsLine(r.steps);
+  telegramSend(body + (foot ? '\n\n' + foot : ''));
+  hist.push({ role: 'user', text: text }, { role: 'bot', text: body });
+  agentHistSave(chatId, hist);
+  return true;
+}
+function agentEnabledForTelegram() {
+  const kv = readKv();
+  if (kv.tgAgent === 'off') return false;
+  const cfg = getAiConfig();
+  return !!(cfg.gemini || cfg.openai);
+}
+// 手動測試：在編輯器執行，看 agent 會怎麼回（結果只印在執行記錄，不會送 Telegram）
+function testAgent() {
+  const r = runAgent('我今天有什麼要做的？', [], { channel: 'telegram' });
+  console.log(JSON.stringify(r, null, 2));
 }
