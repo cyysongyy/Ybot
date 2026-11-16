@@ -196,12 +196,15 @@ const TOKEN_PROP = 'API_TOKEN';
 function generateApiToken() {
   const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
   PropertiesService.getScriptProperties().setProperty(TOKEN_PROP, token);
-  return '✅ 新的通關密語（整串複製，貼進 Ybot 設定 → 雲端後台 → 通關密語）：\n\n'
+  const msg = '✅ 新的通關密語（整串複製，貼進 Ybot 設定 → 雲端後台 → 通關密語）：\n\n'
     + token + '\n\n舊的密語即刻失效，網址不用換。';
+  console.log(msg);   // 編輯器不會顯示回傳值，要印出來使用者才看得到
+  return msg;
 }
 function getApiToken() {
   return PropertiesService.getScriptProperties().getProperty(TOKEN_PROP) || '';
 }
+function showApiToken() { console.log(getApiToken() || '（尚未設定，請先執行 generateApiToken）'); }
 // 想確認目前有沒有保護，執行這一個（不會把密語印出來）
 function checkApiToken() {
   return getApiToken()
