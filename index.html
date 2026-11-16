@@ -1722,8 +1722,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-17';
+const APP_VERSION='2026-11-17-2';
 const CHANGELOG=[
+  {v:'2026-11-17-2',d:'11/17',items:[
+    '帳單改用「帳單」兩個字當關鍵字：主旨或內文有「帳單」的信才算，銀行「登入成功通知」不會再被當成帳單（Telegram、晨報、App 都一樣）。要更新 Ybot 後台（設定頁會提示「後台不是最新版」，按「📋 複製最新後台程式」貼進 Apps Script 重新部署）。',
+  ]},
   {v:'2026-11-17',d:'11/17',items:[
     '首頁「📈 台股持股」和「🫀 健康」移到「今日新聞」下面。',
   ]},
@@ -3067,7 +3070,7 @@ function briefBillSegments(){
     const d=m.due&&m.due.match(/^(\d{2,4})\/(\d{1,2})\/(\d{1,2})$/);
     if(d){const y=+d[1]<1000?+d[1]+1911:+d[1];return `${y}-${d[2].padStart(2,'0')}-${d[3].padStart(2,'0')}`>=today;}
     return !m.date||Date.now()-new Date(m.date).getTime()<7*86400000;
-  }).map(m=>({text:'聯邦帳單：'+String(m.subject||'').trim()+'。'+
+  }).map(m=>({text:'帳單：'+String(m.subject||'').trim()+'。'+
     (m.amount?`本期應繳${m.amount.replace(/,/g,'')}元。`:'')+(m.due?`繳款截止日是${m.due}。`:'')}));
 }
 function briefMailSegments(){
@@ -4182,14 +4185,14 @@ function usefulMails(c){
   const ctx=c===undefined?state.context:c;
   return ((ctx&&ctx.gmail)||[]).filter(m=>!isNoiseMail(m));
 }
-// ── 💳 聯邦帳單 ─────────────────────────
-// 主旨／寄件者／內文有「聯邦」兩個字的信就是聯邦銀行的帳單，單獨拉出來放在首頁，
+// ── 💳 帳單 ─────────────────────────
+// 主旨／內文有「帳單」兩個字的信就是帳單（關鍵字只有「帳單」；「登入」通知不算），單獨拉出來，
 // 不跟一般信件混在一起。後台新版會另外給 bills（近 45 天、已讀未讀都算，
 // 金額和截止日從全文抓）；舊版後台沒有 bills，就從一般未讀信件裡挑。
-const BILL_RE=/聯邦/;
+const BILL_RE=/帳單/;
 const BILL_KEEP_MS=45*86400000;
 function isBillMail(m){
-  return !!m&&BILL_RE.test(String(m.subject||'')+' '+String(m.from||'')+' '+String(m.snippet||''));
+  return !!m&&!isNoiseMail(m)&&BILL_RE.test(String(m.subject||'')+' '+String(m.snippet||''));
 }
 function parseBillText(t){
   t=String(t||'').replace(/\s+/g,' ');
@@ -5834,7 +5837,7 @@ function buildContextText(question){
       lines.push('今天的行程（僅列今天，就是上面對照表「←今天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(todayEvents.length?todayEvents.map(evLabel).join('；'):'（無）'));
       lines.push('明天的行程（僅列明天，就是上面對照表「←明天」那一天；沒有就是真的沒有，不要從未來行程裡挑別天的湊）：'+(tomorrowEvents.length?tomorrowEvents.map(evLabel).join('；'):'（無）'));
     }
-    if(billMails(c).length)lines.push('聯邦帳單：'+billMails(c).map(m=>m.subject+(billLine(m)?`（${billLine(m)}）`:'')).join('；'));
+    if(billMails(c).length)lines.push('帳單：'+billMails(c).map(m=>m.subject+(billLine(m)?`（${billLine(m)}）`:'')).join('；'));
     if(usefulMails(c).length)lines.push('未讀重要信件：'+usefulMails(c).map(m=>`${m.important?'[重要-可能含繳費資訊] ':''}${m.subject}(來自${m.from})`).join('；'));
     if(c.news){
       const n=c.news;
@@ -6370,7 +6373,7 @@ function checkProactiveNotifications(){
     state.pushedMailIds.push(mid);
     // 帳單有可能是已讀的舊信（後台撈 45 天內），只有 2 天內寄來的才跳通知
     if(m.date&&Date.now()-new Date(m.date).getTime()>2*86400000)return;
-    notifyLocal('💳 聯邦帳單',[m.subject,billLine(m)].filter(Boolean).join('\n'),'mail-'+mid);
+    notifyLocal('💳 帳單',[m.subject,billLine(m)].filter(Boolean).join('\n'),'mail-'+mid);
   });
   const mails=usefulMails();
   mails.filter(m=>m.important).forEach(m=>{

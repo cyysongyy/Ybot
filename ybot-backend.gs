@@ -14,13 +14,13 @@
  *    再執行一次 setupEveningDigest()（排程「晚間彙整」，只在有未處理事項時才寄信）
  *    再執行一次 setupStandupWatch()（排程「起立提醒」，實際頻率依 ybot.html 設定調整）
  *    再執行一次 setupWeeklyReview()（排程「本週回顧」，每週一早上 7 點）
- * 3-2.（選填）Telegram 通知：手機鎖著也收得到新的【差勤批核】筆記和聯邦帳單。
+ * 3-2.（選填）Telegram 通知：手機鎖著也收得到新的【差勤批核】筆記和帳單。
  *    a. 在 Telegram 找 @BotFather 建立機器人（或沿用股票提醒那一個），拿到 token
  *    b. 專案設定（齒輪）→ 指令碼屬性 → 新增屬性 TELEGRAM_BOT_TOKEN，值貼 token
  *       （token 只放這裡，不要寫進程式碼）
  *    c. 在 Telegram 對你的機器人隨便傳一句話，再執行一次 findTelegramChatId()
  *    d. 執行一次 setupTelegramWatch()（每 10 分鐘檢查一次，並先傳一則測試訊息）
- *    會推：新的【差勤批核】筆記、聯邦帳單、行程開始前約 20～30 分鐘提醒
+ *    會推：新的【差勤批核】筆記、帳單、行程開始前約 20～30 分鐘提醒
  * 4. 部署 → 新增部署作業 → 網頁應用程式
  *    - 以下列身分執行：我（Me）
  *    - 誰可以存取：所有人（Anyone）
@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-16-5';
+const BACKEND_VERSION = '2026-11-17';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -409,9 +409,10 @@ function doPost(e) {
   return jsonResp({ ok: false, error: 'Unknown action: ' + action });
 }
 
-// ── 聯邦帳單 ──────────────────────────────────
-// 有「聯邦」兩個字的信就是聯邦銀行的帳單：不管已讀未讀、抓近 45 天最多 3 封，
-// 從全文抓本期應繳金額和繳款截止日（抓不到就留空，前端只顯示主旨）。
+// ── 帳單 ──────────────────────────────────
+// 有「帳單」兩個字的信就是帳單（關鍵字只有「帳單」，不再用「聯邦」）：不管已讀未讀、
+// 抓近 45 天最多 3 封，從全文抓本期應繳金額和繳款截止日（抓不到就留空，前端只顯示主旨）。
+// 「登入成功通知」這類銀行登入提醒不算帳單，主旨有「登入」就丟掉。
 function parseBillText(text) {
   const t = String(text || '').replace(/\s+/g, ' ');
   const a = t.match(/(?:本期)?應繳(?:總)?(?:金額|總額|款項)?\s*[:：]?\s*(?:NT\$|新[臺台]幣|TWD)?\s*(-?[\d,]+(?:\.\d+)?)\s*元?/);
@@ -420,14 +421,15 @@ function parseBillText(text) {
 }
 function getBillDigest() {
   try {
-    const threads = GmailApp.search('聯邦 newer_than:45d -from:me', 0, 10);
+    const threads = GmailApp.search('帳單 newer_than:45d -from:me', 0, 10);
     const out = [];
     threads.forEach(t => {
       const msgs = t.getMessages();
       const last = msgs[msgs.length - 1];
       const subject = t.getFirstMessageSubject() || '';
       const body = (last.getPlainBody() || '').replace(/\s+/g, ' ');
-      if (!/聯邦/.test(subject + ' ' + last.getFrom() + ' ' + body)) return;
+      if (/登入|登錄/.test(subject)) return;
+      if (!/帳單/.test(subject + ' ' + body)) return;
       const p = parseBillText(body);
       out.push({
         subject, from: last.getFrom(), date: last.getDate().toISOString(),
@@ -469,7 +471,7 @@ function getStandupSettings() {
 // Gmail 彙整：近 2 天未讀信件，僅取主旨／寄件者／時間／摘要片段（不含全文）。
 // 排除 Ybot 自己寄的信（避免自己的每日簡報/提醒被當成「未讀重要信件」形成迴圈）
 // 與 Google 安全性快訊；含信用卡/繳費關鍵字的標記為重要並優先顯示；最多列 2 封。
-const GMAIL_IMPORTANT_KEYWORDS = ['聯邦', '信用卡', '繳費', '帳單', '付款', '逾期', 'invoice', 'payment', 'credit card'];
+const GMAIL_IMPORTANT_KEYWORDS = ['信用卡', '繳費', '帳單', '付款', '逾期', 'invoice', 'payment', 'credit card'];
 function getGmailDigest() {
   try {
     const threads = GmailApp.search('is:unread newer_than:2d -from:me -from:no-reply@accounts.google.com', 0, 20);
@@ -891,7 +893,7 @@ function dailyBriefImpl() {
     lines.push('');
   }
   if ((ctx.bills || []).length) {
-    lines.push('💳 聯邦帳單：');
+    lines.push('💳 帳單：');
     ctx.bills.forEach(m => lines.push('　・' + m.subject +
       (m.amount ? '｜應繳 ' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
     lines.push('');
@@ -1249,7 +1251,7 @@ function standupWatchImpl() {
 
 // ── Telegram 通知 ───────────────────────────────
 // iPhone 上 Ybot 網頁要開著才會跳通知；改由後台每 10 分鐘檢查一次、直接傳 Telegram，
-// 手機鎖著也會響。推：新的【差勤批核】筆記、聯邦帳單、行程前提醒。
+// 手機鎖著也會響。推：新的【差勤批核】筆記、帳單、行程前提醒。
 // token 和 chat id 只存在「指令碼屬性」，不寫進程式碼。
 const TG_TOKEN_PROP = 'TELEGRAM_BOT_TOKEN';
 const TG_CHAT_PROP = 'TELEGRAM_CHAT_ID';
@@ -1307,7 +1309,7 @@ function telegramSend(text) {
   tgApi('sendMessage', { chat_id: chatId, text: String(text).slice(0, 4000), disable_web_page_preview: true });
 }
 function testTelegram() {
-  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、聯邦帳單、行程前提醒會傳到這裡。');
+  telegramSend('✅ Ybot Telegram 通知設定成功。之後有新的差勤批核、帳單、行程前提醒會傳到這裡。');
   console.log('✅ 已傳出測試訊息，請看 Telegram');
   return '✅ 已傳出測試訊息，請看 Telegram';
 }
@@ -1340,7 +1342,7 @@ function telegramWatchImpl() {
   getBillDigest().forEach(m => {
     if (!(now - new Date(m.date).getTime() <= TG_BILL_FRESH_MS)) return;
     const info = [m.amount ? '應繳 ' + m.amount + ' 元' : '', m.due ? '截止 ' + m.due : ''].filter(Boolean).join('｜');
-    outbox.push({ key: 'bill:' + m.threadId, text: '💳 聯邦帳單\n' + m.subject + (info ? '\n' + info : '') });
+    outbox.push({ key: 'bill:' + m.threadId, text: '💳 帳單\n' + m.subject + (info ? '\n' + info : '') });
   });
   // 行程前提醒：30 分鐘內要開始、有明確時間的行程（全天活動不提醒）
   getSoonEvents().forEach(ev => {
