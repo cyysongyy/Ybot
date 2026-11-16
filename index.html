@@ -1064,6 +1064,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="hint" style="margin-bottom:10px;">填入其他兩套系統的 Apps Script 後台網址，Ybot 對話與每日簡報就能一併帶入考卷批改與健康預測的最新摘要。</div>
       <div class="field"><label>🎯 Remedial System 後台網址</label><input id="remUrl" class="fi" placeholder="remediation-backend.gs 部署網址" style="margin-bottom:0;"></div>
       <div class="field" style="margin-top:10px;"><label>🫀 LifeSpan 健康 後台網址</label><input id="hltUrl" class="fi" placeholder="health-backend.gs 部署網址" style="margin-bottom:0;"></div>
+      <div class="field" style="margin-top:6px;"><label>🔒 健康後台通關密語</label><input id="hltToken" class="fi" type="password" autocomplete="off" placeholder="在健康系統的 Apps Script 執行 generateApiToken() 取得" style="margin-bottom:0;"><div class="hint" style="margin-top:4px;">健康後台設了密語才需要填；跟 LifeSpan 設定頁填的是同一組。</div></div>
       <button class="btn" onclick="saveLinked()">儲存整合設定</button>
     </div>
 
@@ -1278,7 +1279,7 @@ function defaults(){return{
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,agentMode:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],pushedApprovalIds:[],seenApprovalIds:[],
-  gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',weatherCity:'',weatherLat:'',weatherLon:'',
+  gasUrl:'',gasToken:'',remUrl:'',hltUrl:'',hltToken:'',weatherCity:'',weatherLat:'',weatherLon:'',
   standup:{enabled:false,intervalMin:60,startHour:8,endHour:18},
   countdownMin:5,
   links:[
@@ -1705,8 +1706,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-10';
+const APP_VERSION='2026-11-16-11';
 const CHANGELOG=[
+  {v:'2026-11-16-11',d:'11/16',items:[
+    '健康系統的後台現在可以上鎖（通關密語）。請在健康系統的 Apps Script 執行 generateApiToken()，把密語填進 LifeSpan 設定，也填進 Ybot「設定 → 整合其他系統 → 健康後台通關密語」，再按儲存。沒設密語的話，知道網址的人都讀得到你的檢驗與醫藥紀錄。',
+  ]},
   {v:'2026-11-16-10',d:'11/16',items:[
     '對話可以查健康系統的手術、用藥、診斷、篩檢紀錄（例如「我開過什麼刀」）。要更新 Ybot 後台和健康系統後台，並在健康系統按一次「上傳雲端」。',
   ]},
@@ -1895,6 +1899,7 @@ function fillSettings(){
   document.getElementById('weatherCity').value=(state.weatherLat&&state.weatherLon)?`📍 目前位置（${state.weatherLat}, ${state.weatherLon}）`:state.weatherCity;
   document.getElementById('remUrl').value=state.remUrl;
   document.getElementById('hltUrl').value=state.hltUrl;
+  document.getElementById('hltToken').value=state.hltToken||'';
   document.getElementById('useSchoolDb').checked=!!state.useSchoolDb;
   document.getElementById('useAppsData').checked=!!state.useAppsData;
   document.getElementById('agentMode').checked=state.agentMode!==false;
@@ -2116,7 +2121,7 @@ const TRANSFER_PREFIX='YBOT-SETTINGS-1:';
 // chat（對話紀錄）、notes（會從雲端同步回來）、context（快取，重抓就有）、
 // pushEnabled／pushed*（通知權限是跟著瀏覽器走的，新的那邊要自己重新允許）。
 const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply','agentMode',
-  'gasUrl','gasToken','remUrl','hltUrl','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
+  'gasUrl','gasToken','remUrl','hltUrl','hltToken','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
 function transferEncode(obj){
   const bytes=new TextEncoder().encode(JSON.stringify(obj));
   let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
@@ -2246,9 +2251,10 @@ function saveSettings(showToast){
 function saveLinked(){
   state.remUrl=document.getElementById('remUrl').value.trim();
   state.hltUrl=document.getElementById('hltUrl').value.trim();
+  state.hltToken=document.getElementById('hltToken').value.trim();
   save();
   if(state.gasUrl){
-    gasPost({action:'saveLinkedBackends',remediationBackendUrl:state.remUrl,healthBackendUrl:state.hltUrl}).catch(()=>{});
+    gasPost({action:'saveLinkedBackends',remediationBackendUrl:state.remUrl,healthBackendUrl:state.hltUrl,healthBackendToken:state.hltToken}).catch(()=>{});
   }
   alert('已儲存整合設定');
 }

@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-16-4';
+const BACKEND_VERSION = '2026-11-16-5';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -345,7 +345,7 @@ function doPost(e) {
     return jsonResp({ ok: true, message: '已刪除' });
   }
   if (action === 'saveLinkedBackends') {
-    writeKv({ remediationBackendUrl: body.remediationBackendUrl || '', healthBackendUrl: body.healthBackendUrl || '' });
+    writeKv({ remediationBackendUrl: body.remediationBackendUrl || '', healthBackendUrl: body.healthBackendUrl || '', healthBackendToken: body.healthBackendToken || '' });
     return jsonResp({ ok: true, message: '已儲存整合設定' });
   }
   if (action === 'savePaDays') {
@@ -757,6 +757,10 @@ function weatherCodeInfo(code) {
 }
 
 // 串接考卷批改／健康預測兩套系統的後台（若已在設定中填入網址）
+// 健康後台的網址＋通關密語組成的請求網址（密語只存在 KV，不回前端、不進錯誤訊息）
+function healthUrl(kv, action, extra) {
+  return kv.healthBackendUrl + '?action=' + action + (extra || '') + (kv.healthBackendToken ? '&t=' + encodeURIComponent(kv.healthBackendToken) : '');
+}
 function getLinkedSummaries() {
   const kv = readKv();
   const out = {};
@@ -783,12 +787,12 @@ function getLinkedSummaries() {
     // 這樣在 Ybot 對話裡問「我的糖化血色素是多少」才答得出來。
     let labsLatest = null;
     try {
-      const lr = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=labs', { muteHttpExceptions: true });
+      const lr = UrlFetchApp.fetch(healthUrl(kv, 'labs'), { muteHttpExceptions: true });
       const ld = JSON.parse(lr.getContentText());
       if (ld.ok && Array.isArray(ld.labs)) labsLatest = latestLabsByMetric(ld.labs);
     } catch (err) { /* 檢驗資料讀不到就維持原本的摘要 */ }
     try {
-      const res = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=latest', { muteHttpExceptions: true });
+      const res = UrlFetchApp.fetch(healthUrl(kv, 'latest'), { muteHttpExceptions: true });
       const d = JSON.parse(res.getContentText());
       if (d.ok && d.snapshot) {
         out.health = {
@@ -2634,8 +2638,9 @@ const AGENT_TOOLS = [
       a = a || {};
       const kv = readKv();
       if (!kv.healthBackendUrl) return { error: '還沒設定健康後台網址' };
-      const r = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=labs', { muteHttpExceptions: true });
+      const r = UrlFetchApp.fetch(healthUrl(kv, 'labs'), { muteHttpExceptions: true });
       const d = JSON.parse(r.getContentText());
+      if (d.authRequired) return { error: '健康後台的通關密語不對或還沒填（Ybot 設定 → 整合其他系統）' };
       if (!d.ok || !Array.isArray(d.labs)) return { error: '健康後台沒有回傳檢驗資料' };
       const lim = Math.min(Math.max(Number(a.limit) || 12, 1), 50);
       const by = {};
@@ -2670,8 +2675,9 @@ const AGENT_TOOLS = [
       a = a || {};
       const kv = readKv();
       if (!kv.healthBackendUrl) return { error: '還沒設定健康後台網址' };
-      const r = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=records' + (a.kind ? '&kind=' + encodeURIComponent(a.kind) : ''), { muteHttpExceptions: true });
+      const r = UrlFetchApp.fetch(healthUrl(kv, 'records', a.kind ? '&kind=' + encodeURIComponent(a.kind) : ''), { muteHttpExceptions: true });
       const d = JSON.parse(r.getContentText());
+      if (d.authRequired) return { error: '健康後台的通關密語不對或還沒填（Ybot 設定 → 整合其他系統）' };
       if (!d.ok || !Array.isArray(d.records)) return { error: '健康後台沒有回傳醫藥紀錄（可能後台還是舊版，或 App 還沒同步）' };
       const names = { surgery: '手術', med: '用藥', dx: '診斷', screen: '篩檢' };
       let rows = d.records;
