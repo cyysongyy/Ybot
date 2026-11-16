@@ -236,10 +236,10 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
    把下面的行事曆整個往下推（使用者截圖就是這樣）。字級跟著卡片寬度封頂，
    一般的氣溫一定擠得下；真的擠不下（像三位數的極端值）才讓第二個數字換行，
    不用 overflow 裁掉——溫度的數字被切掉比多一行更糟。 */
-.heroWeatherMini .hl{font-size:1.1rem;font-size:min(1.1rem,5cqw);font-weight:800;margin-top:4px;line-height:1.2;}
+.heroWeatherMini .hl{font-size:1.5rem;font-size:min(1.5rem,7cqw);font-weight:800;margin-top:4px;line-height:1.15;}
 /* 用行內排版而不是 flex-wrap：flex-wrap 會讓瀏覽器把天氣那塊算窄，明明擠得下也換行 */
 .heroWeatherMini .hl span{display:inline-block;white-space:nowrap;}
-.heroWeatherMini .hl span+span{margin-left:.35em;}
+.heroWeatherMini .hl span+span{margin-left:.5em;}
 .heroWeatherMini a{color:#fff;font-size:.85rem;font-weight:700;text-decoration:none;
   background:rgba(255,255,255,.22);padding:5px 10px;border-radius:999px;}
 /* 時間、日期、農曆各自一行。以前日期和時間擠在同一行，加上星期之後
@@ -1697,8 +1697,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-4';
+const APP_VERSION='2026-11-16-5';
 const CHANGELOG=[
+  {v:'2026-11-16-5',d:'11/16',items:[
+    '首頁天氣的最高／最低溫改用 ↑ ↓ 符號表示，數字再放大。',
+  ]},
   {v:'2026-11-16-4',d:'11/16',items:[
     '首頁天氣拿掉「大致晴朗」這類文字描述，並把最高／最低溫的字放大。',
   ]},
@@ -4095,7 +4098,7 @@ function renderHeroWeather(w){
   if(!el)return;
   const hasRange=w&&w.tMax!=null&&w.tMin!=null;
   el.innerHTML=w
-    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div>${hasRange?`<div class="hl"><span>最高${fmtTemp(w.tMax)}°</span><span>最低${fmtTemp(w.tMin)}°</span></div>`:''}${hasRange&&w.src==='cwa'?'<div class="hl" style="font-weight:600;opacity:.8;font-size:.7rem;">中央氣象署</div>':''}</div>`
+    ? `<span class="icon">${esc(w.icon||'🌡️')}</span><div class="lines"><div class="t">${w.temp}°</div>${hasRange?`<div class="hl"><span>↑${fmtTemp(w.tMax)}°</span><span>↓${fmtTemp(w.tMin)}°</span></div>`:''}${hasRange&&w.src==='cwa'?'<div class="hl" style="font-weight:600;opacity:.8;font-size:.7rem;">中央氣象署</div>':''}</div>`
     : `<a href="javascript:void(0)" onclick="useGpsLocation()">📍 定位天氣</a>`;
 }
 // 往後 n 天（0＝今天）的日期字串。用 setDate 而不是加 86400000 毫秒，
