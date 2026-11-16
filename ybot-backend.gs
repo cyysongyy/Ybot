@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-16-3';
+const BACKEND_VERSION = '2026-11-16-4';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -2656,6 +2656,33 @@ const AGENT_TOOLS = [
     }
   },
   {
+    name: 'get_health_records',
+    description: '健康系統的醫藥紀錄：手術（kind=surgery）、用藥（med）、就醫診斷／病史（dx）、篩檢（screen）。問「開過什麼刀」「吃什麼藥」「有沒有高血壓診斷」「大腸癌篩檢」用這個。可用 query 做名稱關鍵字比對。',
+    parameters: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['surgery', 'med', 'dx', 'screen'], description: '省略＝全部' },
+        query: { type: 'string', description: '名稱、診斷或院所的關鍵字（可省略）' },
+        limit: { type: 'integer', description: '最多幾筆，預設 30' }
+      }
+    },
+    run: function (a) {
+      a = a || {};
+      const kv = readKv();
+      if (!kv.healthBackendUrl) return { error: '還沒設定健康後台網址' };
+      const r = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=records' + (a.kind ? '&kind=' + encodeURIComponent(a.kind) : ''), { muteHttpExceptions: true });
+      const d = JSON.parse(r.getContentText());
+      if (!d.ok || !Array.isArray(d.records)) return { error: '健康後台沒有回傳醫藥紀錄（可能後台還是舊版，或 App 還沒同步）' };
+      const names = { surgery: '手術', med: '用藥', dx: '診斷', screen: '篩檢' };
+      let rows = d.records;
+      if (a.query) { const q = String(a.query).toLowerCase(); rows = rows.filter(x => (String(x.name) + ' ' + String(x.detail) + ' ' + String(x.hospital)).toLowerCase().indexOf(q) >= 0); }
+      rows.sort((x, y) => String(y.date).localeCompare(String(x.date)));
+      const lim = Math.min(Math.max(Number(a.limit) || 30, 1), 100);
+      if (!rows.length) return { error: '沒有符合的醫藥紀錄' + (d.records.length ? '' : '（醫藥紀錄是空的，請在健康系統按「上傳雲端」）') };
+      return { count: rows.length, records: rows.slice(0, lim).map(x => ({ kind: names[x.kind] || x.kind, date: x.date, name: x.name, detail: x.detail, hospital: x.hospital })) };
+    }
+  },
+  {
     name: 'get_school_assistant',
     description: '校長助理：今明的學校記事與代課節數。',
     parameters: { type: 'object', properties: {} },
@@ -2775,7 +2802,7 @@ function runAgent(question, history, opts) {
 const AGENT_TOOL_LABELS = {
   get_today_overview: '看今日現況', list_notes: '查待辦筆記', add_note: '新增待辦筆記', update_note: '修改待辦筆記', complete_note: '標記完成',
   list_calendar: '查行事曆', add_calendar_event: '新增行程', update_calendar_event: '修改行程', search_gmail: '搜尋郵件', read_gmail_thread: '讀信',
-  get_stock_holdings: '查持股', get_stock_quote: '查報價', get_health_summary: '查健康摘要', get_health_labs: '查檢驗紀錄',
+  get_stock_holdings: '查持股', get_stock_quote: '查報價', get_health_summary: '查健康摘要', get_health_labs: '查檢驗紀錄', get_health_records: '查醫藥紀錄',
   get_school_assistant: '查校長助理', remember: '記住', forget: '忘記'
 };
 function agentToolLabel(name) { return AGENT_TOOL_LABELS[name] || name; }
