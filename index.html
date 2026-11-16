@@ -1275,7 +1275,7 @@ function tpeYmd(d){
 // ── 狀態管理 ─────────────────────────────
 const LS_KEY='ybot_v1';
 function defaults(){return{
-  theme:'',fontScale:1,newsCollapsed:false,
+  theme:'',fontScale:1,newsCollapsed:false,stockCollapsed:true,healthCollapsed:true,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,agentMode:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],pushedApprovalIds:[],seenApprovalIds:[],
@@ -1545,15 +1545,29 @@ function paTodayHtml(){
 // 資料由後台算好放在 context 裡。台股只有百分比與公開股價，沒有股數、成本、金額。
 function pctTxt(v){v=Number(v)||0;return (v>=0?'+':'')+v.toFixed(1)+'%';}
 function pctHtml(v){v=Number(v)||0;return `<b style="color:${v>0?'var(--bad)':(v<0?'var(--ok)':'inherit')}">${pctTxt(v)}</b>`;}   // 台股習慣：紅漲綠跌
+// 首頁區塊的標題列：點標題＝收合／展開（預設收合，需要時再點開）。
+// 展開後右邊多一顆「問 Ybot」，原本「點標題直接問 Ybot」的功能改放這裡。
+function homeToggleHead(key,iconCls,icon,title,question){
+  const open=!state[key];
+  return `<div class="ovHead ovLabelToggle" onclick="toggleHomeSection('${key}')"><span class="ovHeadIcon ${iconCls}">${icon}</span><span class="ovHeadTitle">${title} <span class="ovToggleIcon">${open?'▾':'▸'}</span></span>`
+    +(open?`<button class="newsSpeakBtn" onclick="event.stopPropagation();askAbout('${question}')">問 Ybot</button>`:'')+`</div>`;
+}
+function toggleHomeSection(key){
+  state[key]=!state[key];
+  save();
+  renderOverview();
+}
 function stockHomeHtml(c){
   try{
     const s=c&&c.stock;
     if(!s||!Array.isArray(s.items)||!s.items.length)return '';
     const movers=s.items.filter(i=>Math.abs(i.dayPct)>=0.05).slice(0,4);
-    return `<div class="ovSection" id="ovSectionStock"><div class="ovHead" style="cursor:pointer;" onclick="askAbout('我的台股持股今天表現如何？')"><span class="ovHeadIcon bill">📈</span><span class="ovHeadTitle">台股持股</span><span class="chev">›</span></div>`
-      +`<div class="ovItem">・${s.n} 檔　${s.live?'今日 '+pctHtml(s.dayPct)+'　':''}總未實現損益 ${pctHtml(s.plPct)}</div>`
+    const open=!state.stockCollapsed;
+    return `<div class="ovSection" id="ovSectionStock">`+homeToggleHead('stockCollapsed','bill','📈','台股持股','我的台股持股今天表現如何？')
+      +(open?`<div class="ovItem">・${s.n} 檔　${s.live?'今日 '+pctHtml(s.dayPct)+'　':''}總未實現損益 ${pctHtml(s.plPct)}</div>`
       +(s.live&&movers.length?`<div class="ovItem">・`+movers.map(i=>`${esc(i.name||i.code)} ${pctHtml(i.dayPct)}`).join('　')+`</div>`:'')
       +(s.live?'':`<div class="ovItem ovSub">・今天還沒有成交價</div>`)
+      :'')
       +`</div>`;
   }catch(e){return '';}
 }
@@ -1563,9 +1577,11 @@ function healthHomeHtml(c){
     if(!hl||hl.score===undefined)return '';
     const t=new Date(hl.date).getTime();
     const age=isNaN(t)?null:Math.floor((Date.now()-t)/86400000);
-    return `<div class="ovSection" id="ovSectionHealth"><div class="ovHead" style="cursor:pointer;" onclick="askAbout('我最近的健康狀況如何？該注意什麼？')"><span class="ovHeadIcon warn">🫀</span><span class="ovHeadTitle">健康</span><span class="chev">›</span></div>`
-      +`<div class="ovItem">・健康分 <b>${esc(hl.score)}</b>　生理年齡 <b>${esc(hl.bio)}</b>${age===null?'':`　<span class="ovSub">（${age<=0?'今天':age+' 天前'}記錄）</span>`}</div>`
+    const open=!state.healthCollapsed;
+    return `<div class="ovSection" id="ovSectionHealth">`+homeToggleHead('healthCollapsed','warn','🫀','健康','我最近的健康狀況如何？該注意什麼？')
+      +(open?`<div class="ovItem">・健康分 <b>${esc(hl.score)}</b>　生理年齡 <b>${esc(hl.bio)}</b>${age===null?'':`　<span class="ovSub">（${age<=0?'今天':age+' 天前'}記錄）</span>`}</div>`
       +(age!==null&&age>=7?`<div class="ovItem" style="color:var(--bad);">・已經 ${age} 天沒有更新健康數據</div>`:'')
+      :'')
       +`</div>`;
   }catch(e){return '';}
 }
@@ -1706,8 +1722,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-11';
+const APP_VERSION='2026-11-16-12';
 const CHANGELOG=[
+  {v:'2026-11-16-12',d:'11/16',items:[
+    '首頁「📈 台股持股」和「🫀 健康」可以收合了，預設收起來，點標題才展開（再點一次收起）。展開後右邊有「問 Ybot」，原本點標題直接問 Ybot 改成按這顆。',
+  ]},
   {v:'2026-11-16-11',d:'11/16',items:[
     '健康系統的後台現在可以上鎖（通關密語）。請在健康系統的 Apps Script 執行 generateApiToken()，把密語填進 LifeSpan 設定，也填進 Ybot「設定 → 整合其他系統 → 健康後台通關密語」，再按儲存。沒設密語的話，知道網址的人都讀得到你的檢驗與醫藥紀錄。',
   ]},
@@ -2120,7 +2139,7 @@ const TRANSFER_PREFIX='YBOT-SETTINGS-1:';
 // 只搬「設定」和使用者自己的長期資料。刻意不搬的：
 // chat（對話紀錄）、notes（會從雲端同步回來）、context（快取，重抓就有）、
 // pushEnabled／pushed*（通知權限是跟著瀏覽器走的，新的那邊要自己重新允許）。
-const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply','agentMode',
+const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','stockCollapsed','healthCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply','agentMode',
   'gasUrl','gasToken','remUrl','hltUrl','hltToken','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
 function transferEncode(obj){
   const bytes=new TextEncoder().encode(JSON.stringify(obj));
