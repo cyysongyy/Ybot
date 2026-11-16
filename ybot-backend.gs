@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-16';
+const BACKEND_VERSION = '2026-11-16-2';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -771,6 +771,14 @@ function getLinkedSummaries() {
     } catch (err) { /* 忽略連線失敗 */ }
   }
   if (kv.healthBackendUrl) {
+    // 檢驗數據庫（糖化血色素、血糖、血脂…）：每一項只取最新一筆，併進健康摘要，
+    // 這樣在 Ybot 對話裡問「我的糖化血色素是多少」才答得出來。
+    let labsLatest = null;
+    try {
+      const lr = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=labs', { muteHttpExceptions: true });
+      const ld = JSON.parse(lr.getContentText());
+      if (ld.ok && Array.isArray(ld.labs)) labsLatest = latestLabsByMetric(ld.labs);
+    } catch (err) { /* 檢驗資料讀不到就維持原本的摘要 */ }
     try {
       const res = UrlFetchApp.fetch(kv.healthBackendUrl + '?action=latest', { muteHttpExceptions: true });
       const d = JSON.parse(res.getContentText());
@@ -779,6 +787,7 @@ function getLinkedSummaries() {
           date: d.snapshot.date, score: d.snapshot.score, bio: d.snapshot.bio,
           cvdLevel: d.snapshot.cvdLevel, dmLevel: d.snapshot.dmLevel
         };
+        if (labsLatest && Object.keys(labsLatest).length) out.health.labs = labsLatest;
         try { PropertiesService.getScriptProperties().setProperty('HEALTH_LATEST', JSON.stringify(out.health)); } catch (e) { /* 只是快取 */ }
       }
     } catch (err) { /* 忽略連線失敗 */ }
@@ -2042,6 +2051,23 @@ function stockReportText(s) {
 }
 
 // ── 健康 ──
+// 健康系統的檢驗數據是「一列一個項目」，這裡每個項目只留最新一筆，格式 { hba1c:{v:6.1,unit:'%',date:'2026-07-20'} }
+function latestLabsByMetric(rows) {
+  const best = {};
+  rows.forEach(function (r) {
+    if (!r || !r.metric) return;
+    const v = Number(r.value);
+    if (r.value === '' || r.value === null || isNaN(v)) return;
+    const date = String(r.measuredAt || r.importedAt || '').slice(0, 10);
+    const cur = best[r.metric];
+    if (!cur || date >= cur.date) best[r.metric] = { v: v, unit: r.unit || '', date: date };
+  });
+  return best;
+}
+const HEALTH_LAB_NAMES = {
+  hba1c: '糖化血色素', glucose: '空腹血糖', ldl: 'LDL', hdl: 'HDL', chol: '總膽固醇', tg: '三酸甘油酯',
+  sbp: '收縮壓', dbp: '舒張壓', weight: '體重', waist: '腰圍'
+};
 function healthLatest() {
   try {
     const raw = PropertiesService.getScriptProperties().getProperty('HEALTH_LATEST');
@@ -2063,6 +2089,12 @@ function healthReportText() {
   const L = [healthOneLine(h)];
   if (h.cvdLevel !== undefined && h.cvdLevel !== '') L.push('心血管風險：' + h.cvdLevel);
   if (h.dmLevel !== undefined && h.dmLevel !== '') L.push('糖尿病風險：' + h.dmLevel);
+  if (h.labs) {
+    Object.keys(HEALTH_LAB_NAMES).forEach(function (k) {
+      const x = h.labs[k];
+      if (x) L.push(HEALTH_LAB_NAMES[k] + '：' + x.v + (x.unit ? ' ' + x.unit : '') + (x.date ? '（' + x.date + '）' : ''));
+    });
+  }
   const age = healthAgeDays(h);
   if (age !== null && age >= 7) L.push('', '⏰ 已經 ' + age + ' 天沒有更新健康數據了。');
   return L.join('\n');
