@@ -1722,8 +1722,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-16-12';
+const APP_VERSION='2026-11-17';
 const CHANGELOG=[
+  {v:'2026-11-17',d:'11/17',items:[
+    '首頁「📈 台股持股」和「🫀 健康」移到「今日新聞」下面。',
+  ]},
   {v:'2026-11-16-12',d:'11/16',items:[
     '首頁「📈 台股持股」和「🫀 健康」可以收合了，預設收起來，點標題才展開（再點一次收起）。展開後右邊有「問 Ybot」，原本點標題直接問 Ybot 改成按這顆。',
   ]},
@@ -4380,11 +4383,11 @@ function renderOverview(){
     approvalHtml()+
     conflictHtml+
     paTodayHtml()+
-    stockHomeHtml(c)+
-    healthHomeHtml(c)+
     billHtml+
     `<div class="ovSection"><a class="ovHead" href="https://mail.google.com/mail/" target="_blank" rel="noopener"><span class="ovHeadIcon mail">${OV_ICONS.mail}</span><span class="ovHeadTitle">重要 EMAIL</span><span class="chev">›</span></a>${mailHtml}</div>`+
     `<div class="ovSection" id="ovSectionNews"><div class="ovHead ovLabelToggle" onclick="toggleNewsCollapse()"><span class="ovHeadIcon news">${OV_ICONS.news}</span><span class="ovHeadTitle">今日新聞 <span class="ovToggleIcon">${newsArrow}</span></span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
+    stockHomeHtml(c)+
+    healthHomeHtml(c)+
     ``;
   box.style.display='block';
   // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
