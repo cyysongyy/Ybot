@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-17';
+const BACKEND_VERSION = '2026-11-17-2';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -350,6 +350,9 @@ function doPost(e) {
   }
   if (action === 'savePaDays') {
     return jsonResp({ ok: true, message: savePaDays(body.days) });
+  }
+  if (action === 'saveRehabStatus') {
+    return jsonResp({ ok: true, message: saveRehabStatus(body.lastAt) });
   }
   if (action === 'saveOtherLinks') {
     writeKv({ otherLinksJson: JSON.stringify(body.links || []) });
@@ -2150,6 +2153,14 @@ function savePaDays(days) {
   writeKv({ paDaysJson: JSON.stringify(clean), paDaysAt: new Date().toISOString() });
   return '已同步校長助理 ' + Object.keys(clean).length + ' 天';
 }
+// 🦶 復健：Ybot App 開著時，從手機上 foot-lift 的練習紀錄讀出「最後一次練是什麼時候」同步上來。
+// 後台自己讀不到手機裡的資料，所以只知道「Ybot 最後一次看到的紀錄」。
+function saveRehabStatus(lastAt) {
+  const t = new Date(String(lastAt || ''));
+  if (isNaN(t.getTime()) || t.getTime() > Date.now() + 86400000) return '時間格式不對，沒有儲存';
+  writeKv({ rehabLastAt: t.toISOString(), rehabSeenAt: new Date().toISOString() });
+  return '已同步復健紀錄';
+}
 function getPaDay() {
   try {
     const kv = readKv();
@@ -2180,6 +2191,7 @@ function paReportText() {
 // 台股：盤中任一檔漲跌超過門檻（預設 5%，指令碼屬性 STOCK_ALERT_PCT 可改）通知一次；收盤後發一次收盤小結。
 // 健康：一天看一次，健康分掉 5 分以上、風險等級改變、或超過 7 天沒更新就提醒（7 天最多提醒一次）。
 // 校長助理：早上 7:30 後，今天有記事或代課就推一次「今天學校的事」。
+const REHAB_REMIND_HOUR = 19;   // 復健提醒的時間（台北，24 小時制）
 function autoWatchImpl() {
   const cfg = tgConfig();
   if (!cfg.token || !cfg.chatId) return;
@@ -2188,7 +2200,7 @@ function autoWatchImpl() {
   const ymd = tpeFormat(now, 'yyyy-MM-dd');
   let st = {};
   try { st = JSON.parse(p.getProperty('AUTO_WATCH_STATE') || '{}'); } catch (e) { st = {}; }
-  if (st.date !== ymd) st = { date: ymd, stockCodes: [], stockClose: false, health: false, pa: false, healthNudge: st.healthNudge || '' };
+  if (st.date !== ymd) st = { date: ymd, stockCodes: [], stockClose: false, health: false, pa: false, rehab: false, healthNudge: st.healthNudge || '' };
   const hm = Number(tpeFormat(now, 'H')) * 60 + Number(tpeFormat(now, 'm'));
   // 台北的星期幾：0＝週日 … 6＝週六（用台北日期的正午換算，不受專案時區影響）
   const dow = new Date(ymd + 'T12:00:00Z').getUTCDay();
@@ -2237,6 +2249,23 @@ function autoWatchImpl() {
     const d = getPaDay().today;
     if (d && ((d.items || []).length || d.subs > 0)) {
       out.push('🏫 今天學校的事\n' + (d.items || []).map(function (s) { return '・' + s; }).join('\n') + (d.subs > 0 ? '\n・代課 ' + d.subs + ' 節' : ''));
+    }
+  }
+
+  // 🦶 復健：晚上 REHAB_REMIND_HOUR 點之後，Ybot 最後看到的練習紀錄不是今天，就提醒一次。
+  // 從來沒同步過（沒有 rehabLastAt）就完全不提醒，免得讀不到資料時天天誤報。
+  if (!st.rehab && hm >= REHAB_REMIND_HOUR * 60) {
+    const kv = readKv();
+    const last = kv.rehabLastAt ? new Date(kv.rehabLastAt) : null;
+    if (last && !isNaN(last.getTime())) {
+      st.rehab = true;
+      const lastYmd = tpeFormat(last, 'yyyy-MM-dd');
+      if (lastYmd !== ymd) {
+        const days = Math.round((new Date(ymd + 'T00:00:00Z') - new Date(lastYmd + 'T00:00:00Z')) / 86400000);
+        const seen = kv.rehabSeenAt ? tpeFormat(new Date(kv.rehabSeenAt), 'M/d HH:mm') : '';
+        out.push('🦶 今天還沒練復健\n上次紀錄是' + (days === 1 ? '昨天' : days + ' 天前') + '。' +
+          (seen ? '\n（Ybot 最後一次看到練習紀錄是 ' + seen + '；若你剛練完還沒開 Ybot，可以不理這則。）' : ''));
+      }
     }
   }
 

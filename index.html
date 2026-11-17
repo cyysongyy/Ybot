@@ -1585,6 +1585,79 @@ function healthHomeHtml(c){
       +`</div>`;
   }catch(e){return '';}
 }
+// ── 🦶 復健（讀 foot-lift 的練習紀錄）──────────
+// foot-lift 每練完一項，就寫一筆到同網域的 IndexedDB（recoveryTrackerDB／exerciseLogs）。
+// 它的 date 欄位是 UTC 日期，台灣清晨練的會被算成前一天，所以以 id 開頭的時間戳為準，
+// 讀不出來才退回 date。讀不到資料庫（沒用過、或這個 App 和 foot-lift 不共用儲存空間）就整塊不顯示、
+// 也不同步到後台——這樣才不會因為「讀不到」而天天誤報「沒練」。
+const REHAB_URL='https://cyysongyy.github.io/foot-lift/';
+let _rehab=null,_rehabPushSig='';
+function rehabLogTime(l){
+  const t=parseInt(String((l&&l.id)||'').slice(0,-6),36);
+  if(t>1.5e12&&t<4e12)return t;
+  const d=new Date(String((l&&l.date)||'')+'T12:00:00+08:00').getTime();
+  return isNaN(d)?0:d;
+}
+function readRehabLogs(){
+  return new Promise(resolve=>{
+    try{
+      if(!window.indexedDB)return resolve(null);
+      const req=indexedDB.open('recoveryTrackerDB');
+      // 資料庫不存在時 open 會順手建一個空的，這裡中止它，免得去干擾 foot-lift 自己的建立流程
+      req.onupgradeneeded=e=>{if(e.oldVersion===0){try{e.target.transaction.abort();}catch(err){}}};
+      req.onerror=()=>resolve(null);
+      req.onblocked=()=>resolve(null);
+      req.onsuccess=e=>{
+        const db=e.target.result;
+        try{
+          if(!db.objectStoreNames.contains('exerciseLogs')){db.close();return resolve(null);}
+          const r=db.transaction('exerciseLogs','readonly').objectStore('exerciseLogs').getAll();
+          r.onsuccess=()=>{db.close();resolve(r.result||[]);};
+          r.onerror=()=>{db.close();resolve(null);};
+        }catch(err){try{db.close();}catch(x){}resolve(null);}
+      };
+    }catch(err){resolve(null);}
+  });
+}
+async function rehabStatus(){
+  const logs=await readRehabLogs();
+  if(!logs||!logs.length)return null;
+  const today=tpeYmd(new Date());
+  let last=0,todayN=0;
+  logs.forEach(l=>{
+    const t=rehabLogTime(l);
+    if(!t)return;
+    if(t>last)last=t;
+    if(tpeYmd(new Date(t))===today)todayN++;
+  });
+  if(!last)return null;
+  const days=Math.round((new Date(today+'T00:00:00+08:00')-new Date(tpeYmd(new Date(last))+'T00:00:00+08:00'))/86400000);
+  return {last,todayN,days};
+}
+function rehabHomeHtml(){
+  const r=_rehab;
+  if(!r)return '';
+  const done=r.todayN>0;
+  return `<div class="ovSection" id="ovSectionRehab"><a class="ovHead" href="${REHAB_URL}" target="_blank" rel="noopener"><span class="ovHeadIcon approve">🦶</span><span class="ovHeadTitle">復健</span><span class="chev">›</span></a>`
+    +`<div class="ovItem"${done?'':' style="color:var(--bad);"'}>・${done?`今天已練 ${r.todayN} 項 ✓`:'今天還沒練'}${r.days>0?`　<span class="ovSub">（上次 ${r.days} 天前）</span>`:''}</div></div>`;
+}
+async function pushRehab(r){
+  if(!state.gasUrl||!r)return;
+  const sig=r.last+'|'+tpeYmd(new Date());
+  if(sig===_rehabPushSig)return;
+  try{
+    const d=await (await gasPost({action:'saveRehabStatus',lastAt:new Date(r.last).toISOString()})).json();
+    if(d&&d.ok)_rehabPushSig=sig;   // 舊版後台會回錯誤，那就不記「已傳」，等後台更新後自然補傳
+  }catch(e){/* 沒網路或後台沒更新：下次再試 */}
+}
+async function refreshRehab(){
+  try{
+    _rehab=await rehabStatus();
+    renderOverview();
+    pushRehab(_rehab);
+  }catch(e){}
+}
+
 // 點首頁區塊的標題 = 直接幫你把問題丟給 Ybot
 function askAbout(q){
   const el=document.getElementById('chatInput');
@@ -1722,8 +1795,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-17-2';
+const APP_VERSION='2026-11-17-3';
 const CHANGELOG=[
+  {v:'2026-11-17-3',d:'11/17',items:[
+    '首頁多了「🦶 復健」一行：看今天有沒有練（讀你在 foot-lift 記錄的練習）、上次是幾天前，點一下開 foot-lift。晚上 7 點如果還沒練，Telegram 會提醒一次。要更新 Ybot 後台才會有 Telegram 提醒；而且要先在 foot-lift 用過、Ybot 開著時才讀得到紀錄。',
+  ]},
   {v:'2026-11-17-2',d:'11/17',items:[
     '帳單改用「帳單」兩個字當關鍵字：主旨或內文有「帳單」的信才算，銀行「登入成功通知」不會再被當成帳單（Telegram、晨報、App 都一樣）。要更新 Ybot 後台（設定頁會提示「後台不是最新版」，按「📋 複製最新後台程式」貼進 Apps Script 重新部署）。',
   ]},
@@ -4391,6 +4467,7 @@ function renderOverview(){
     `<div class="ovSection" id="ovSectionNews"><div class="ovHead ovLabelToggle" onclick="toggleNewsCollapse()"><span class="ovHeadIcon news">${OV_ICONS.news}</span><span class="ovHeadTitle">今日新聞 <span class="ovToggleIcon">${newsArrow}</span></span>${hasNews?`<button id="newsSpeakBtn" class="newsSpeakBtn" onclick="event.stopPropagation();toggleNewsSpeak()">${newsSpeakLabel()}</button>`:''}</div>${state.newsCollapsed?'':newsHtml}</div>`+
     stockHomeHtml(c)+
     healthHomeHtml(c)+
+    rehabHomeHtml()+
     ``;
   box.style.display='block';
   // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
@@ -6444,6 +6521,8 @@ setInterval(()=>{if(state.useMicroPolitics&&mpAuthUser)refreshMicroPoliticsEvent
 checkProactiveNotifications();
 setInterval(checkProactiveNotifications,60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkProactiveNotifications();});
+refreshRehab();   // 讀 foot-lift 的練習紀錄：首頁顯示今天有沒有練，並同步給後台做晚間提醒
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshRehab();});
 </script>
 </body>
 </html>
