@@ -1795,8 +1795,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-17-3';
+const APP_VERSION='2026-11-18';
 const CHANGELOG=[
+  {v:'2026-11-18',d:'11/18',items:[
+    '新功能：可以跟 Ybot 說「交給電腦做 ○○」，它會把事情排進試算表的「電腦任務」分頁，並傳 Telegram 通知你。你到試算表把狀態改成 approved 之後，你電腦上的 Hermes 才會去做，做完再用 Telegram 回報結果；沒核准絕對不會動。要更新 Ybot 後台才有這個功能，而且要先設定通關密語（generateApiToken）。電腦沒開機時任務會先排隊等著。'
+  ]},
   {v:'2026-11-17-3',d:'11/17',items:[
     '首頁多了「🦶 復健」一行：看今天有沒有練（讀你在 foot-lift 記錄的練習）、上次是幾天前，點一下開 foot-lift。晚上 7 點如果還沒練，Telegram 會提醒一次。要更新 Ybot 後台才會有 Telegram 提醒；而且要先在 foot-lift 用過、Ybot 開著時才讀得到紀錄。',
   ]},
