@@ -1557,7 +1557,11 @@ function toggleHomeSection(key){
   save();
   renderOverview();
 }
+// 台股持股先不放首頁（2026-11-19 使用者要求先隱藏）。資料、晨報與 Ybot 問答都照舊，
+// 要放回首頁只要把這個改成 true。
+const SHOW_STOCK_ON_HOME=false;
 function stockHomeHtml(c){
+  if(!SHOW_STOCK_ON_HOME)return '';
   try{
     const s=c&&c.stock;
     if(!s||!Array.isArray(s.items)||!s.items.length)return '';
@@ -1795,8 +1799,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-19';
+const APP_VERSION='2026-11-19-2';
 const CHANGELOG=[
+  {v:'2026-11-19-2',d:'11/19',items:[
+    '首頁先把「📈 台股持股」隱藏起來了。台股資料、晨報裡的持股摘要和問 Ybot 都照常可用，之後想放回首頁隨時跟我說。'
+  ]},
   {v:'2026-11-19',d:'11/19',items:[
     '修正：語音摘要有時卡在「整理中…」一直不念。現在更新雲端資料最多等 12 秒、AI 整理新聞最多等 15 秒，等不到就先用手上的資料和新聞標題念，不會再無止境轉圈。'
   ]},
