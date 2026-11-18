@@ -1795,8 +1795,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-18-2';
+const APP_VERSION='2026-11-19';
 const CHANGELOG=[
+  {v:'2026-11-19',d:'11/19',items:[
+    '修正：語音摘要有時卡在「整理中…」一直不念。現在更新雲端資料最多等 12 秒、AI 整理新聞最多等 15 秒，等不到就先用手上的資料和新聞標題念，不會再無止境轉圈。'
+  ]},
   {v:'2026-11-18-2',d:'11/18',items:[
     '修正：說「交給電腦做 ○○」時，Ybot 有時只回「已排入」卻沒有真的排。現在已教它：要真的把任務寫進試算表「電腦任務」分頁，工具回報成功才說已排入；失敗要老實說。要更新 Ybot 後台才會生效。'
   ]},
@@ -3063,7 +3066,7 @@ async function toggleNewsSpeak(){
   let segs;
   // 國際新聞不經過 AI，所以只有國際新聞時也不用叫 AI。
   if(aiOrder().length&&(h.domestic.length||h.education.length)){
-    try{segs=[{text:await newsScript(h)}].concat(newsEnglishSegments(h));}catch(e){segs=null;}
+    try{segs=[{text:await raceTimeout(newsScript(h),BRIEF_AI_MS)}].concat(newsEnglishSegments(h));}catch(e){segs=null;}
   }
   if(newsSpeakState!=='preparing')return;   // 整理途中使用者按了停止
   if(!segs)segs=newsFallbackSegments(h);
@@ -3090,6 +3093,15 @@ function greetWord(){
 // 首頁本來就只顯示主旨和寄件人，這顆鍵不該多洩漏任何東西。
 // 跟新聞鍵一樣：使用者明確按下去要聽的，不看 🔊／🔇 那個開關。
 let briefState='idle';   // idle | preparing | speaking
+// 等太久就放棄：fetch 本身沒有逾時，雲端後台冷啟動或 AI 卡住時，「整理中…」會一直轉下去。
+// 這裡只是不再等它（請求仍會在背景跑完），讓語音摘要改用手上的資料／標題先念。
+function raceTimeout(p,ms){
+  let t;
+  return Promise.race([p,new Promise((_,rej)=>{t=setTimeout(()=>rej(new Error('等太久了')),ms);})])
+    .finally(()=>clearTimeout(t));
+}
+const BRIEF_REFRESH_MS=12000;   // 更新雲端資料最多等 12 秒
+const BRIEF_AI_MS=15000;        // AI 整理新聞最多等 15 秒，不行就直接念標題
 const BRIEF_EVENT_COUNT=4;
 const BRIEF_STALE_MS=10*60000;   // 資料超過 10 分鐘就先更新再念，免得念到已經改掉的行程
 
@@ -3166,7 +3178,7 @@ async function briefNewsSegments(){
   const h=newsHeadlines();
   if(!h.domestic.length&&!h.world.length&&!h.education.length)return [{text:'今天沒有新聞資料。'}];
   if(aiOrder().length&&(h.domestic.length||h.education.length)){
-    try{return [{text:'今日新聞。'},{text:await newsScript(h,{noGreet:true})}].concat(newsEnglishSegments(h));}catch(e){}
+    try{return [{text:'今日新聞。'},{text:await raceTimeout(newsScript(h,{noGreet:true}),BRIEF_AI_MS)}].concat(newsEnglishSegments(h));}catch(e){}
   }
   return newsFallbackSegments(h);
 }
@@ -3188,7 +3200,7 @@ async function toggleVoiceBrief(){
   briefState='preparing';renderBriefBtn();
   const stale=!state.contextAt||(Date.now()-new Date(state.contextAt).getTime()>BRIEF_STALE_MS);
   if(state.gasUrl&&(stale||!state.context)){
-    try{await refreshContext();}catch(e){}   // 更新失敗就用手上的資料念
+    try{await raceTimeout(refreshContext(),BRIEF_REFRESH_MS);}catch(e){}   // 更新失敗或等太久就用手上的資料念
   }
   if(briefState!=='preparing')return;   // 準備途中使用者按了停止
   let segs;
