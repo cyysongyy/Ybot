@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-18-2';
+const BACKEND_VERSION = '2026-11-21';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -2325,7 +2325,20 @@ function weeklyReview() { return guard('weeklyReview', weeklyReviewImpl); }
 function standupWatch() { return guard('standupWatch', standupWatchImpl); }
 function telegramWatch() { return guard('telegramWatch', telegramWatchImpl); }
 function healthCheck() { return guard('healthCheck', healthCheckImpl); }
-function telegramPoll() { return guard('telegramPoll', telegramPollImpl); }
+// telegramPoll 每分鐘連一次 Telegram，偶爾連不上（「無法開啟網址」「逾時」等）是常態，
+// 下一分鐘會自動重試（offset 沒前進，不會漏訊息），所以暫時性的網路錯誤不通知，
+// 其他真正的錯誤（程式 bug、Token 失效等）還是照常通知。
+function isTransientNetError(err) {
+  const m = String((err && err.message) || err || '');
+  return /無法開啟網址|Unable to open|Address unavailable|Timeout|timed out|逾時|DNS|Connection (reset|refused)|無法連線|Service.*unavailable|伺服器暫時|Bandwidth quota/i.test(m);
+}
+function telegramPoll() {
+  try { return telegramPollImpl(); }
+  catch (err) {
+    if (isTransientNetError(err)) { console.log('telegramPoll 暫時連不上 Telegram，下一分鐘重試：' + scrubError(err.message || err)); return; }
+    reportError('telegramPoll', err); throw err;
+  }
+}
 function autoWatch() { return guard('autoWatch', autoWatchImpl); }
 
 function getOwnerEmail() {
