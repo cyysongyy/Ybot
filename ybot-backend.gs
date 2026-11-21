@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-18-2';
+const BACKEND_VERSION = '2026-11-21';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -1023,6 +1023,8 @@ function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stoc
     L.push('', '💳 帳單：');
     ctx.bills.slice(0, 3).forEach(m => L.push('　・' + m.subject + (m.amount ? '｜' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
   }
+  const hrl = healthRemindersTodayLines();
+  if (hrl.length) { L.push('', '🫀 今天的健康提醒：'); hrl.forEach(x => L.push('　' + x)); }
   if (stockLine) L.push('', stockLine);
   if (narrative) L.push('', '💬 ' + String(narrative).slice(0, 300));
   return L.join('\n');
@@ -1119,6 +1121,8 @@ function reminderWatchImpl() {
   const now = new Date();
   const email = NOTIFY_EMAIL || getOwnerEmail();
   const tgReady = !!(tgConfig().token && tgConfig().chatId);
+  // 健康系統的提醒（用藥、回診、量測…）：時間到就推 Telegram。失敗不影響 Ybot 自己的提醒。
+  if (tgReady) { try { healthReminderWatch(now); } catch (err) { reportError('健康提醒推播', err, 12); } }
   if (!email && !tgReady) return;
 
   const due = all.filter(n => n.type === 'reminder' && n.done !== 'true' && !n.notifiedAt && n.dueAt && new Date(n.dueAt) <= now);
@@ -1820,7 +1824,8 @@ const TG_HELP = [
   '待辦 → 未完成清單（可按 ✅）',
   '今天 → 今明行程與要處理的事',
   '股票 → 持股今日漲跌與總損益%',
-  '健康 → 最新健康分與提醒',
+  '健康 → 最新健康分、檢驗值、今天的健康提醒',
+  '健康提醒 off / on → 關閉／開啟 LifeSpan 提醒推播',
   '校長 → 校長助理今明記事與代課節數',
   '狀態 → 排程是否正常',
   '問 問題 → 請 AI 回答（可查持股、檢驗、行事曆、郵件）'
@@ -1989,6 +1994,12 @@ function handleTelegramText(msg, chatId) {
     telegramSend(on ? '🤖 Agent 模式開啟：直接打字就會由 AI 判斷要查什麼、做什麼。' : '🤖 Agent 模式關閉：直接打字＝加待辦，「問 …」才會問 AI。');
     return;
   }
+  if (/^健康提醒\s*(on|off|開|關)$/i.test(lower)) {
+    const on = /on|開/.test(lower);
+    writeKv({ tgHealthRem: on ? 'on' : 'off' });
+    telegramSend(on ? '🫀 健康提醒推播已開啟：LifeSpan 的用藥、回診、量測提醒時間到會傳到這裡。' : '🫀 健康提醒推播已關閉。');
+    return;
+  }
   if (/^(\/reset|重來|清除對話)$/.test(lower)) { agentHistClear(chatId); telegramSend('🧹 對話記憶已清除。'); return; }
   m = text.match(/^(?:\/todo|待辦)[\s:：]+([\s\S]+)$/i);
   if (m) {
@@ -2141,6 +2152,98 @@ const HEALTH_LAB_NAMES = {
   hba1c: '糖化血色素', glucose: '空腹血糖', ldl: 'LDL', hdl: 'HDL', chol: '總膽固醇', tg: '三酸甘油酯',
   sbp: '收縮壓', dbp: '舒張壓', weight: '體重', waist: '腰圍'
 };
+// ── 健康提醒（LifeSpan 的用藥／回診／量測…）→ Telegram ──
+// 健康系統把提醒同步到它的後台；Ybot 每 10 分鐘（reminderWatch）看一次，時間到就推。
+// 每個提醒每天只推一次；健康 App 裡已經按「完成」的就不推。超過 2 小時還沒推到的（例如後台剛部署）就不補推，免得一次洗版。
+const HLT_REM_TYPES = {
+  med: ['💊', '用藥'], visit: ['🏥', '回診'], rehab: ['🦶', '復健／運動'], lab: ['🧪', '檢驗追蹤'],
+  measure: ['🩸', '量測'], water: ['💧', '喝水'], custom: ['📌', '健康提醒']
+};
+const HLT_REM_PUSHED_PROP = 'HLT_REM_PUSHED';
+const HLT_REM_LATE_MIN = 120;
+function healthRemindersFetch(noCache) {
+  const cache = CacheService.getScriptCache();
+  if (!noCache) { const hit = cache.get('hltRem_v1'); if (hit) { try { return JSON.parse(hit); } catch (e) { /* 重抓 */ } } }
+  const kv = readKv();
+  if (!kv.healthBackendUrl) return null;
+  const r = UrlFetchApp.fetch(healthUrl(kv, 'reminders'), { muteHttpExceptions: true });
+  let d; try { d = JSON.parse(r.getContentText()); } catch (e) { return null; }
+  if (!d || !d.ok || !Array.isArray(d.reminders)) return null;   // 舊版健康後台沒有這個 action，安靜略過
+  try { cache.put('hltRem_v1', JSON.stringify(d.reminders), 300); } catch (e) { /* 太大就不快取 */ }
+  return d.reminders;
+}
+// 跟健康 App 的 remScheduledOn 同一套規則（once／daily／weekly／monthly／months）
+function hrYmd(key) { const m = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? [Number(m[1]), Number(m[2]) - 1, Number(m[3])] : null; }
+function hrScheduledOn(rem, dayKey) {
+  if (!rem || !rem.enabled || !rem.startDate || dayKey < rem.startDate) return false;
+  const a = hrYmd(dayKey), b = hrYmd(rem.startDate);
+  if (!a || !b) return false;
+  const d = new Date(Date.UTC(a[0], a[1], a[2])), st = new Date(Date.UTC(b[0], b[1], b[2]));
+  const dim = new Date(Date.UTC(a[0], a[1] + 1, 0)).getUTCDate();
+  const monthDayHit = d.getUTCDate() === st.getUTCDate() || (st.getUTCDate() > dim && d.getUTCDate() === dim);
+  switch (rem.freq) {
+    case 'once': return dayKey === rem.startDate;
+    case 'daily': return true;
+    case 'weekly': return d.getUTCDay() === (rem.weekday !== null && rem.weekday !== undefined && rem.weekday !== '' ? Number(rem.weekday) : st.getUTCDay());
+    case 'monthly': return monthDayHit;
+    case 'months': {
+      const n = Math.max(1, Number(rem.interval) || 1);
+      const md = (a[0] - b[0]) * 12 + (a[1] - b[1]);
+      return md >= 0 && md % n === 0 && monthDayHit;
+    }
+  }
+  return false;
+}
+// 沒設時間的提醒當作早上 8:00
+function hrTimeMin(t) { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : 8 * 60; }
+function hrTimeStr(t) { const m = hrTimeMin(t); return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); }
+// 今天排到的提醒，依時間排序。done＝健康 App 裡今天已按完成
+function healthRemindersToday(now, list) {
+  list = list || healthRemindersFetch() || [];
+  const day = tpeFormat(now || new Date(), 'yyyy-MM-dd');
+  return list.filter(r => hrScheduledOn(r, day))
+    .map(r => ({ rem: r, min: hrTimeMin(r.time), done: (r.doneDates || []).indexOf(day) >= 0 }))
+    .sort((x, y) => x.min - y.min);
+}
+function healthReminderLine(x) {
+  const t = HLT_REM_TYPES[x.rem.type] || HLT_REM_TYPES.custom;
+  return (x.done ? '✅ ' : t[0] + ' ') + hrTimeStr(x.rem.time) + ' ' + (x.rem.title || t[1]);
+}
+function healthReminderWatch(now) {
+  if (readKv().tgHealthRem === 'off') return;
+  now = now || new Date();
+  const day = tpeFormat(now, 'yyyy-MM-dd');
+  const nowMin = Number(tpeFormat(now, 'H')) * 60 + Number(tpeFormat(now, 'm'));
+  const props = PropertiesService.getScriptProperties();
+  let pushed = {};
+  try { pushed = JSON.parse(props.getProperty(HLT_REM_PUSHED_PROP) || '{}'); } catch (e) { pushed = {}; }
+  if (pushed.day !== day) pushed = { day: day, ids: [] };
+  // 先看今天有沒有「該推還沒推」的，沒有就不打健康後台（省流量；快取 5 分鐘）
+  const today = healthRemindersToday(now);
+  const due = today.filter(x => !x.done && x.min <= nowMin && nowMin - x.min <= HLT_REM_LATE_MIN && pushed.ids.indexOf(x.rem.id) < 0);
+  if (!due.length) return;
+  // 推之前再抓一次最新的，確認使用者沒有剛在 App 裡按完成
+  const fresh = healthRemindersToday(now, healthRemindersFetch(true) || []);
+  const doneNow = {}; fresh.forEach(x => { if (x.done) doneNow[x.rem.id] = true; });
+  due.forEach(x => {
+    pushed.ids.push(x.rem.id);   // 先記下，就算這次送失敗也不會每 10 分鐘重送
+    if (doneNow[x.rem.id]) return;
+    const t = HLT_REM_TYPES[x.rem.type] || HLT_REM_TYPES.custom;
+    const L = [t[0] + ' ' + t[1] + '提醒　' + hrTimeStr(x.rem.time), String(x.rem.title || t[1])];
+    if (x.rem.note) L.push(String(x.rem.note).slice(0, 200));
+    L.push('', '（做完請在 LifeSpan 健康按「完成」）');
+    telegramSend(L.join('\n'));
+  });
+  props.setProperty(HLT_REM_PUSHED_PROP, JSON.stringify(pushed));
+}
+// 晨報與「健康」指令用：今天的健康提醒清單；讀不到就回空陣列
+function healthRemindersTodayLines() {
+  try {
+    const t = healthRemindersToday(new Date());
+    return t.slice(0, 10).map(healthReminderLine);
+  } catch (e) { return []; }
+}
+
 function healthLatest() {
   try {
     const raw = PropertiesService.getScriptProperties().getProperty('HEALTH_LATEST');
@@ -2170,6 +2273,8 @@ function healthReportText() {
   }
   const age = healthAgeDays(h);
   if (age !== null && age >= 7) L.push('', '⏰ 已經 ' + age + ' 天沒有更新健康數據了。');
+  const rl = healthRemindersTodayLines();
+  if (rl.length) { L.push('', '📋 今天的健康提醒：'); rl.forEach(x => L.push('　' + x)); }
   return L.join('\n');
 }
 
@@ -2756,6 +2861,21 @@ const AGENT_TOOLS = [
     }
   },
   {
+    name: 'get_health_reminders',
+    description: 'LifeSpan 健康系統裡設定的提醒（用藥、回診、復健、檢驗追蹤、量測、喝水）。回傳全部提醒的頻率與時間，以及今天排到哪些、做完了沒。問「今天要吃什麼藥」「什麼時候回診」用這個。這些提醒時間到會自動推 Telegram；要新增或修改請使用者到健康 App 操作。',
+    parameters: { type: 'object', properties: {} },
+    run: function () {
+      const list = healthRemindersFetch();
+      if (!list) return { error: '讀不到健康提醒（健康後台網址或密語沒設、後台還是舊版，或健康 App 還沒同步）' };
+      const fq = { once: '單次', daily: '每天', weekly: '每週', monthly: '每月', months: '每 N 個月' };
+      return {
+        pushToTelegram: readKv().tgHealthRem !== 'off',
+        today: healthRemindersToday(new Date(), list).map(x => ({ time: hrTimeStr(x.rem.time), title: x.rem.title, type: (HLT_REM_TYPES[x.rem.type] || HLT_REM_TYPES.custom)[1], done: x.done })),
+        all: list.map(r => ({ title: r.title, type: (HLT_REM_TYPES[r.type] || HLT_REM_TYPES.custom)[1], freq: fq[r.freq] || r.freq, time: hrTimeStr(r.time), startDate: r.startDate, interval: r.interval, enabled: r.enabled, note: r.note }))
+      };
+    }
+  },
+  {
     name: 'get_school_assistant',
     description: '校長助理：今明的學校記事與代課節數。',
     parameters: { type: 'object', properties: {} },
@@ -2894,7 +3014,7 @@ function runAgent(question, history, opts) {
 const AGENT_TOOL_LABELS = {
   get_today_overview: '看今日現況', list_notes: '查待辦筆記', add_note: '新增待辦筆記', update_note: '修改待辦筆記', complete_note: '標記完成',
   list_calendar: '查行事曆', add_calendar_event: '新增行程', update_calendar_event: '修改行程', search_gmail: '搜尋郵件', read_gmail_thread: '讀信',
-  get_stock_holdings: '查持股', get_stock_quote: '查報價', get_health_summary: '查健康摘要', get_health_labs: '查檢驗紀錄', get_health_records: '查醫藥紀錄',
+  get_stock_holdings: '查持股', get_stock_quote: '查報價', get_health_summary: '查健康摘要', get_health_labs: '查檢驗紀錄', get_health_records: '查醫藥紀錄', get_health_reminders: '查健康提醒',
   get_school_assistant: '查校長助理', remember: '記住', forget: '忘記', queue_pc_task: '交給電腦處理'
 };
 function agentToolLabel(name) { return AGENT_TOOL_LABELS[name] || name; }
