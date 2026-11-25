@@ -1012,13 +1012,9 @@ function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stoc
       L.push('　' + t + ' ' + ev.title);
     });
   }
-  if (groups.red.length || groups.orange.length) {
-    L.push('', '🎯 今天要處理：');
-    groups.red.forEach(p => L.push('🔴 ' + String(p.content || p.title || '').slice(0, 60)));
-    groups.orange.slice(0, 5).forEach(p => L.push('🟠 ' + String(p.content || p.title || '').slice(0, 60)));
-  } else {
-    L.push('', '🎯 今天沒有必須處理的待辦');
-  }
+  const due = tgDueLines(groups.red.concat(groups.orange), new Date());
+  if (due.length) due.forEach(x => L.push(x));
+  else L.push('', '🎯 今天沒有必須處理的待辦');
   if ((ctx.bills || []).length) {
     L.push('', '💳 帳單：');
     ctx.bills.slice(0, 3).forEach(m => L.push('　・' + m.subject + (m.amount ? '｜' + m.amount + ' 元' : '') + (m.due ? '｜截止 ' + m.due : '')));
@@ -1028,6 +1024,44 @@ function buildTelegramBrief(ctx, groups, narrative, conflicts, briefEvents, stoc
   if (stockLine) L.push('', stockLine);
   if (narrative) L.push('', '💬 ' + String(narrative).slice(0, 300));
   return L.join('\n');
+}
+
+// Telegram 的待辦清單照「台北日期」分段：今天（含已逾期、沒日期但被判定要急）／明天／之後。
+// 不能只看 🔴🟠 等級：等級是用「距離現在幾小時」算的，早上 7 點的晨報裡
+// 🟠 其實多半是明天的行程，全部掛在「今天要處理」底下會誤導。
+const TG_WD = ['一', '二', '三', '四', '五', '六', '日'];
+function tgDayOffset(dueAt, now) {
+  if (!dueAt) return 0;
+  const d = new Date(dueAt);
+  if (isNaN(d)) return 0;
+  const day = x => Date.UTC(Number(tpeFormat(x, 'yyyy')), Number(tpeFormat(x, 'M')) - 1, Number(tpeFormat(x, 'd')));
+  return Math.round((day(d) - day(now)) / 86400000);
+}
+function tgDueLines(items, now) {
+  const text = p => String(p.content || p.title || '').slice(0, 60);
+  const today = [], tomorrow = [], later = [];
+  (items || []).forEach(p => {
+    const off = tgDayOffset(p.dueAt, now);
+    (off <= 0 ? today : off === 1 ? tomorrow : later).push(p);
+  });
+  const L = [];
+  if (today.length) {
+    L.push('', '🎯 今天要處理：');
+    today.slice(0, 10).forEach(p => L.push('🔴 ' + text(p)));
+  }
+  if (tomorrow.length) {
+    const t = new Date(now.getTime() + 86400000);
+    L.push('', '🔜 明天（' + tpeFormat(t, 'M/d') + ' 週' + TG_WD[Number(tpeFormat(t, 'u')) - 1] + '）先準備：');
+    tomorrow.slice(0, 8).forEach(p => L.push('🟠 ' + text(p)));
+  }
+  if (later.length) {
+    L.push('', '📌 接下來：');
+    later.slice(0, 5).forEach(p => {
+      const d = new Date(p.dueAt);
+      L.push('・' + tpeFormat(d, 'M/d') + '（' + TG_WD[Number(tpeFormat(d, 'u')) - 1] + '）' + text(p));
+    });
+  }
+  return L;
 }
 
 // 把「待辦／提醒」與「今明的行程」合併分成 🔴今天必須／🟠建議今天／🟢可延後，
@@ -1918,13 +1952,9 @@ function tgNowText() {
   const items = tgOpenItems();
   const red = items.filter(function (n) { return ruleLevel(n, now) === 'red'; });
   const orange = items.filter(function (n) { return ruleLevel(n, now) === 'orange'; });
-  if (red.length || orange.length) {
-    L.push('', '🎯 要處理：');
-    red.forEach(function (n) { L.push('🔴 ' + String(n.content).slice(0, 60)); });
-    orange.slice(0, 5).forEach(function (n) { L.push('🟠 ' + String(n.content).slice(0, 60)); });
-  } else {
-    L.push('', '🎯 沒有今明到期的待辦');
-  }
+  const due = tgDueLines(red.concat(orange), now);
+  if (due.length) due.forEach(function (x) { L.push(x); });
+  else L.push('', '🎯 沒有今明到期的待辦');
   L.push('', '其他未完成：' + (items.length - red.length - orange.length) + ' 項（傳「待辦」看清單）');
   const pa = paDayLines();
   if (pa.length) { L.push('', '🏫 校長助理：'); pa.forEach(function (t) { L.push('　' + t); }); }
