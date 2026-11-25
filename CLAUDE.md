@@ -65,3 +65,25 @@
 - Telegram：自由文字 → `tgAgentReply`；`agent off` 回到「打字＝加待辦」的舊行為；
   對話記憶放 CacheService 兩小時，「重來」清掉。
 - 工具呼叫只支援 Gemini 與 OpenAI；NVIDIA 只當純文字備援。
+
+## 教使用者操作時要講清楚（2026-11-25 使用者明確交代：「下次說清楚，別造成誤解」）
+
+- 要使用者更新後台時，**明確指定唯一的來源**：Ybot 設定頁的「📋 複製最新後台程式」，或在瀏覽器網址列開
+  `https://raw.githubusercontent.com/cyysongyy/Ybot/main/ybot-backend.gs`。同時明講「不要從聊天、
+  Claude 視窗右側面板或其他預覽複製」——曾經有使用者從側邊面板複製到只有 962 行的舊版，還把標題
+  「後端程式碼」一起貼進第 1 行，造成語法錯誤。
+- 給檢查點：貼完第 1 行應該是 `/**`、按 Ctrl+End 看總行數大約多少（用 `wc -l ybot-backend.gs` 查當下的數字）、
+  最後是哪個函式。不要只說「貼上存檔」。
+- 用「位置＋按鈕名稱」描述畫面（例如「左邊最下面齒輪『專案設定』→ 拉到最底『指令碼屬性』」），
+  不要用「右邊那個」「那裡」這種會誤會的詞。
+- Apps Script 的執行記錄**不顯示函式回傳值**，只顯示 `console.log` 和丟出的錯誤。給使用者在編輯器
+  執行的函式，成功要 `console.log`、失敗要 `throw`，否則他只看到「執行完畢」不知道有沒有成功。
+- 指令碼屬性裡的 `API_TOKEN` 是 Ybot 通關密語，Telegram 的是 `TELEGRAM_BOT_TOKEN`，要分清楚告訴使用者，
+  也提醒他截圖前遮住 token 的值。
+
+## 使用者的偏好（Telegram／差勤）
+
+- Telegram 推播：要行程前提醒，**不要撞期通知**（撞期只留在首頁）。
+- WebITR 不能直接登入，一定要從 EIP（`https://eip.yunlin.gov.tw/index.do`）進；EIP 登入有驗證碼，
+  不要嘗試繞過或自動登入。差勤「同意」由使用者自己按。
+
