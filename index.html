@@ -782,6 +782,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <a class="btn" id="eipBtn" style="display:block;text-align:center;text-decoration:none;" href="https://eip.yunlin.gov.tw/index.do" target="_blank" rel="noopener">🏛️ 雲林縣 EIP 入口網（公文／差勤批核）↗</a>
       <div class="hint" style="margin-top:6px;margin-bottom:0;">差勤批核：先登入 EIP，再點裡面的「WebITR T9差勤」。WebITR 不能直接登入。第一次登入 EIP 時讓瀏覽器「儲存密碼」，之後會自動帶入。</div>
     </div>
+    <div class="card" id="selCard"></div>
 
     <div class="card">
       <div class="section-title">新增</div>
@@ -1660,7 +1661,12 @@ const selIsCollapsed=()=>state.selCollapsed!==false;
 function toggleSelSection(){
   state.selCollapsed=!selIsCollapsed();
   save();
-  renderOverview();
+  renderSelCard();
+}
+// 2026-11-26 使用者交代：從首頁搬到第 2 頁「📝 待辦與筆記」（EIP 那張卡片下面）
+function renderSelCard(){
+  const el=document.getElementById('selCard');
+  if(el)el.innerHTML=selHomeHtml();
 }
 function selHomeHtml(){
   const open=!selIsCollapsed();
@@ -1824,8 +1830,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-26-3';
+const APP_VERSION='2026-11-26-4';
 const CHANGELOG=[
+  {v:'2026-11-26-4',d:'11/26',items:[
+    '「🏫 全校 SEL 情緒」從首頁搬到第 2 頁「📝 待辦與筆記」，在 EIP 入口網那張卡片下面。點標題一樣可以展開各個報告。',
+  ]},
   {v:'2026-11-26-3',d:'11/26',items:[
     '對話裡 Ybot 的回答下面多了 👍／👎（Telegram 也有）。按 👎 可以寫「這次應該怎麼做」。目前只是存起來供日後檢討，還不會自動改變它的做法。',
     '記憶保護：Ybot 看過信件或行事曆之後，如果想「記住」或「忘記」某件事，會先把內容給你看，你按核准才生效。',
@@ -4490,7 +4499,7 @@ function renderOverview(){
   renderHeroSchedule(upcomingEvents);
   if(!c){
     box.style.display='block';
-    box.innerHTML=approvalHtml()+paTodayHtml()+`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`+selHomeHtml();
+    box.innerHTML=approvalHtml()+paTodayHtml()+`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
     return;
   }
 
@@ -4538,7 +4547,6 @@ function renderOverview(){
     stockHomeHtml(c)+
     healthHomeHtml(c)+
     rehabHomeHtml()+
-    selHomeHtml()+
     ``;
   box.style.display='block';
   // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
@@ -6617,6 +6625,7 @@ function registerSW(){
 // ── 初始化 ──────────────────────────────
 renderChat();
 renderNotes();
+renderSelCard();
 if(state.context){updateMemArchive(state.context);save();}
 renderSpeakBtn();
 renderLinkChips();
