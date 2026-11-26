@@ -417,6 +417,13 @@ button:focus-visible,.chip:focus-visible,.tab:focus-visible{outline:2px solid va
   background:var(--card);color:var(--tx2);font-size:.72rem;font-weight:700;cursor:pointer;vertical-align:baseline;
   -webkit-tap-highlight-color:transparent;transition:border-color .15s,color .15s;}
 .undoBtn:hover{border-color:var(--pri);color:var(--pri);}
+.memAct{display:block;margin-top:6px;}
+.memAct .undoBtn{min-height:34px;}
+.fbRow{align-self:flex-start;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:100%;}
+.fbBtn{min-width:40px;min-height:32px;padding:2px 10px;border-radius:20px;border:1px solid var(--line);background:none;color:var(--tx2,var(--tx));font-size:.8rem;cursor:pointer;}
+.fbBtn.on{border-color:var(--pri);background:var(--bub);}
+.fbNote{flex:1;min-width:180px;padding:6px 10px;border-radius:20px;border:1px solid var(--line);background:none;color:var(--tx);font-size:16px;}
+.fbDone{font-size:.74rem;color:var(--tx3);}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
 .chip{font-size:.76rem;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--tx2);cursor:pointer;
   transition:border-color .15s,color .15s,box-shadow .15s;}
@@ -1817,8 +1824,14 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-26-2';
+const APP_VERSION='2026-11-26-3';
 const CHANGELOG=[
+  {v:'2026-11-26-3',d:'11/26',items:[
+    '對話裡 Ybot 的回答下面多了 👍／👎（Telegram 也有）。按 👎 可以寫「這次應該怎麼做」。目前只是存起來供日後檢討，還不會自動改變它的做法。',
+    '記憶保護：Ybot 看過信件或行事曆之後，如果想「記住」或「忘記」某件事，會先把內容給你看，你按核准才生效。',
+    '執行紀錄存在你自己的試算表：用了哪些工具、成功或失敗、花多久。平常不存問題和回答；按 👎 時才存那一次的問題。',
+    '要先更新 Ybot 後台才有作用：設定頁按「📋 複製最新後台程式」貼進 Apps Script、存檔，再用「管理部署作業」建立新版本。',
+  ]},
   {v:'2026-11-26-2',d:'11/26',items:[
     '首頁的「🏫 全校 SEL 情緒」改成預設收起，點標題才會展開成下拉選單，首頁不會被拉長。',
   ]},
@@ -4644,9 +4657,67 @@ function renderChat(){
   // 這顆按鈕就是使用者發現 AI 做錯時的救命索。
   box.innerHTML=state.chat.map((m,i)=>{
     const undoBtn=m.undo?`<button class="undoBtn" onclick="undoChatAction(${i})">↩ 復原</button>`:'';
-    return `<div class="msg ${m.role}">${esc(m.text)}${undoBtn}</div>`;
+    return `<div class="msg ${m.role}">${esc(m.text)}${undoBtn}${memButtons(m,i)}</div>${feedbackRow(m,i)}`;
   }).join('');
   box.scrollTop=box.scrollHeight;
+}
+// 👍／👎：只有後台 agent 的回答有 runId。
+function feedbackRow(m,i){
+  if(m.role!=='bot'||!m.runId)return '';
+  const on=v=>m.rating===v?' on':'';
+  let h=`<button class="fbBtn${on('up')}" aria-label="回答得好" onclick="rateReply(${i},'up')">👍</button><button class="fbBtn${on('down')}" aria-label="回答得不好" onclick="rateReply(${i},'down')">👎</button>`;
+  if(m.rating==='down'){
+    h+=m.noteSent?'<span class="fbDone">📝 建議已記下</span>'
+      :`<input id="fbNote${i}" class="fbNote" maxlength="500" placeholder="這次應該怎麼做？（可略過）"><button class="fbBtn" onclick="sendReplyNote(${i})">送出</button>`;
+  }
+  return `<div class="fbRow">${h}</div>`;
+}
+function memButtons(m,i){
+  if(!m.mem)return '';
+  return `<span class="memAct"><button class="undoBtn" onclick="decideMemory(${i},true)">${m.mem.op==='forget'?'✅ 忘記':'✅ 記住'}</button><button class="undoBtn" onclick="decideMemory(${i},false)">❌ 不要</button></span>`;
+}
+async function loopPost(body){
+  const r=await gasPost(body);
+  return await r.json();
+}
+function loopFail(text){state.chat.push({role:'sys',text:'⚠️ '+text});save();renderChat();}
+async function rateReply(i,rating){
+  const m=state.chat[i];
+  if(!m||!m.runId||m.rating===rating)return;
+  try{
+    const d=await loopPost({action:'agentFeedback',runId:m.runId,rating});
+    if(!d||!d.ok){loopFail('評分沒有存到：'+((d&&d.error)||'後台沒有回覆'));return;}
+    m.rating=rating;delete m.noteSent;save();renderChat();
+  }catch(e){loopFail('評分沒有存到：'+gasErrText(e));}
+}
+async function sendReplyNote(i){
+  const m=state.chat[i];
+  const el=document.getElementById('fbNote'+i);
+  const comment=el?el.value.trim():'';
+  if(!m||!m.runId||!comment)return;
+  try{
+    const d=await loopPost({action:'agentFeedback',runId:m.runId,rating:'down',comment});
+    if(!d||!d.ok){loopFail('建議沒有存到：'+((d&&d.error)||'後台沒有回覆'));return;}
+    m.noteSent=true;save();renderChat();
+  }catch(e){loopFail('建議沒有存到：'+gasErrText(e));}
+}
+async function decideMemory(i,approve){
+  const m=state.chat[i];
+  if(!m||!m.mem||m.deciding)return;
+  const mem=m.mem;
+  m.deciding=true;
+  try{
+    const d=await loopPost({action:'memoryDecision',id:mem.id,approve});
+    delete m.deciding;
+    // 在 Telegram 先按過（或已過期）：後台回傳 status，按鈕一樣收掉
+    if(!d||(!d.ok&&!d.status)){loopFail('沒有處理成功：'+((d&&d.error)||'後台沒有回覆'));return;}
+    delete m.mem;
+    if(!d.ok)m.text+='\n'+d.error;
+    else if(d.status==='rejected')m.text+='\n❌ 已取消，記憶沒有變動';
+    else m.text+=d.op==='forget'?'\n✅ 已忘記':'\n✅ 已記住';
+    save();renderChat();
+    qaSync({silent:true}).catch(()=>{});
+  }catch(e){delete m.deciding;loopFail('沒有處理成功：'+gasErrText(e));}
 }
 // 把某一則動作訊息記錄的動作反向做回去。復原後拿掉 undo 欄位，避免重複按。
 function undoChatAction(i){
@@ -5730,6 +5801,12 @@ async function qaSync(opts){
     if(!Array.isArray(state.qa))state.qa=[];
     if(!Array.isArray(state.profile))state.profile=[];
     await soulReady;   // 文集從 IndexedDB 讀是非同步的，沒讀完就比對會以為本機是空的
+    // 後台忘掉的記憶，本機也拿掉，免得手機端 AI 還在用
+    if(Array.isArray(d.forgotten)&&d.forgotten.length){
+      const gone=new Set(d.forgotten);
+      const kept=state.profile.filter(x=>!gone.has(x.id));
+      if(kept.length!==state.profile.length){state.profile=kept;save();renderProfileList();}
+    }
     const localIds=new Set(state.qa.map(x=>x.id));
     const pulled=remote.filter(x=>!localIds.has(x.id));
     if(pulled.length){
@@ -6235,7 +6312,7 @@ ${buildDateRef(21)}
 const AGENT_WRITE_TOOLS=new Set(['add_note','update_note','complete_note','add_calendar_event','update_calendar_event','remember','forget']);
 async function sendChatViaAgent(text,byVoice){
   // 送最近幾輪（不含剛剛 push 進去的這一句），讓它記得上下文
-  const history=state.chat.filter(m=>m.role==='user'||m.role==='bot').slice(-9,-1).map(m=>({role:m.role,text:String(m.text||'').slice(0,2000)}));
+  const history=state.chat.filter(m=>m.role==='user'||m.role==='bot').slice(-9,-1).map(m=>({role:m.role,text:String(m.text||'').slice(0,2000),...(m.ext?{ext:true}:{})}));
   setSendLabel('Agent 查詢中…');
   let d;
   try{
@@ -6260,12 +6337,12 @@ async function sendChatViaAgent(text,byVoice){
       save();renderChat();
       return false;
     }
-    state.chat.push({role:'bot',text:'⚠️ '+(err||'後台沒有回覆')});
+    state.chat.push({role:'bot',text:'⚠️ '+(err||'後台沒有回覆'),...(d&&d.runId?{runId:d.runId}:{})});
     save();renderChat();
     return true;
   }
   const reply=String(d.text||'').trim()||'（沒有取得回覆）';
-  state.chat.push({role:'bot',text:reply});
+  state.chat.push({role:'bot',text:reply,...(d.runId?{runId:d.runId}:{}),...(d.outside?{ext:true}:{})});
   const steps=Array.isArray(d.steps)?d.steps:[];
   if(steps.length){
     const seen=new Set();const labels=[];
@@ -6273,6 +6350,10 @@ async function sendChatViaAgent(text,byVoice){
     state.chat.push({role:'sys',text:'🔧 '+labels.join('、')});
   }
   if(d.warning)state.chat.push({role:'sys',text:'⚠️ '+d.warning});
+  // 等核准的記憶：完整內容要看得到，才知道自己在核准什麼
+  (Array.isArray(d.pending)?d.pending:[]).forEach(p=>{
+    state.chat.push({role:'sys',text:'🛡️ 要'+(p.op==='forget'?'忘記':'記住')+'這一條嗎？（這次對話看過信件或行事曆）\n「'+p.text+'」',mem:{id:p.id,op:p.op}});
+  });
   if(byVoice)speakText(reply);
   qaAdd(text,reply,'chat');
   save();renderChat();
