@@ -1275,7 +1275,7 @@ function tpeYmd(d){
 // ── 狀態管理 ─────────────────────────────
 const LS_KEY='ybot_v1';
 function defaults(){return{
-  theme:'',fontScale:1,newsCollapsed:false,stockCollapsed:true,healthCollapsed:true,
+  theme:'',fontScale:1,newsCollapsed:false,stockCollapsed:true,healthCollapsed:true,selCollapsed:true,
   ai:{provider:'auto',gemini:'',openai:'',nvidia:''},
   useSchoolDb:false,useAppsData:false,useMicroPolitics:false,speakReply:true,agentMode:true,qa:[],qaSyncedAt:'',
   pushEnabled:false,pushedReminderIds:[],pushedMailIds:[],pushedApprovalIds:[],seenApprovalIds:[],
@@ -1648,11 +1648,20 @@ function rehabHomeHtml(){
 // ── 🏫 辰光 SEL 情緒簽到（校長頁連結）──────────
 // 直接連到 SEL 校長總控台的各畫面；資料在校長頁用校長密碼看，Ybot 不經手密碼。
 const SEL_PRINCIPAL_URL='https://cyysongyy.github.io/CGPS-SEL-CHECK-IN-SYSTEM/principal.html';
+// 預設收起（沒設定過＝收起）；點標題展開／收起，狀態存在 state.selCollapsed
+const selIsCollapsed=()=>state.selCollapsed!==false;
+function toggleSelSection(){
+  state.selCollapsed=!selIsCollapsed();
+  save();
+  renderOverview();
+}
 function selHomeHtml(){
+  const open=!selIsCollapsed();
   const L=(q,t)=>`<a class="ovMailItem" href="${SEL_PRINCIPAL_URL}?${q}" target="_blank" rel="noopener">${t}<span style="margin-left:auto;">›</span></a>`;
-  return `<div class="ovSection" id="ovSectionSel"><a class="ovHead" href="${SEL_PRINCIPAL_URL}?view=today" target="_blank" rel="noopener"><span class="ovHeadIcon approve">🏫</span><span class="ovHeadTitle">全校 SEL 情緒</span><span class="chev">›</span></a>`
-    +L('view=today','📅 今天各班心情與預警')+L('view=report&mode=day','📄 每天報告')+L('view=report&mode=week','🗓 每週報告')+L('view=report&mode=month','📆 每月報告')+L('view=stats&days=180','📈 長期統計（半年）')
-    +`<div class="ovItem ovSub">・第一次在校長頁勾選「在這台裝置記住」，之後就不用再輸入密碼。</div></div>`;
+  return `<div class="ovSection" id="ovSectionSel"><div class="ovHead ovLabelToggle" onclick="toggleSelSection()"><span class="ovHeadIcon approve">🏫</span><span class="ovHeadTitle">全校 SEL 情緒 <span class="ovToggleIcon">${open?'▾':'▸'}</span></span></div>`
+    +(open?L('view=today','📅 今天各班心情與預警')+L('view=report&mode=day','📄 每天報告')+L('view=report&mode=week','🗓 每週報告')+L('view=report&mode=month','📆 每月報告')+L('view=stats&days=180','📈 長期統計（半年）')
+    +`<div class="ovItem ovSub">・第一次在校長頁勾選「在這台裝置記住」，之後就不用再輸入密碼。</div>`:'')
+    +`</div>`;
 }
 async function pushRehab(r){
   if(!state.gasUrl||!r)return;
@@ -1808,8 +1817,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-26';
+const APP_VERSION='2026-11-26-2';
 const CHANGELOG=[
+  {v:'2026-11-26-2',d:'11/26',items:[
+    '首頁的「🏫 全校 SEL 情緒」改成預設收起，點標題才會展開成下拉選單，首頁不會被拉長。',
+  ]},
   {v:'2026-11-26',d:'11/26',items:[
     '首頁多了「🏫 全校 SEL 情緒」：一點就開到辰光 SEL 校長總控台的今天各班心情與預警、每天／每週／每月報告、半年長期統計（含圓餅圖與長條圖）。第一次在校長頁輸入校長密碼並勾選「在這台裝置記住」，之後就不用再輸入。',
   ]},
@@ -2257,7 +2269,7 @@ const TRANSFER_PREFIX='YBOT-SETTINGS-1:';
 // 只搬「設定」和使用者自己的長期資料。刻意不搬的：
 // chat（對話紀錄）、notes（會從雲端同步回來）、context（快取，重抓就有）、
 // pushEnabled／pushed*（通知權限是跟著瀏覽器走的，新的那邊要自己重新允許）。
-const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','stockCollapsed','healthCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply','agentMode',
+const TRANSFER_FIELDS=['theme','fontScale','newsCollapsed','stockCollapsed','healthCollapsed','selCollapsed','useSchoolDb','useAppsData','useMicroPolitics','speakReply','agentMode',
   'gasUrl','gasToken','remUrl','hltUrl','hltToken','weatherCity','weatherLat','weatherLon','standup','countdownMin','links','profile','soulProfile'];
 function transferEncode(obj){
   const bytes=new TextEncoder().encode(JSON.stringify(obj));
