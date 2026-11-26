@@ -90,3 +90,10 @@
 - WebITR 不能直接登入，一定要從 EIP（`https://eip.yunlin.gov.tw/index.do`）進；EIP 登入有驗證碼，
   不要嘗試繞過或自動登入。差勤「同意」由使用者自己按。
 
+
+## 校長領導學習架構（2026-11-27）
+
+- 使用者上過的校長培訓〈第三堂課：領導學習〉（115/11/13）是 Ybot 回答領導類問題的重要參考依據。
+  重點整理放在後台 `LEADERSHIP_FRAMEWORK`（agent 工具 `get_leadership_framework`）與前端
+  `LEADERSHIP_OUTLINE`（手機端 AI 備援），兩份文字要一致，改一邊就要改另一邊。
+- 原始簡報**不要**放進 repo：repo 是公開的，那是講師的課程教材；只放重點整理。
