@@ -1645,6 +1645,15 @@ function rehabHomeHtml(){
   return `<div class="ovSection" id="ovSectionRehab"><a class="ovHead" href="${REHAB_URL}" target="_blank" rel="noopener"><span class="ovHeadIcon approve">🦶</span><span class="ovHeadTitle">復健</span><span class="chev">›</span></a>`
     +`<div class="ovItem"${done?'':' style="color:var(--bad);"'}>・${done?`今天已練 ${r.todayN} 項 ✓`:'今天還沒練'}${r.days>0?`　<span class="ovSub">（上次 ${r.days} 天前）</span>`:''}</div></div>`;
 }
+// ── 🏫 辰光 SEL 情緒簽到（校長頁連結）──────────
+// 直接連到 SEL 校長總控台的各畫面；資料在校長頁用校長密碼看，Ybot 不經手密碼。
+const SEL_PRINCIPAL_URL='https://cyysongyy.github.io/CGPS-SEL-CHECK-IN-SYSTEM/principal.html';
+function selHomeHtml(){
+  const L=(q,t)=>`<a class="ovMailItem" href="${SEL_PRINCIPAL_URL}?${q}" target="_blank" rel="noopener">${t}<span style="margin-left:auto;">›</span></a>`;
+  return `<div class="ovSection" id="ovSectionSel"><a class="ovHead" href="${SEL_PRINCIPAL_URL}?view=today" target="_blank" rel="noopener"><span class="ovHeadIcon approve">🏫</span><span class="ovHeadTitle">全校 SEL 情緒</span><span class="chev">›</span></a>`
+    +L('view=today','📅 今天各班心情與預警')+L('view=report&mode=day','📄 每天報告')+L('view=report&mode=week','🗓 每週報告')+L('view=report&mode=month','📆 每月報告')+L('view=stats&days=180','📈 長期統計（半年）')
+    +`<div class="ovItem ovSub">・第一次在校長頁勾選「在這台裝置記住」，之後就不用再輸入密碼。</div></div>`;
+}
 async function pushRehab(r){
   if(!state.gasUrl||!r)return;
   const sig=r.last+'|'+tpeYmd(new Date());
@@ -1799,8 +1808,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-25';
+const APP_VERSION='2026-11-26';
 const CHANGELOG=[
+  {v:'2026-11-26',d:'11/26',items:[
+    '首頁多了「🏫 全校 SEL 情緒」：一點就開到辰光 SEL 校長總控台的今天各班心情與預警、每天／每週／每月報告、半年長期統計（含圓餅圖與長條圖）。第一次在校長頁輸入校長密碼並勾選「在這台裝置記住」，之後就不用再輸入。',
+  ]},
   {v:'2026-11-25',d:'11/25',items:[
     'Telegram 晨報的待辦改成照日期分段：「🎯 今天要處理」只放今天的，明天的放在「🔜 明天（幾月幾日 週幾）先準備」，再之後的放「📌 接下來」並標日期。傳「現況」也一樣。要先更新 Ybot 後台（設定頁按「📋 複製最新後台程式」貼進 Apps Script 存檔）。',
   ]},
@@ -4453,7 +4465,7 @@ function renderOverview(){
   renderHeroSchedule(upcomingEvents);
   if(!c){
     box.style.display='block';
-    box.innerHTML=approvalHtml()+paTodayHtml()+`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`;
+    box.innerHTML=approvalHtml()+paTodayHtml()+`<div class="ovItem ovEmpty">尚未連接雲端後台，請至「設定 → 雲端後台」連接後查看信件／新聞／起立提醒。</div>`+selHomeHtml();
     return;
   }
 
@@ -4501,6 +4513,7 @@ function renderOverview(){
     stockHomeHtml(c)+
     healthHomeHtml(c)+
     rehabHomeHtml()+
+    selHomeHtml()+
     ``;
   box.style.display='block';
   // 倒數計時依使用者指示從首頁拿掉，功能本身整組留著（toggleCountdown／
