@@ -113,5 +113,5 @@
 - math-hero 的成績由它自己的 Apps Script 寫進老師的試算表（那份後台程式碼在 math-hero repo 的 `backend/`，
   被 .gitignore 排除，不在 GitHub 上）。Ybot 不改 math-hero，只在後台 `mathHeroWatch()`（跟著 telegramWatch
   每 10 分鐘）讀那份試算表新增的列，傳一則簡報到 Telegram。
-- 設定：使用者在 Ybot 的 Apps Script 執行一次 `setMathHeroSheet('試算表網址')`；欄位用第一列標題比對
+- 設定：使用者在指令碼屬性新增 `MATHHERO_SHEET_ID`（值貼試算表網址），再選 `setMathHeroSheet` 按「執行」（Apps Script 的執行按鈕不能帶參數，別叫使用者改程式碼）；欄位用第一列標題比對
   （班、座、姓名、年級、單元、難題、分數、答對、題數、用時）。只讀不寫；學生姓名在名單裡本來就遮過中間字。
