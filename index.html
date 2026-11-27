@@ -1836,8 +1836,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-6';
+const APP_VERSION='2026-11-27-7';
 const CHANGELOG=[
+  {v:'2026-11-27-7',d:'11/27',items:[
+    'Gemini 回「目前太忙」時，Ybot 會等兩秒半自動再試一次；還是不行，錯誤訊息會寫「對方暫時太忙，不是你的金鑰有問題」。',
+  ]},
   {v:'2026-11-27-6',d:'11/27',items:[
     '問課表、代課、第幾節誰有空這類問題，改由手機直接回答（課表只存在手機上，後台查不到），不會再答不出來。',
     'AI 全部沒有回應時，會分別寫出 Gemini、OpenAI、NVIDIA 各自的原因（金鑰無效、額度用完、連不上…），方便知道要修哪一組。',
@@ -4718,6 +4721,9 @@ async function callAI(prompt,image,opts){
           lastErr=new Error('連不上 '+(names[id]||id)+'（網路瞬斷或被擋住）。請確認網路後再送一次；若一直發生，到設定檢查這組 AI Key，或換另一組 AI。');
           if(attempt===0){await new Promise(r=>setTimeout(r,1200));continue;}
         }
+        // 對方暫時太忙（Gemini 常回「This model is currently experiencing high demand」、503）：等一下再試一次
+        const busy=/high demand|overloaded|UNAVAILABLE|\b503\b|try again later/i.test(String((e&&e.message)||e));
+        if(busy&&attempt===0){await new Promise(r=>setTimeout(r,2500));continue;}
         break;
       }
     }
@@ -4727,6 +4733,7 @@ async function callAI(prompt,image,opts){
     const why=m=>/連不上/.test(m)?'連不上（網路瞬斷或被擋住）'
       :/API key not valid|invalid.*key|Incorrect API key|401|403|unauthori/i.test(m)?'金鑰無效或沒有權限，請重新貼一次這組金鑰'
       :/quota|429|rate|exceeded|insufficient/i.test(m)?'額度用完或太頻繁，請稍後再試或檢查帳單'
+      :/high demand|overloaded|UNAVAILABLE|\b503\b|try again later/i.test(m)?'對方暫時太忙（不是你的金鑰有問題），等一兩分鐘再問一次'
       :/not found|404|deprecated|no longer/i.test(m)?'模型找不到（可能被停用了）'
       :m.slice(0,80);
     throw new Error('三組 AI 都沒有回應：\n'+fails.map(f=>'・'+(names[f.id]||f.id)+'：'+why(f.msg)).join('\n')+'\n請到「設定 → AI 設定」檢查上面標出問題的那幾組。');
