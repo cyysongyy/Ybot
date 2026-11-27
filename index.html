@@ -1836,8 +1836,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-8';
+const APP_VERSION='2026-11-27-9';
 const CHANGELOG=[
+  {v:'2026-11-27-9',d:'11/27',items:[
+    '115 課表系統裡的資料都接進 Ybot 了：課表、老師職務（導師／主任／科任），再加上每一節的上下課時間。可以問「第三節幾點上課」「星期二下午二甲導師有沒有空」。設定頁的「目前讀到的資料」會多顯示老師職務和節次時間。',
+  ]},
   {v:'2026-11-27-8',d:'11/27',items:[
     'Ybot 現在知道每位老師的職務（誰是哪一班的導師、主任、科任），資料來自 115 課表系統。可以直接問「禮拜一二年甲班導師的課表」「三甲星期三第二節是什麼課」。設定裡要開著「我的其他 App 資料」。',
   ]},
@@ -5244,7 +5247,7 @@ const TIMETABLE_SOURCES=[
 // 老師的職務（誰是哪一班的導師、主任、科任）：115 課表網頁裡的 teachersData 名單。
 // 課表本身只有「老師→每節課」，沒有這份就答不出「二甲導師的課表」這種問題。
 // 跟課表分開快取：使用者本機已經有自己的課表（下面會直接 return）時也要抓得到職務。
-const TEACHER_ROLES_KEY='ybot_teacher_roles_v1';
+const TEACHER_ROLES_KEY='ybot_teacher_roles_v2';   // v2：多存節次時間（periodTimes）
 function parseTeacherRoles(html){
   const roles={};
   const re=/\{\s*name:\s*["']([^"']+)["']\s*,\s*role:\s*["']([^"']*)["']/g;
@@ -5257,12 +5260,20 @@ async function refreshTeacherRoles(force){
   try{
     const r=await fetch(TIMETABLE_SOURCES[0].url,{cache:'no-cache'});
     if(!r.ok)return false;
-    const roles=parseTeacherRoles(await r.text());
+    const html=await r.text();
+    const roles=parseTeacherRoles(html);
     if(!roles)return false;
-    localStorage.setItem(TEACHER_ROLES_KEY,JSON.stringify({fetchedAt:new Date().toISOString(),roles}));
+    localStorage.setItem(TEACHER_ROLES_KEY,JSON.stringify({fetchedAt:new Date().toISOString(),roles,periodTimes:parsePeriodTimes(html)}));
     return true;
   }catch(e){return false;}
 }
+// 115 課表網頁的 periodTimes：每一節的上下課時間，例如 ["08:40-09:20", …]
+function parsePeriodTimes(html){
+  const m=String(html||'').match(/periodTimes\s*=\s*(\[[^\]]*\])/);
+  if(!m)return null;
+  try{const a=JSON.parse(m[1]);return Array.isArray(a)&&a.every(x=>typeof x==='string')?a:null;}catch(e){return null;}
+}
+function periodTimes(){const c=readLS(TEACHER_ROLES_KEY);return c&&Array.isArray(c.periodTimes)?c.periodTimes:null;}
 function teacherRoles(){const c=readLS(TEACHER_ROLES_KEY);return c&&c.roles&&typeof c.roles==='object'?c.roles:null;}
 async function refreshTimetableCache(force){
   refreshTeacherRoles(force);   // 不等它，抓不到也不影響課表
@@ -5298,6 +5309,8 @@ function describeAppsData(){
   const rows=[
     tt?`✅ 課表：${tt.teachers.length} 位老師、${tt.slots.length} 節 · 來源：${SRC[tt.source]||tt.source}`
       :'⏳ 課表：尚未讀到（稍等幾秒後重開設定頁，或確認網路）',
+    teacherRoles()?`✅ 老師職務：${Object.keys(teacherRoles()).length} 位${periodTimes()?`、節次時間 ${periodTimes().length} 節`:''}（來源：115 課表）`
+      :'⏳ 老師職務：尚未讀到（稍等幾秒後重開設定頁，或確認網路）',
     n(recs)?`✅ 工作記錄：${recs.length} 筆（致詞稿／公文／家長溝通等，可依提問搜尋）`
       :'➖ 工作記錄：沒有資料（需在同一瀏覽器開過校長助理並產生過記錄）',
     n(subs)?`✅ 代課紀錄：${subs.length} 筆`
@@ -5318,7 +5331,8 @@ function timetableDayLines(tt,day,label){
     const busy=tt.slots.filter(s=>s.day===day&&s.period===p);
     const busyNames=new Set(busy.map(s=>s.teacher));
     const free=teachers.filter(t=>!busyNames.has(t));
-    out.push(`第${p}節｜有課：${busy.length?busy.map(s=>`${s.teacher}(${s.label})`).join('、'):'無'}｜空堂：${free.length?free.join('、'):'無'}`);
+    const pt=periodTimes();
+    out.push(`第${p}節${pt&&pt[p-1]?`(${pt[p-1]})`:''}｜有課：${busy.length?busy.map(s=>`${s.teacher}(${s.label})`).join('、'):'無'}｜空堂：${free.length?free.join('、'):'無'}`);
   }
   return out.length?[`${label}課表：`,...out].join('\n'):'';
 }
