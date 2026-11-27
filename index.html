@@ -1214,10 +1214,22 @@ function mondayStart(taipeiLocalDate){
 }
 // 同時像是在下指令（新增/提醒/刪除等）的訊息不要攔截，怕漏掉那個指令。
 const SCHEDULE_ACTION_HINT=/新增|待辦|提醒我|加一個|加到|建立|刪除|標記|改成|改到|記一下/;
+// 只攔「短短一句、真的在查行程」的問題。以前只要出現「活動」「會議」就攔下來，
+// 結果問「圍圈活動那位老師是什麼意思」也回一串行程。拿不準就交給 AI。
+const SCHEDULE_MAX_LEN=30;
+const SCHEDULE_NOT_LOOKUP=/為什麼|為何|怎麼|如何|意思|建議|覺得|認為|看法|分析|討論|設計|規劃|準備|幫我寫|草擬|回覆|不好|問題/;
+function isScheduleQuestion(t){
+  if(t.length>SCHEDULE_MAX_LEN||SCHEDULE_NOT_LOOKUP.test(t))return false;
+  if(/行程|日曆|行事曆|排定|排好/.test(t))return true;
+  if(!/會議|課程|活動|安排/.test(t))return false;
+  // 「活動」「會議」這類詞太常見：要有查詢的問法，或整句就是「明天的會議」這種
+  return /有什麼|有哪些|有沒有|有.{0,8}嗎|有幾|幾點|什麼時候|哪些(?:會議|課程|活動)/.test(t)
+    ||/^(?:今天|今日|明天|明日|後天|(?:這|本|下)?(?:禮拜|週|星期)[一二三四五六日]?)的?(?:會議|課程|活動|安排)[？?]?$/.test(t);
+}
 function detectScheduleRange(text){
   const t=String(text||'').trim();
   if(SCHEDULE_ACTION_HINT.test(t))return null;
-  if(!/行程|日曆|行事曆|會議|課程|活動|安排|排定|排好/.test(t))return null;
+  if(!isScheduleQuestion(t))return null;
   const today=tpeNow();today.setHours(0,0,0,0);
   const addDays=n=>new Date(today.getTime()+n*86400000);
   if(/今天|今日/.test(t))return{label:'今天',start:addDays(0),end:addDays(1)};
@@ -1830,8 +1842,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-2';
+const APP_VERSION='2026-11-27-3';
 const CHANGELOG=[
+  {v:'2026-11-27-3',d:'11/27',items:[
+    '修正答非所問：問題裡只是提到「活動」「會議」時，不會再被當成查行程、回你一串行程清單。要查行程照樣可以問「明天有什麼行程」「下週有哪些會議」。',
+  ]},
   {v:'2026-11-27-2',d:'11/27',items:[
     '領導學習架構多了「老師話語背後的意義」：轉述老師說的話（例如「又來新計畫，抄一抄應付就好」「萬一成績掉了你會挺我嗎」），Ybot 會先解讀這句話背後可能的需求、怎麼核對，再給做法和你可以直接說的話。收錄 7 種常見話語。要先更新 Ybot 後台並重新部署。',
   ]},
