@@ -1836,8 +1836,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-9';
+const APP_VERSION='2026-11-27-10';
 const CHANGELOG=[
+  {v:'2026-11-27-10',d:'11/27',items:[
+    'Coach 工具箱接進 Ybot：可以問「上次觀某某老師的課記了什麼」「最近存了哪些教案」。只讀這支手機裡 Coach 存的教案和觀課筆記（錄音不讀），要開著「我的其他 App 資料」，而且要在同一個瀏覽器開過 Coach。',
+  ]},
   {v:'2026-11-27-9',d:'11/27',items:[
     '115 課表系統裡的資料都接進 Ybot 了：課表、老師職務（導師／主任／科任），再加上每一節的上下課時間。可以問「第三節幾點上課」「星期二下午二甲導師有沒有空」。設定頁的「目前讀到的資料」會多顯示老師職務和節次時間。',
   ]},
@@ -5316,6 +5319,8 @@ function describeAppsData(){
     n(subs)?`✅ 代課紀錄：${subs.length} 筆`
       :'➖ 代課紀錄：沒有資料（需在同一瀏覽器開過校長助理的調課記錄）',
     n(adm)?`✅ 行政減課：${adm.length} 筆`:'➖ 行政減課：沒有資料',
+    (n(readLS('lessonLib'))||n(coachSessions))?`✅ Coach 工具箱：教案 ${n(readLS('lessonLib'))} 份、觀課紀錄 ${n(coachSessions)} 場`
+      :'➖ Coach 工具箱：沒有資料（需在同一瀏覽器開過 Coach 工具箱）',
     n(zen)?`✅ 內在重建練習：${zen.length} 次（只送次數與時間）`
       :'➖ 內在重建練習：沒有資料'
   ];
@@ -6117,6 +6122,63 @@ function buildRecordsContext(question){
   return out.join('\n');
 }
 const paYmd=tpeYmd;   // 沿用舊名字，實作換成台北時區
+// ── Coach 工具箱（cyysongyy.github.io/coach-toolkit）──────────
+// 同網域，直接唯讀讀它存在這支手機的資料：
+//  ・已存教案 localStorage 'lessonLib'（說課／議課的教案與提問卡）
+//  ・觀課紀錄 IndexedDB 'coach-toolkit' → 'sessions'（老師、班級、主題、現場筆記；錄音不讀）
+// 只放在記憶體、不另存一份；後台 Agent 沒有這份資料，所以這類問題走手機端 AI。
+const COACH_HINTS=/觀課|議課|說課|教案|coach|教練|工具卡|觀察紀錄|入班|提問卡/i;
+function looksLikeCoachQuestion(t){return COACH_HINTS.test(String(t||''));}
+let coachSessions=null;
+// 千萬不能讓 Ybot 先「建立」這個資料庫：如果 Coach 還沒在這台手機開過，空的資料庫一旦被建出來，
+// Coach 之後用版本 1 開啟就不會再建 sessions 表，整個觀課功能會壞掉。所以沒有就直接放棄。
+function readCoachSessions(){
+  return new Promise(resolve=>{
+    let done=false;const finish=v=>{if(!done){done=true;resolve(v);}};
+    setTimeout(()=>finish(null),1500);
+    try{
+      const req=indexedDB.open('coach-toolkit');
+      req.onupgradeneeded=()=>{try{req.transaction.abort();}catch(e){}finish(null);};
+      req.onerror=()=>finish(null);
+      req.onsuccess=()=>{
+        const db=req.result;
+        try{
+          if(!db.objectStoreNames.contains('sessions')){db.close();return finish(null);}
+          const q=db.transaction('sessions','readonly').objectStore('sessions').getAll();
+          q.onsuccess=()=>{db.close();finish((q.result||[]).map(x=>({id:x.id,teacher:x.teacher||'',cls:x.cls||'',ttype:x.ttype||'',topic:x.topic||'',date:x.date||'',
+            notes:(x.notes||[]).map(n=>((n.tag?'['+n.tag+']':'')+(n.text||'')).trim()).filter(Boolean),draft:x.draftText||''})));};
+          q.onerror=()=>{db.close();finish(null);};
+        }catch(e){try{db.close();}catch(_){}finish(null);}
+      };
+    }catch(e){finish(null);}
+  });
+}
+async function refreshCoachCache(){
+  if(!state.useAppsData||!('indexedDB'in window))return;
+  const r=await readCoachSessions();
+  if(r)coachSessions=r;
+}
+function coachContext(question){
+  const q=String(question||'');
+  const lib=readLS('lessonLib');
+  const sess=Array.isArray(coachSessions)?coachSessions.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))):[];
+  const named=sess.filter(x=>x.teacher&&q.includes(x.teacher));
+  if(!looksLikeCoachQuestion(q)&&!named.length)return '';
+  const out=['Coach 工具箱（這支手機裡的資料，唯讀）：'];
+  if(Array.isArray(lib)&&lib.length){
+    out.push('已存教案（最近 10 份）：'+lib.slice(0,10).map(e=>{const f=e.form||{};
+      return `${fmtDate(e.date)}《${e.name||f.topic||'未命名'}》${f.grade?f.grade+'年級':''}${f.mode==='說課'||f.mode==='pre'?'（說課）':'（議課）'}`;}).join('；'));
+  }
+  const pick=(named.length?named:sess).slice(0,named.length?8:10);
+  if(pick.length){
+    out.push('觀課紀錄'+(named.length?'（問題裡提到的老師）':'（最近 10 場）')+'：');
+    pick.forEach(x=>{
+      const notes=x.notes.length?x.notes.join('／'):x.draft;
+      out.push(`・${fmtDate(x.date)} ${x.teacher} ${x.cls} ${x.topic}${x.ttype?'（'+x.ttype+'）':''}：${String(notes||'沒有筆記').slice(0,named.length?1200:300)}`);
+    });
+  }
+  return out.length>1?out.join('\n'):'';
+}
 function buildMyAppsContext(question){
   const lines=[];
   const now=new Date();
@@ -6189,6 +6251,8 @@ function buildMyAppsContext(question){
       lines.push(`內在重建練習（鬆弛感 App）：累積 ${zen.length} 次，最近一次是 ${days} 天前（僅提供次數與時間，內容不外流）`);
     }
   }
+  const coach=coachContext(question);
+  if(coach)lines.push(coach);
   return lines.join('\n');
 }
 function buildContextText(question){
@@ -6441,7 +6505,12 @@ async function sendChat(){
   // 附圖、沒設後台、後台沒金鑰、或後台連不上，就退回下面原本的手機端 AI。
   // 課表、代課只存在這支手機（從 115 課表系統的快取讀），後台 Agent 根本沒有這份資料，
   // 所以這類問題直接用手機端 AI 回答。2026-11-27 使用者問「禮拜一二年甲班導師的課表」答不出來。
-  const localOnly=state.useAppsData&&looksLikeTimetableQuestion(text);
+  // Coach 的教案、觀課紀錄也一樣只在這支手機。
+  // 只有這支手機真的有 Coach 資料時才這樣做，不然「老師抗拒觀課怎麼辦」這類問題照常交給後台。
+  const hasCoach=(Array.isArray(coachSessions)&&coachSessions.length>0)||(Array.isArray(readLS('lessonLib'))&&readLS('lessonLib').length>0);
+  const localOnly=state.useAppsData&&(looksLikeTimetableQuestion(text)||(hasCoach&&(looksLikeCoachQuestion(text)||
+    (Array.isArray(coachSessions)&&coachSessions.some(x=>x.teacher&&text.includes(x.teacher))))));
+  if(localOnly)await refreshCoachCache();
   if(!image&&!localOnly&&state.agentMode!==false&&state.gasUrl){
     const handled=await sendChatViaAgent(text,byVoice);
     if(handled){sendBtn.disabled=false;setSendLabel('送出');return;}
@@ -6831,7 +6900,7 @@ renderOverview();
 if(state.gasUrl)refreshContext();
 tryAutoLocate();
 // 課表快取在背景補齊，抓完就寫進 localStorage，下一次對話就讀得到。
-if(state.useAppsData)refreshTimetableCache();
+if(state.useAppsData){refreshTimetableCache();refreshCoachCache();}
 // 圍圈輪值名單同樣在背景補齊（寫死在校務系統原始碼裡，localStorage 撈不到）。
 if(state.useSchoolDb)refreshSelRotationCache();
 // 一開頁就把 Firebase auth 監聽器接上，這樣上次登入過的話會自動恢復登入狀態
