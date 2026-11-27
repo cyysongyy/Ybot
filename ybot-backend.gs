@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-27-4';
+const BACKEND_VERSION = '2026-11-27-5';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -1453,7 +1453,10 @@ function telegramWatchImpl() {
 // 學生在 https://cyysongyy.github.io/math-hero/ 交卷後，成績由 math-hero 自己的 Apps Script 寫進老師的試算表。
 // 這裡每 10 分鐘（跟著 telegramWatch）讀那份試算表新增的列，有新的就傳一則簡報到 Telegram。
 // 只讀不寫。學生姓名在 math-hero 名單裡本來就是遮過中間字的（例如「王0明」）。
-// 設定：在編輯器執行一次 setMathHeroSheet('試算表網址或ID')，會自動找有「單元」和「分數」欄位的分頁。
+// 設定（兩種都可以）：
+//  A. 專案設定 → 指令碼屬性 → 新增 MATHHERO_SHEET_ID，值貼成績試算表的網址 → 在編輯器選 setMathHeroSheet 按「執行」。
+//  B. 在編輯器執行 setMathHeroSheet('試算表網址或ID')。
+// 會自動找有「單元」和「分數」欄位的分頁。
 const MH_SHEET_PROP = 'MATHHERO_SHEET_ID';
 const MH_TAB_PROP = 'MATHHERO_TAB';
 const MH_ROW_PROP = 'MATHHERO_LAST_ROW';
@@ -1483,8 +1486,9 @@ function mhFindTab(ss, tabName) {
   return null;
 }
 function setMathHeroSheet(urlOrId, tabName) {
-  const id = mhSheetId(urlOrId);
-  if (!id) throw new Error('請在括號裡貼上數學英雄成績試算表的網址，例如 setMathHeroSheet(\'https://docs.google.com/spreadsheets/d/…/edit\')');
+  // 從「執行」按鈕跑的時候沒有參數，改讀指令碼屬性裡的 MATHHERO_SHEET_ID（可以貼整個網址）
+  const id = mhSheetId(urlOrId || PropertiesService.getScriptProperties().getProperty(MH_SHEET_PROP));
+  if (!id) throw new Error('還沒有成績試算表的網址：請到「專案設定 → 指令碼屬性」新增 MATHHERO_SHEET_ID，值貼上數學英雄成績試算表的網址，存好後再執行一次 setMathHeroSheet。');
   const ss = SpreadsheetApp.openById(id);
   const tab = mhFindTab(ss, tabName);
   if (!tab) throw new Error('在「' + ss.getName() + '」裡找不到第一列有「單元」和「分數」的分頁。分頁有：' +
@@ -1510,8 +1514,8 @@ function mhLine(r, c) {
 }
 function mathHeroWatch() {
   const p = PropertiesService.getScriptProperties();
-  const id = p.getProperty(MH_SHEET_PROP);
-  if (!id) return;
+  const id = mhSheetId(p.getProperty(MH_SHEET_PROP));
+  if (!id || p.getProperty(MH_ROW_PROP) === null) return;   // 還沒執行過 setMathHeroSheet：先不動，免得把舊紀錄全部傳出去
   const ss = SpreadsheetApp.openById(id);
   const tab = mhFindTab(ss, p.getProperty(MH_TAB_PROP));
   if (!tab) return;
