@@ -1836,8 +1836,11 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-7';
+const APP_VERSION='2026-11-27-8';
 const CHANGELOG=[
+  {v:'2026-11-27-8',d:'11/27',items:[
+    'Ybot 現在知道每位老師的職務（誰是哪一班的導師、主任、科任），資料來自 115 課表系統。可以直接問「禮拜一二年甲班導師的課表」「三甲星期三第二節是什麼課」。設定裡要開著「我的其他 App 資料」。',
+  ]},
   {v:'2026-11-27-7',d:'11/27',items:[
     'Gemini 回「目前太忙」時，Ybot 會等兩秒半自動再試一次；還是不行，錯誤訊息會寫「對方暫時太忙，不是你的金鑰有問題」。',
   ]},
@@ -5238,7 +5241,31 @@ const TIMETABLE_SOURCES=[
    re:/var preloaded=(\{[\s\S]*?\});/,
    build:o=>o&&Array.isArray(o.rows)?timetableFromPaRows(o.rows,'pa-embedded'):null}
 ];
+// 老師的職務（誰是哪一班的導師、主任、科任）：115 課表網頁裡的 teachersData 名單。
+// 課表本身只有「老師→每節課」，沒有這份就答不出「二甲導師的課表」這種問題。
+// 跟課表分開快取：使用者本機已經有自己的課表（下面會直接 return）時也要抓得到職務。
+const TEACHER_ROLES_KEY='ybot_teacher_roles_v1';
+function parseTeacherRoles(html){
+  const roles={};
+  const re=/\{\s*name:\s*["']([^"']+)["']\s*,\s*role:\s*["']([^"']*)["']/g;
+  let m;while((m=re.exec(String(html||''))))roles[m[1].trim()]=m[2].trim();
+  return Object.keys(roles).length?roles:null;
+}
+async function refreshTeacherRoles(force){
+  const cached=readLS(TEACHER_ROLES_KEY);
+  if(!force&&cached&&cached.fetchedAt&&Date.now()-new Date(cached.fetchedAt).getTime()<7*86400000)return false;
+  try{
+    const r=await fetch(TIMETABLE_SOURCES[0].url,{cache:'no-cache'});
+    if(!r.ok)return false;
+    const roles=parseTeacherRoles(await r.text());
+    if(!roles)return false;
+    localStorage.setItem(TEACHER_ROLES_KEY,JSON.stringify({fetchedAt:new Date().toISOString(),roles}));
+    return true;
+  }catch(e){return false;}
+}
+function teacherRoles(){const c=readLS(TEACHER_ROLES_KEY);return c&&c.roles&&typeof c.roles==='object'?c.roles:null;}
 async function refreshTimetableCache(force){
+  refreshTeacherRoles(force);   // 不等它，抓不到也不影響課表
   // 本機已經有真實課表（使用者開過／編輯過那些 App）就不用抓，那份比較新。
   if(readLS('pa_schedule')||readLS('school_schedule_data'))return false;
   const cached=readLS(TIMETABLE_CACHE_KEY);
@@ -6088,6 +6115,16 @@ function buildMyAppsContext(question){
     lines.push(is115
       ? '課表來源：115 課表系統（正確版本）。課程代碼的第一個字是年級，例如「二數」＝二年級數學、「五自」＝五年級自然、「一國」＝一年級國語。'
       : '⚠️ 課表來源：校長助理的內建課表（備援，內容可能不是最新、不一定正確）。回答時要提醒使用者去 115 課表系統確認。');
+    const roles=teacherRoles();
+    if(roles){
+      lines.push('老師職務（課表裡的老師名字就是這些人）：'+Object.keys(roles).map(n=>`${n}＝${roles[n]||'未註明'}`).join('、'));
+      // 名單裡的導師如果都是「X甲導師」、每個年級只出現一次，代表每個年級只有一班，
+      // 「二數」這種代碼就是二甲的數學課。AI 問「二甲的課表」時才知道要把所有「二」開頭的課找出來。
+      const homerooms=Object.values(roles).map(r=>String(r).match(/^([一二三四五六])([甲乙丙丁戊])班?導師/)).filter(Boolean);
+      const grades=homerooms.map(m=>m[1]);
+      if(homerooms.length&&homerooms.every(m=>m[2]==='甲')&&new Set(grades).size===grades.length)
+        lines.push('這所學校每個年級只有一班（甲班）：課程代碼第一個字是年級，所以「二數」「二國」就是二甲的課。問某位導師的課表，就找那位老師名字底下的每一節；問某一班的課表，就找所有該年級開頭的課。');
+    }
     const todayIdx=schoolDayIndex(now),tomorrowIdx=schoolDayIndex(tomorrow);
     for(let d=1;d<=5;d++){
       const tag=d===todayIdx?'（今天）':d===tomorrowIdx?'（明天）':'';
