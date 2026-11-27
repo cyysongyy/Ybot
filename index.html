@@ -1836,8 +1836,12 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-5';
+const APP_VERSION='2026-11-27-6';
 const CHANGELOG=[
+  {v:'2026-11-27-6',d:'11/27',items:[
+    '問課表、代課、第幾節誰有空這類問題，改由手機直接回答（課表只存在手機上，後台查不到），不會再答不出來。',
+    'AI 全部沒有回應時，會分別寫出 Gemini、OpenAI、NVIDIA 各自的原因（金鑰無效、額度用完、連不上…），方便知道要修哪一組。',
+  ]},
   {v:'2026-11-27-5',d:'11/27',items:[
     '數學英雄（math-hero）有學生交卷時，Telegram 會在 10 分鐘內收到簡報：幾筆、平均幾分，以及每筆的班級座號、單元和分數。要先更新 Ybot 後台，並在 Apps Script 在 Apps Script 的「指令碼屬性」新增 MATHHERO_SHEET_ID（值貼成績試算表網址），再執行一次 setMathHeroSheet。',
   ]},
@@ -4701,6 +4705,8 @@ async function callAI(prompt,image,opts){
   if(!order.length)throw new Error('請先在「設定」填入至少一組 AI API Key');
   let lastErr;
   const names={gemini:'Gemini',openai:'OpenAI',nvidia:'NVIDIA'};
+  // 每一組失敗的原因都記下來：以前只顯示最後一組（常是 NVIDIA）的錯，看不出 Gemini／OpenAI 為什麼沒過。
+  const fails=[];
   for(const id of order){
     // 手機瀏覽器的網路偶爾會瞬斷（Safari 只會丟「Load failed」），同一組先自動再試一次。
     for(let attempt=0;attempt<2;attempt++){
@@ -4715,6 +4721,15 @@ async function callAI(prompt,image,opts){
         break;
       }
     }
+    if(lastErr)fails.push({id,msg:String((lastErr&&lastErr.message)||lastErr)});
+  }
+  if(fails.length>1){
+    const why=m=>/連不上/.test(m)?'連不上（網路瞬斷或被擋住）'
+      :/API key not valid|invalid.*key|Incorrect API key|401|403|unauthori/i.test(m)?'金鑰無效或沒有權限，請重新貼一次這組金鑰'
+      :/quota|429|rate|exceeded|insufficient/i.test(m)?'額度用完或太頻繁，請稍後再試或檢查帳單'
+      :/not found|404|deprecated|no longer/i.test(m)?'模型找不到（可能被停用了）'
+      :m.slice(0,80);
+    throw new Error('三組 AI 都沒有回應：\n'+fails.map(f=>'・'+(names[f.id]||f.id)+'：'+why(f.msg)).join('\n')+'\n請到「設定 → AI 設定」檢查上面標出問題的那幾組。');
   }
   throw lastErr||new Error('AI 呼叫失敗');
 }
@@ -6341,6 +6356,8 @@ function setSendLabel(t){
   const s=document.querySelector('#sendBtn .sendLabel');
   if(s)s.textContent=t;
 }
+const TIMETABLE_HINTS=/課表|第[一二三四五六七八1-8]節|幾節|代課|空堂|有空.{0,4}(老師|節)|誰.{0,4}(上課|有課)|節課/;
+function looksLikeTimetableQuestion(t){return TIMETABLE_HINTS.test(String(t||''));}
 async function sendChat(){
   const input=document.getElementById('chatInput');
   const text=input.value.trim();
@@ -6364,7 +6381,10 @@ async function sendChat(){
   const sendBtn=document.getElementById('sendBtn');sendBtn.disabled=true;setSendLabel('思考中…');
   // 後台 Agent：AI 自己決定要查持股／檢驗／行事曆／郵件、要加什麼，做完才回話。
   // 附圖、沒設後台、後台沒金鑰、或後台連不上，就退回下面原本的手機端 AI。
-  if(!image&&state.agentMode!==false&&state.gasUrl){
+  // 課表、代課只存在這支手機（從 115 課表系統的快取讀），後台 Agent 根本沒有這份資料，
+  // 所以這類問題直接用手機端 AI 回答。2026-11-27 使用者問「禮拜一二年甲班導師的課表」答不出來。
+  const localOnly=state.useAppsData&&looksLikeTimetableQuestion(text);
+  if(!image&&!localOnly&&state.agentMode!==false&&state.gasUrl){
     const handled=await sendChatViaAgent(text,byVoice);
     if(handled){sendBtn.disabled=false;setSendLabel('送出');return;}
   }
