@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-27-3';
+const BACKEND_VERSION = '2026-11-27-4';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -1446,6 +1446,90 @@ function telegramWatchImpl() {
     catch (err) { /* 這次失敗就下次再試，不記成已送 */ }
   });
   if (changed) p.setProperty(TG_SENT_PROP, JSON.stringify(sent.slice(-500)));
+  try { mathHeroWatch(); } catch (err) { /* 數學英雄的試算表讀不到就跳過，不影響其他通知 */ }
+}
+
+// ── 🧮 數學英雄（math-hero）作答簡報 ───────────────────
+// 學生在 https://cyysongyy.github.io/math-hero/ 交卷後，成績由 math-hero 自己的 Apps Script 寫進老師的試算表。
+// 這裡每 10 分鐘（跟著 telegramWatch）讀那份試算表新增的列，有新的就傳一則簡報到 Telegram。
+// 只讀不寫。學生姓名在 math-hero 名單裡本來就是遮過中間字的（例如「王0明」）。
+// 設定：在編輯器執行一次 setMathHeroSheet('試算表網址或ID')，會自動找有「單元」和「分數」欄位的分頁。
+const MH_SHEET_PROP = 'MATHHERO_SHEET_ID';
+const MH_TAB_PROP = 'MATHHERO_TAB';
+const MH_ROW_PROP = 'MATHHERO_LAST_ROW';
+const MH_MAX_LINES = 15;
+function mhSheetId(urlOrId) {
+  const m = String(urlOrId || '').match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : String(urlOrId || '').trim();
+}
+// 依第一列的標題找欄位；找不到的欄位就是 -1
+function mhCols(head) {
+  const h = head.map(x => String(x).trim());
+  const find = re => h.findIndex(x => re.test(x));
+  return {
+    time: find(/時間|日期|timestamp|^t$/i), cls: find(/班/), seat: find(/座/), name: find(/姓名|名字|name/i),
+    grade: find(/年級|學期|grade/i), unit: find(/單元|unit/i), hard: find(/難題|hard/i),
+    score: find(/分數|得分|score/i), right: find(/答對|right/i), total: find(/題數|總題|total/i), dur: find(/用時|作答時間|duration|耗時/i)
+  };
+}
+function mhFindTab(ss, tabName) {
+  if (tabName) { const t = ss.getSheetByName(tabName); if (t) return t; }
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    if (sheets[i].getLastRow() < 1) continue;
+    const c = mhCols(sheets[i].getRange(1, 1, 1, sheets[i].getLastColumn()).getValues()[0]);
+    if (c.unit >= 0 && c.score >= 0) return sheets[i];
+  }
+  return null;
+}
+function setMathHeroSheet(urlOrId, tabName) {
+  const id = mhSheetId(urlOrId);
+  if (!id) throw new Error('請在括號裡貼上數學英雄成績試算表的網址，例如 setMathHeroSheet(\'https://docs.google.com/spreadsheets/d/…/edit\')');
+  const ss = SpreadsheetApp.openById(id);
+  const tab = mhFindTab(ss, tabName);
+  if (!tab) throw new Error('在「' + ss.getName() + '」裡找不到第一列有「單元」和「分數」的分頁。分頁有：' +
+    ss.getSheets().map(x => x.getName()).join('、') + '。請用 setMathHeroSheet(\'網址\', \'分頁名稱\') 指定。');
+  const p = PropertiesService.getScriptProperties();
+  p.setProperty(MH_SHEET_PROP, id);
+  p.setProperty(MH_TAB_PROP, tab.getName());
+  p.setProperty(MH_ROW_PROP, String(tab.getLastRow()));   // 從現在開始算，舊紀錄不補傳
+  const head = tab.getRange(1, 1, 1, tab.getLastColumn()).getValues()[0];
+  const msg = '✅ 已連上「' + ss.getName() + '」的「' + tab.getName() + '」分頁（目前 ' + Math.max(0, tab.getLastRow() - 1) +
+    ' 筆）。之後學生交卷，Telegram 會在 10 分鐘內收到簡報。欄位：' + head.join('、');
+  console.log(msg);
+  return msg;
+}
+function mhLine(r, c) {
+  const v = i => (i >= 0 && r[i] !== '' && r[i] !== null && r[i] !== undefined) ? String(r[i]).trim() : '';
+  const who = [v(c.cls), v(c.seat) ? v(c.seat) + '號' : '', v(c.name)].filter(Boolean).join(' ');
+  const hard = c.hard >= 0 && /^(1|true|是|y)$/i.test(v(c.hard)) && v(c.unit).indexOf('難題') < 0 ? '（難題）' : '';
+  const what = [v(c.grade), v(c.unit) + hard].filter(Boolean).join(' ');
+  const sc = v(c.score) ? v(c.score) + ' 分' + (v(c.right) && v(c.total) ? '（' + v(c.right) + '/' + v(c.total) + '）' : '') : '';
+  const parts = [who, what, sc, v(c.dur)].filter(Boolean);
+  return parts.length ? parts.join('｜') : r.filter(x => x !== '').join(' ');
+}
+function mathHeroWatch() {
+  const p = PropertiesService.getScriptProperties();
+  const id = p.getProperty(MH_SHEET_PROP);
+  if (!id) return;
+  const ss = SpreadsheetApp.openById(id);
+  const tab = mhFindTab(ss, p.getProperty(MH_TAB_PROP));
+  if (!tab) return;
+  const last = tab.getLastRow();
+  let done = Number(p.getProperty(MH_ROW_PROP) || 0);
+  if (last < done) done = Math.max(1, last);   // 有人刪了列：從目前最後一列重新算
+  if (last <= done || last < 2) return;
+  const from = Math.max(2, done + 1);
+  const width = tab.getLastColumn();
+  const c = mhCols(tab.getRange(1, 1, 1, width).getValues()[0]);
+  const rows = tab.getRange(from, 1, last - from + 1, width).getValues().filter(r => r.some(x => x !== ''));
+  if (!rows.length) { p.setProperty(MH_ROW_PROP, String(last)); return; }
+  const scores = c.score >= 0 ? rows.map(r => Number(r[c.score])).filter(n => !isNaN(n)) : [];
+  const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+  const lines = rows.slice(0, MH_MAX_LINES).map(r => '・' + mhLine(r, c));
+  if (rows.length > MH_MAX_LINES) lines.push('…另有 ' + (rows.length - MH_MAX_LINES) + ' 筆');
+  telegramSend('🧮 數學英雄：剛有 ' + rows.length + ' 筆交卷' + (avg !== null ? '，平均 ' + avg + ' 分' : '') + '\n' + lines.join('\n'));
+  p.setProperty(MH_ROW_PROP, String(last));   // 傳成功才記，失敗下次補傳
 }
 const TG_EVENT_LEAD_MS = 30 * 60000;
 // 只抓接下來 30 分鐘內「還沒開始」的行程，連地點一起，給行程前提醒用。
