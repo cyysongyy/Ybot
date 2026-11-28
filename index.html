@@ -1836,8 +1836,13 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-27-10';
+const APP_VERSION='2026-11-28';
 const CHANGELOG=[
+  {v:'2026-11-28',d:'11/28',items:[
+    '現在查行程、手機端備用 AI、會議整理、鬆弛練習的回答，下面也有 👍／👎 了。',
+    '記憶保護補上缺口：手機端備用 AI 和會議整理想「記住」或「忘記」時，也要你按核准才生效。',
+    '要先更新 Ybot 後台，新的 👍／👎 才存得起來：設定頁按「📋 複製最新後台程式」貼進 Apps Script、存檔，再用「管理部署作業」建立新版本。',
+  ]},
   {v:'2026-11-27-10',d:'11/27',items:[
     'Coach 工具箱接進 Ybot：可以問「上次觀某某老師的課記了什麼」「最近存了哪些教案」。只讀這支手機裡 Coach 存的教案和觀課筆記（錄音不讀），要開著「我的其他 App 資料」，而且要在同一個瀏覽器開過 Coach。',
   ]},
@@ -2865,11 +2870,11 @@ async function meetingFinish(transcript,mins){
     const raw=await callAI(MEETING_GUIDE+'\n\n今天是 '+stamp+'。\n\n逐字稿：\n'+transcript);
     const{text:summary,actions}=parseChatActions(raw||'');
     state.chat.push({role:'user',text:'📋 會議記錄（'+stamp+'，約 '+mins+' 分鐘）'});
-    state.chat.push({role:'bot',text:summary||'（沒有整理出內容，逐字稿已存在筆記裡）'});
+    state.chat.push(localReply('app-meeting',summary||'（沒有整理出內容，逐字稿已存在筆記裡）','會議記錄整理',{ext:true,outcome:summary?'ok':'ai_error'}));
     save();renderChat();
     if(actions&&actions.length){
       const log=await execChatActions(actions);
-      for(const e of log)state.chat.push({role:'sys',text:e.text,...(e.undo?{undo:e.undo}:{})});
+      for(const e of log)state.chat.push({role:'sys',text:e.text,...(e.undo?{undo:e.undo}:{}),...(e.mem?{mem:e.mem}:{})});
       save();renderChat();
     }
     if(summary)qaAdd('會議重點：'+stamp,summary,'meeting');
@@ -3521,7 +3526,7 @@ function saveRelaxNote(body,original){
 // 回應那則帶 undo，按「↩ 復原」會把存起來的心法刪掉，跟其他動作一致。
 function pushRelaxToChat(body,original,noteId){
   state.chat.push({role:'user',text:'🌿 '+original});
-  state.chat.push({role:'bot',text:body,undo:{op:'add_note',id:noteId}});
+  state.chat.push(localReply('app-relax',body,'鬆弛練習',{undo:{op:'add_note',id:noteId}}));
   save();renderChat();
 }
 
@@ -4817,9 +4822,37 @@ function renderChat(){
   }).join('');
   box.scrollTop=box.scrollHeight;
 }
-// 👍／👎：只有後台 agent 的回答有 runId。
+function decideLocalMemory(m,approve){
+  const mem=m.mem;
+  delete m.mem;
+  if(Date.now()-mem.at>LOCAL_MEM_DAYS*86400000)m.text+='\n超過 '+LOCAL_MEM_DAYS+' 天，已失效';
+  else if(!approve)m.text+='\n❌ 已取消，記憶沒有變動';
+  else if(mem.op==='forget'){profileDelete(mem.targetId);m.text+='\n✅ 已忘記';}
+  else{profileAdd(mem.text,'ai');renderProfileList();m.text+='\n✅ 已記住';}
+  save();renderChat();
+}
+// 沒經過後台 agent 的回答（查行程捷徑、手機端 AI、會議整理、鬆弛練習）：
+// 自己編一個紀錄編號。紀錄只送管道和成敗；問題等按 👎 才送出去。
+function localReply(channel,text,question,opts){
+  const id='l'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+  const m={role:'bot',text,runId:id,local:{channel,q:String(question||'').slice(0,500),outcome:(opts&&opts.outcome)||'ok'}};
+  if(opts&&opts.ext)m.ext=true;
+  if(opts&&opts.undo)m.undo=opts.undo;
+  if(state.gasUrl)gasPost({action:'logReply',runId:id,channel,outcome:m.local.outcome}).catch(()=>{});
+  return m;
+}
+function feedbackBody(m,rating,comment){
+  const body={action:'agentFeedback',runId:m.runId,rating};
+  if(comment!==undefined)body.comment=comment;
+  if(m.local){
+    body.local={channel:m.local.channel,outcome:m.local.outcome};
+    if(rating==='down')body.question=m.local.q;
+  }
+  return body;
+}
+// 👍／👎：有紀錄編號的回答才顯示；沒接後台就沒地方存，也不顯示。
 function feedbackRow(m,i){
-  if(m.role!=='bot'||!m.runId)return '';
+  if(m.role!=='bot'||!m.runId||!state.gasUrl)return '';
   const on=v=>m.rating===v?' on':'';
   let h=`<button class="fbBtn${on('up')}" aria-label="回答得好" onclick="rateReply(${i},'up')">👍</button><button class="fbBtn${on('down')}" aria-label="回答得不好" onclick="rateReply(${i},'down')">👎</button>`;
   if(m.rating==='down'){
@@ -4841,7 +4874,7 @@ async function rateReply(i,rating){
   const m=state.chat[i];
   if(!m||!m.runId||m.rating===rating)return;
   try{
-    const d=await loopPost({action:'agentFeedback',runId:m.runId,rating});
+    const d=await loopPost(feedbackBody(m,rating));
     if(!d||!d.ok){loopFail('評分沒有存到：'+((d&&d.error)||'後台沒有回覆'));return;}
     m.rating=rating;delete m.noteSent;save();renderChat();
   }catch(e){loopFail('評分沒有存到：'+gasErrText(e));}
@@ -4852,7 +4885,7 @@ async function sendReplyNote(i){
   const comment=el?el.value.trim():'';
   if(!m||!m.runId||!comment)return;
   try{
-    const d=await loopPost({action:'agentFeedback',runId:m.runId,rating:'down',comment});
+    const d=await loopPost(feedbackBody(m,'down',comment));
     if(!d||!d.ok){loopFail('建議沒有存到：'+((d&&d.error)||'後台沒有回覆'));return;}
     m.noteSent=true;save();renderChat();
   }catch(e){loopFail('建議沒有存到：'+gasErrText(e));}
@@ -4861,6 +4894,7 @@ async function decideMemory(i,approve){
   const m=state.chat[i];
   if(!m||!m.mem||m.deciding)return;
   const mem=m.mem;
+  if(mem.local){decideLocalMemory(m,approve);return;}
   m.deciding=true;
   try{
     const d=await loopPost({action:'memoryDecision',id:mem.id,approve});
@@ -6368,10 +6402,19 @@ function resolveNote(a,undoneOnly){
   if(matches.length>1)return{error:`「${a.match}」符合多筆：${matches.map(n=>`[${n.id}]${n.content}`).join('、')}；請改用 id 指定`};
   return{note:matches[0]};
 }
-// 回傳 [{text, undo?}]：text 顯示給使用者，undo 存在時該則訊息會長出「↩ 復原」按鈕。
+const LOCAL_MEM_MAX=300,LOCAL_MEM_PER_REPLY=3,LOCAL_MEM_DAYS=7;
+// 回傳 [{text, undo?, mem?}]：text 顯示給使用者，undo 存在時該則訊息會長出「↩ 復原」按鈕。
 async function execChatActions(actions){
   const log=[];
   const add=(text,undo)=>log.push(undo?{text,undo}:{text});
+  // 手機端 AI 看得到信件主旨與行事曆（會議整理看的是別人講的話），所以記憶一律先問過再動。
+  let asked=0;
+  const askMemory=(op,text,targetId)=>{
+    if(asked>=LOCAL_MEM_PER_REPLY)return;
+    asked++;
+    log.push({text:'🛡️ 要'+(op==='forget'?'忘記':'記住')+'這一條嗎？（手機端 AI 提出的）\n「'+text+'」',
+      mem:{local:true,op,text,targetId:targetId||'',at:Date.now()}});
+  };
   for(const a of actions){
     try{
       if(a.op==='add_note'){
@@ -6406,12 +6449,14 @@ async function execChatActions(actions){
         deleteNote(id);
         add(`🗑️ 已刪除：${label}`,{op:'delete_note',id});
       }else if(a.op==='remember'){
-        const rec=profileAdd(a.text,'ai');
-        // 重複的就安靜跳過，不要每次對話都冒一則「已記住」洗版
-        if(rec)add(`🧠 記住了：${rec.text}`,{op:'remember',id:rec.id});
+        const t=String(a.text||'').trim();
+        // 重複的就安靜跳過
+        if(!t||profileList().some(x=>String(x.text||'').trim()===t))continue;
+        if(t.length>LOCAL_MEM_MAX){add('⚠️ 想記的內容太長，這次沒有記');continue;}
+        askMemory('remember',t);
       }else if(a.op==='forget'){
-        const gone=profileList().find(x=>x.id===a.id);
-        if(gone){profileDelete(a.id);add(`🧠 忘掉了：${gone.text}`);}
+        const target=profileList().find(x=>x.id===a.id);
+        if(target)askMemory('forget',target.text,target.id);
       }else if(a.op==='update_note'){
         const r=resolveNote(a);
         if(!r.note){add('⚠️ '+r.error);continue;}
@@ -6493,7 +6538,7 @@ async function sendChat(){
   const scheduleRange=(!image)?detectScheduleRange(text):null;
   if(scheduleRange){
     const reply=answerScheduleRange(scheduleRange);
-    state.chat.push({role:'bot',text:reply});
+    state.chat.push(localReply('app-schedule',reply,text,{ext:true}));
     save();renderChat();
     if(byVoice)speakText(reply);
     qaAdd(text,reply,'chat');
@@ -6536,6 +6581,7 @@ async function sendChat(){
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 - owner 是「這件事誰要去做」。使用者說「請陳主任處理」「交給總務」就填進去；他自己要做的就不要填。填了之後這筆會出現在「🤝 我交辦的」清單裡，提醒他去追進度——所以不要把自己的事也填上他的名字。
+- remember 和 forget 要等使用者按核准才生效，回覆裡不可以說「已經記住了」或「已經忘掉了」。
 - remember 用在「以後每次對話都用得到」的事：怎麼稱呼某個人、偏好多長的回答、固定的做事方式、職務與負責範圍、在意什麼。**不要**拿它記一次性的待辦、當下的心情、或這次問題的答案——那些本來就會進待辦和問答庫。一次對話最多記一件事，沒有真正新的就不要記。
 - 上面「關於使用者」那段每條前面的 [pxxxxx] 就是記憶 id。使用者說某條已經不成立了（換職務、改習慣），用 forget 指名刪掉。
 一次可以有多個 actions。
@@ -6556,7 +6602,7 @@ ${buildDateRef(21)}
   try{
     const raw=await callAI(prompt,image,prepping?{maxTokens:RELAX_MAX_TOKENS}:null);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
-    state.chat.push({role:'bot',text:replyText||'（沒有取得回覆，請確認 AI 設定）'});
+    state.chat.push(localReply('app-phone',replyText||'（沒有取得回覆，請確認 AI 設定）',text,{ext:true,outcome:replyText?'ok':'ai_error'}));
     // 用說的問的，答案就念出來。speakText 自己會看 🔊 朗讀 開關，
     // 關著就安靜（在安靜的場合可以直接關掉）。
     if(byVoice&&replyText)speakText(replyText);
@@ -6570,11 +6616,11 @@ ${buildDateRef(21)}
     if(actions.length){
       // 一個動作一則訊息，這樣每則才能各自帶自己的「↩ 復原」按鈕。
       const log=await execChatActions(actions);
-      for(const entry of log)state.chat.push({role:'sys',text:entry.text,...(entry.undo?{undo:entry.undo}:{})});
+      for(const entry of log)state.chat.push({role:'sys',text:entry.text,...(entry.undo?{undo:entry.undo}:{}),...(entry.mem?{mem:entry.mem}:{})});
       if(log.length){save();renderChat();}
     }
   }catch(e){
-    state.chat.push({role:'bot',text:'⚠️ '+e.message});
+    state.chat.push(localReply('app-phone','⚠️ '+e.message,text,{outcome:'ai_error'}));
     save();renderChat();
   }finally{
     // 放在 finally，動作執行那段丟錯時送出鍵才不會永遠卡在「思考中…」。

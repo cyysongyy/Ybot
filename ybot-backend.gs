@@ -42,7 +42,7 @@
 // ── 試算表設定 ──────────────────────────────────
 // 後台版本：每次改這個檔案就把日期往後改。前端設定頁會拿它跟 GitHub 上的最新版比，
 // 不一樣就提醒「後台還沒更新」——不然貼新程式這一步漏了，手機上完全看不出來。
-const BACKEND_VERSION = '2026-11-27-5';
+const BACKEND_VERSION = '2026-11-28';
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 const NOTE_SHEET = '待辦與筆記';
 const KV_SHEET = '個人設定';
@@ -418,8 +418,13 @@ function doPost(e) {
       runId: r.runId || '', outside: !!r.outside, pending: r.pending || [] });
   }
   if (action === 'agentFeedback') {
-    const res = runFeedback(body.runId, body.rating, body.comment);
+    const valid = body.rating === 'up' || body.rating === 'down';
+    if (body.local && valid) runEnsureLocal(body.runId, body.local);   // 當初沒記到就現在補
+    const res = runFeedback(body.runId, body.rating, body.comment, body.local ? body.question : '');
     return jsonResp(res);
+  }
+  if (action === 'logReply') {
+    return jsonResp({ ok: runEnsureLocal(body.runId, body) });
   }
   if (action === 'memoryDecision') {
     return jsonResp(memDecide(body.id, body.approve === true));
@@ -3496,16 +3501,19 @@ function memDecide(id, approve) {
 
 // ── 執行紀錄 ──
 function runSheet() { return ensureSheet(RUN_SHEET, RUN_COLS); }
+// 依時間順序寫入，過期的一定在最上面；每次最多清 20 列
+function runPrune(sh) {
+  for (let i = 0; i < 20 && sh.getLastRow() > 1; i++) {
+    const at = new Date(sh.getRange(2, 2).getValue()).getTime();
+    if (!(Date.now() - at > RUN_KEEP_DAYS * 86400000)) break;
+    sh.deleteRow(2);
+  }
+}
 // 紀錄失敗絕對不能影響回答，所以整段包起來；失敗回空字串（就不顯示 👍/👎）。
 function runLog(question, info) {
   try {
     const sh = runSheet();
-    // 依時間順序寫入，過期的一定在最上面；每次最多清 20 列
-    for (let i = 0; i < 20 && sh.getLastRow() > 1; i++) {
-      const at = new Date(sh.getRange(2, 2).getValue()).getTime();
-      if (!(Date.now() - at > RUN_KEEP_DAYS * 86400000)) break;
-      sh.deleteRow(2);
-    }
+    runPrune(sh);
     const id = Utilities.getUuid();
     // 工具名稱只收清單裡有的，AI 亂編的名稱不寫進試算表
     const name = s => agentToolByName(s.tool) ? s.tool : '(unknown)';
@@ -3519,14 +3527,34 @@ function runLog(question, info) {
     return id;
   } catch (e) { return ''; }
 }
-function runFeedback(runId, rating, comment) {
+// 沒經過後台 agent 的回答由手機自己編號。管道和結果只收清單裡有的值。
+const RUN_LOCAL_CHANNELS = ['app-schedule', 'app-phone', 'app-meeting', 'app-relax'];
+function runEnsureLocal(runId, info) {
+  const id = String(runId || '');
+  if (!/^l[0-9a-z]{10,40}$/.test(id) || !info || RUN_LOCAL_CHANNELS.indexOf(info.channel) < 0) return false;
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);   // 紀錄和評分可能同時到，避免寫成兩列
+    const sh = runSheet();
+    if (!sheetToObjects(sh, RUN_COLS).some(r => String(r.id) === id)) {
+      runPrune(sh);
+      appendObj(sh, RUN_COLS, {
+        id: id, at: new Date().toISOString(), channel: info.channel, tools: '', failed: '',
+        outcome: info.outcome === 'ai_error' ? 'ai_error' : 'ok', steps: '', seconds: '', rating: '', comment: '', question: ''
+      });
+    }
+    return true;
+  } catch (e) { return false; }
+  finally { try { lock.releaseLock(); } catch (e) { /* 沒拿到鎖就不用放 */ } }
+}
+function runFeedback(runId, rating, comment, localQuestion) {
   if (rating !== 'up' && rating !== 'down') return { ok: false, error: '評分只能是 up 或 down' };
   const sh = runSheet();
   const row = sheetToObjects(sh, RUN_COLS).find(r => String(r.id) === String(runId || ''));
   if (!row) return { ok: false, error: '找不到這次紀錄（可能已超過保存期限）' };
   let question = '';
   if (rating === 'down') {
-    question = String(row.question || '');
+    question = String(row.question || '') || String(localQuestion || '').slice(0, 500);
     if (!question) { try { question = CacheService.getScriptCache().get(RUN_Q_CACHE + row.id) || ''; } catch (e) { /* 沒有就留空 */ } }
   }
   const note = rating === 'down' ? String(comment === undefined || comment === null ? row.comment : comment).slice(0, 500) : '';
