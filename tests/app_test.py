@@ -25,7 +25,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={'width': 390, 'height': 760})
-        errors, posts = [], []
+        errors, posts, old_backend = [], [], []
         page.on('pageerror', lambda e: errors.append(str(e)))
 
         stats = {'total': 3, 'up': 1, 'down': 1, 'errors': 0}
@@ -41,6 +41,8 @@ def main():
                 body = json.loads(r.request.post_data)
                 posts.append(body)
                 res = {'ok': True}
+                if old_backend and body['action'] == 'read':
+                    res = {'ok': False, 'error': 'Unknown action: read'}
                 if body['action'].startswith('rule'):
                     if body['action'] == 'ruleDecision':
                         review.update(pending=[], active=[{'id': 'r1', 'text': '<b>先講結論</b>'}])
@@ -136,6 +138,72 @@ def main():
         if os.environ.get('SHOT'):
             card.screenshot(path=os.environ['SHOT'])
         print('pass 修正清單和試答')
+
+        # 校務資料：敏感欄位和學生個資不能送給 AI（全部是虛構資料）
+        school = page.evaluate("""() => {
+          const put = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+          put('ck_staff', [{name:'測試老師甲', unit:'虛構處室', title:'組長', rank:'SECRET-rank', idno:'SECRET-id', salary:'SECRET-pay',
+            phone:'SECRET-tel', mobile:'SECRET-mob', birth:'SECRET-birth', startDate:'SECRET-start', addr:'SECRET-addr', note:'SECRET-note'}]);
+          put('ck_roster_cache', [1,2,3,4,5].map(i => ({name:'SECRET-kid'+i, cls:'虛構班', seat:'SECRET-seat', sid:'SECRET-sid'+i})));
+          const g = (cls, i) => ({name:'SECRET-kid'+i, cls, subject:'數學', score:80+i, year:115, semester:1, stage:'期中', date:'2030-01-01'});
+          put('cksch_grades', {data:[1,2,3,4,5].map(i => g('虛構班', i)).concat([1,2,3,4].map(i => g('小班', i)), [g('小班', 4)])});
+          return buildSchoolDbContext();
+        }""")
+        assert 'SECRET' not in school, school
+        assert '測試老師甲(虛構處室·組長)' in school and '虛構班 5人' in school
+        assert '虛構班 數學 平均83.0分（5人）' in school
+        assert '小班' not in school, '不到 5 位學生的平均不能送'
+        print('pass 校務資料不含個資')
+
+        # 手機端 AI 的每一種動作都要按了才做
+        page.evaluate("""() => {
+          state.chat = [];
+          state.notes = [{id:'keep', type:'todo', content:'虛構保留', done:false, createdAt:new Date().toISOString()}];
+          window.callAI = async () => '好<<<ACTION>>>' + JSON.stringify({actions:[
+            {op:'delete_note', id:'keep'}, {op:'complete_note', id:'keep'}, {op:'update_note', id:'keep', content:'<i>改過</i>'},
+            {op:'add_note', type:'todo', content:'虛構新增'}, {op:'add_calendar_event', title:'虛構行程', start:'2030-01-02T09:00:00+08:00'}]}) + '<<<END>>>';
+        }""")
+        snapshot = 'JSON.stringify(liveNotes().map(n => [n.id, n.content, !!n.done]))'
+        before, sent = page.evaluate(snapshot), len(posts)
+        send('幫我整理清單')
+        assert page.evaluate(snapshot) == before, '按之前什麼都不能變'
+        assert not [x for x in posts[sent:] if x['action'] in ('addNote', 'updateNote', 'deleteNote', 'addCalendarEvent')]
+        acts = page.evaluate("state.chat.map((m, i) => m.mem && m.mem.op === 'act' ? i : -1).filter(i => i >= 0)")
+        assert len(acts) == 5, acts
+        assert page.locator('#chatBox').get_by_text('✅ 執行').count() == 5
+        assert page.locator('#chatBox i').count() == 0
+        page.evaluate(f'decideMemory({acts[0]}, false)')
+        assert page.evaluate(snapshot) == before
+        page.evaluate(f'Promise.all([decideMemory({acts[3]}, true), decideMemory({acts[3]}, true)])')
+        assert page.evaluate("liveNotes().filter(n => n.content === '虛構新增').length") == 1, '連按只能做一次'
+        page.evaluate(f'decideMemory({acts[2]}, true)')
+        assert page.evaluate("liveNotes().find(n => n.id === 'keep').content") == '<i>改過</i>'
+        page.evaluate(f'decideMemory({acts[1]}, true)')
+        assert page.evaluate("liveNotes().find(n => n.id === 'keep').done") is True
+        page.evaluate(f'decideMemory({acts[4]}, true)')
+        page.wait_for_timeout(500)
+        assert [x for x in posts if x['action'] == 'addCalendarEvent']
+        print('pass 手機端動作要核准')
+
+        # 不安全的連結不能點
+        for bad in ['javascript:alert(1)', ' JaVaScRiPt:alert(1)', 'java\tscript:alert(1)', 'data:text/html,x', 'vbscript:x']:
+            assert page.evaluate('u => safeUrl(u)', bad) == '#', bad
+        assert page.evaluate("safeUrl('https://example.com/a?b=1')") == 'https://example.com/a?b=1'
+        page.evaluate("state.links = [{id:'l1', name:'虛構', url:'javascript:alert(1)'}]; renderLinks()")
+        assert page.locator('a[href^="javascript:alert"]').count() == 0
+        print('pass 連結安全')
+
+        # 讀取用 POST，網址裡沒有密語；舊版後台才退回 GET
+        urls = []
+        page.on('request', lambda q: urls.append((q.method, q.url)) if q.url.startswith('https://script.google.com/') else None)
+        page.evaluate("async () => { state.gasToken = 'made-up-pass'; await (await gasGet('qa')).json(); }")
+        assert [m for m, u in urls] == ['POST'] and 'made-up-pass' not in urls[0][1]
+        assert posts[-1] == {'t': 'made-up-pass', 'action': 'read', 'get': 'qa', 'params': {}}
+        old_backend.append(True)
+        urls.clear()
+        assert page.evaluate("async () => (await (await gasGet('qa')).json()).ok") is True
+        assert [m for m, u in urls] == ['POST', 'GET']
+        print('pass 密語不放網址')
 
         assert not errors, errors
         print('app tests passed')
