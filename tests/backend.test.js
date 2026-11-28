@@ -201,7 +201,7 @@ test('沒有 👎 就不呼叫 AI', () => {
 test('建議要核准才生效；停用後就不再影響回答', () => {
   const b = loadBackend();
   thumbsDown(b, 'too long');
-  const r = review(b, [rule('先講結論 UNIQUERULE')], ['button broken']);
+  const r = review(b, [rule('先講結論 UNIQUERULE')], [{ problem: 'button broken', from: [1] }]);
   assert.strictEqual(r.pending.length, 1);
   assert.deepStrictEqual(r.needsCode, ['button broken']);
   assert.ok(!systemPrompt(b).includes('UNIQUERULE'), '核准前不能生效');
@@ -296,3 +296,74 @@ test('AI 沒有任何新增或核准規則的工具', () => {
   assert.deepStrictEqual(names.filter(n => /rule|review/i.test(n)), []);
 });
 
+
+// ── 第 4 步：要改程式的問題 ──
+const reviewAll = (b, data) => {
+  b.aiScript.length = 0;
+  b.aiScript.push(JSON.stringify(Object.assign({ rules: [], needsCode: [], against: [] }, data)));
+  return b.post({ action: 'ruleReview' });
+};
+
+test('要改程式的問題會存起來，只存摘要；同一筆回饋不重看', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'PRIVATECOMMENT', 'PRIVATEQUESTION');
+  const r = reviewAll(b, { needsCode: [{ problem: 'button does nothing', from: [1] }, { problem: 'no evidence', from: [] }] });
+  assert.deepStrictEqual(r.issues.map(x => x.text), ['button does nothing']);
+  assert.ok(!/PRIVATE/.test(JSON.stringify(b.rows(b.run('ISSUE_SHEET')))));
+  const calls = b.aiRequests.length;
+  b.post({ action: 'ruleReview' });
+  assert.strictEqual(b.aiRequests.length, calls);
+  const id = r.issues[0].id;
+  assert.strictEqual(b.post({ action: 'ruleIssue', id, status: 'open' }).ok, false);
+  const done = b.post({ action: 'ruleIssue', id, status: 'done' });
+  assert.strictEqual(done.decided, 'done');
+  assert.strictEqual(done.issues.length, 0);
+});
+
+// ── 第 5 步：看每週檢討有沒有用 ──
+const activeRule = (b, text) => {
+  thumbsDown(b, 'first');
+  const id = review(b, [rule(text)]).pending[0].id;
+  b.post({ action: 'ruleDecision', id, approve: true });
+  return id;
+};
+
+test('相關的新 👎 只做提醒，不會自己停用規則', () => {
+  const b = loadBackend();
+  const id = activeRule(b, 'FLAGRULE');
+  thumbsDown(b, 'second');
+  const r = reviewAll(b, { against: [{ ruleNo: 1, why: 'still long', from: [1] }, { ruleNo: 9, why: 'x', from: [1] }] });
+  assert.strictEqual(r.active[0].flags, 1);
+  assert.strictEqual(r.active[0].flagWhy, 'still long');
+  assert.ok(systemPrompt(b).includes('FLAGRULE'), '還是使用中');
+  assert.strictEqual(b.post({ action: 'ruleKeep', id }).active[0].flags, 0);
+  assert.strictEqual(r.history.adopted, 1);
+});
+
+test('試答：固定虛構題目、一邊有規則一邊沒有，不改任何資料', () => {
+  const b = loadBackend();
+  b.agent([[['remember', { text: 'MYMEMORY' }]], 'ok']);
+  thumbsDown(b, 'x');
+  const id = review(b, [rule('TRIALRULE')]).pending[0].id;
+  const before = { runs: b.runs().length, memories: b.memories().length };
+  b.aiRequests.length = 0;
+  b.aiScript.length = 0;
+  for (let i = 0; i < 3; i++) b.aiScript.push('yes' + i, 'no' + i);
+  const r = b.post({ action: 'ruleTrial', id });
+  assert.strictEqual(r.trial.items.length, 3);
+  r.trial.items.forEach((x, i) => assert.strictEqual(x[r.trial.withRule], 'yes' + i));
+  const sent = b.aiRequests.map(x => JSON.stringify(x));
+  assert.strictEqual(sent.filter(x => x.includes('TRIALRULE')).length, 3);
+  assert.ok(sent.every(x => !x.includes('MYMEMORY') && !x.includes('functionDeclarations')), '不放記憶、不給工具');
+  assert.strictEqual(r.pending.length, 1, '試答不等於採用');
+  assert.deepStrictEqual({ runs: b.runs().length, memories: b.memories().length }, before);
+});
+
+test('試答失敗或規則不存在時回報錯誤', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  const id = review(b, [rule('R')]).pending[0].id;
+  b.aiScript.length = 0;
+  assert.strictEqual(b.post({ action: 'ruleTrial', id }).ok, false);
+  assert.strictEqual(b.post({ action: 'ruleTrial', id: 'nope' }).ok, false);
+});
