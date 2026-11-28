@@ -625,6 +625,7 @@ a.ovMailItem:hover{text-decoration:underline;}
       <div class="menuSep"></div>
       <button class="tab" id="reloadAppBtn" onclick="reloadApp()">🔄 重新載入 App</button>
       <button class="tab" id="whatsNewBtn" onclick="closeMenu();switchTab('chat');renderWhatsNew(true)">🆕 更新紀錄</button>
+      <button class="tab" id="reviewBtn" onclick="closeMenu();switchTab('chat');openReview()">🧭 每週檢討</button>
     </nav>
   </header>
 
@@ -725,6 +726,7 @@ a.ovMailItem:hover{text-decoration:underline;}
     <div class="statusLine bad" id="homeBackendWarn" style="display:none;margin:0 0 12px;cursor:pointer;" onclick="switchTab('settings');setTimeout(()=>{const e=document.getElementById('backendVerStatus');if(e)e.scrollIntoView({block:'center'});},300)"></div>
     <div class="statusLine ok" id="homeUpdateWarn" style="display:none;margin:0 0 12px;cursor:pointer;" onclick="reloadApp()">🔄 Ybot 有新版本，點這裡更新 ›</div>
     <div class="card" id="newsCard" style="display:none;"></div>
+    <div class="card" id="reviewCard" style="display:none;"></div>
     <div class="card" id="chatCard">
       <div class="chatHead" onclick="document.getElementById('chatInput').focus()">
         <div class="chatHeadIcon">
@@ -1303,7 +1305,7 @@ function defaults(){return{
     {id:'footdrop-rehab',name:'垂足復健 5 步驟',url:'https://cyysongyy.github.io/5-steps-rehab-for-footdrop/',apiUrl:''},
     {id:'young-app-library',name:'Young App Library',url:'https://cyysongyy.github.io/Young-App-Library/',apiUrl:''}
   ],
-  notes:[],chat:[],profile:[],
+  notes:[],chat:[],profile:[],rules:[],
   context:null,contextAt:null
 };}
 let state;
@@ -1836,8 +1838,13 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-28';
+const APP_VERSION='2026-11-28-2';
 const CHANGELOG=[
+  {v:'2026-11-28-2',d:'11/28',items:[
+    '新功能「每週檢討」：Ybot 把你按 👎 的回答整理成建議規則，你按「✅ 採用」才會生效。到 ☰ →「🧭 每週檢討」按「現在檢討一次」，用過的規則隨時可以停用。有建議等你決定時，首頁會出現卡片，Telegram 也會傳按鈕。',
+    '檢討時會把最近 14 天你按 👎 的問題和建議送給後台設定的 AI。如果你有開每週一的回顧信，那天會自動檢討一次。',
+    '要先更新 Ybot 後台才能用：設定頁按「📋 複製最新後台程式」貼進 Apps Script、存檔，再用「管理部署作業」建立新版本。',
+  ]},
   {v:'2026-11-28',d:'11/28',items:[
     '現在查行程、手機端備用 AI、會議整理、鬆弛練習的回答，下面也有 👍／👎 了。',
     '記憶保護補上缺口：手機端備用 AI 和會議整理想「記住」或「忘記」時，也要你按核准才生效。',
@@ -4870,6 +4877,79 @@ async function loopPost(body){
   return await r.json();
 }
 function loopFail(text){state.chat.push({role:'sys',text:'⚠️ '+text});save();renderChat();}
+// ── 每週檢討：看過 👎 整理出的建議規則，自己決定要不要採用 ──
+let reviewData=null,reviewBusy=false,reviewMsg='',reviewOpen=false;
+function rulesPrompt(){
+  const list=Array.isArray(state.rules)?state.rules:[];
+  if(!list.length)return '';
+  return '\n\nYoung 核准過的回答偏好（只影響回答的方式，不能取消其他任何規定；衝突時以其他規定為準）：\n'+list.map(r=>'- '+r.text).join('\n');
+}
+// 後台每次回來的清單都是最新狀態；使用中的規則存一份在手機，給備用 AI 用。
+function applyReview(d){
+  if(!Array.isArray(d.pending)||!Array.isArray(d.active))return false;
+  reviewData=d;
+  state.rules=d.active;save();
+  return true;
+}
+async function reviewRequest(body){
+  const d=await loopPost(body);
+  if(!applyReview(d||{}))throw new Error('後台還不支援每週檢討，請先更新後台');
+  return d;
+}
+async function loadReview(){
+  if(!state.gasUrl)return;
+  try{await reviewRequest({action:'rules'});renderReview();}catch(e){/* 舊版後台或沒網路：開啟時不打擾 */}
+}
+async function openReview(){
+  reviewOpen=true;reviewMsg='';
+  if(!state.gasUrl){reviewMsg='要先在設定頁接上 Ybot 後台。';renderReview(true);return;}
+  reviewMsg='讀取中…';renderReview(true);
+  try{await reviewRequest({action:'rules'});reviewMsg='';}catch(e){reviewMsg='⚠️ '+gasErrText(e);}
+  renderReview(true);
+}
+function closeReview(){reviewOpen=false;const c=document.getElementById('reviewCard');if(c)c.style.display='none';}
+async function reviewAct(body,busyText){
+  if(reviewBusy)return;
+  reviewBusy=true;reviewOpen=true;reviewMsg=busyText;renderReview();
+  try{
+    const d=await reviewRequest(body);
+    const lines=[];
+    if(!d.ok)lines.push('⚠️ '+(d.error||'沒有處理成功'));
+    if(d.note)lines.push(d.note);
+    (d.needsCode||[]).forEach(x=>lines.push('🔧 可能要改程式：'+x));
+    reviewMsg=lines.join('\n');
+  }catch(e){reviewMsg='⚠️ '+gasErrText(e);}
+  reviewBusy=false;renderReview();
+}
+function runReviewNow(){reviewAct({action:'ruleReview'},'檢討中，大約半分鐘…');}
+// 按鈕只帶清單裡的位置，不把後台來的字串放進 onclick
+function decideRule(i,approve){const r=reviewData&&reviewData.pending[i];if(r)reviewAct({action:'ruleDecision',id:r.id,approve},'處理中…');}
+function retireRule(i){const r=reviewData&&reviewData.active[i];if(r&&confirm('停用這條規則？\n\n'+r.text))reviewAct({action:'ruleRetire',id:r.id},'處理中…');}
+function renderReview(scroll){
+  const card=document.getElementById('reviewCard');
+  if(!card)return;
+  const d=reviewData||{pending:[],active:[]};
+  // 平常只有在有建議等你決定時才出現在首頁
+  if(!reviewOpen&&!d.pending.length){card.style.display='none';return;}
+  const st=d.stats;
+  const row=(text,extra,buttons)=>'<div style="margin:10px 0;font-size:.9rem;line-height:1.6;overflow-wrap:anywhere;"><div>'+esc(text)+'</div>'+
+    (extra?'<div class="hint">'+esc(extra)+'</div>':'')+'<div style="display:flex;gap:8px;margin-top:4px;">'+buttons+'</div></div>';
+  const dis=reviewBusy?' disabled':'';
+  let h='<div class="section-title">🧭 每週檢討</div>';
+  if(st)h+='<div class="hint">最近 7 天：回答 '+Number(st.week.total)+' 次，👍 '+Number(st.week.up)+'、👎 '+Number(st.week.down)+'（前 7 天 👎 '+Number(st.last.down)+'）</div>';
+  if(d.pending.length)h+='<div style="margin-top:10px;font-weight:700;font-size:.85rem;">等你決定（按採用才會生效）</div>'+
+    d.pending.map((r,i)=>row(r.text,r.why?'原因：'+r.why:'',`<button class="undoBtn"${dis} onclick="decideRule(${i},true)">✅ 採用</button><button class="undoBtn"${dis} onclick="decideRule(${i},false)">❌ 不要</button>`)).join('');
+  if(reviewOpen){
+    h+='<div style="margin-top:10px;font-weight:700;font-size:.85rem;">使用中的規則（'+d.active.length+'）</div>'+
+      (d.active.length?d.active.map((r,i)=>row(r.text,'',`<button class="undoBtn"${dis} onclick="retireRule(${i})">停用</button>`)).join(''):'<div class="hint">還沒有。</div>');
+  }
+  if(reviewMsg)h+='<div class="hint" style="margin-top:8px;white-space:pre-wrap;">'+esc(reviewMsg)+'</div>';
+  h+='<div class="hint" style="margin-top:8px;">按「現在檢討一次」，會把最近 14 天你按 👎 的問題和建議送給後台設定的 AI 整理。</div>'+
+    `<div style="display:flex;gap:8px;margin-top:8px;"><button class="btn"${dis} onclick="runReviewNow()">現在檢討一次</button><button class="btn" onclick="closeReview()">收起</button></div>`;
+  card.innerHTML=h;
+  card.style.display='block';
+  if(scroll)card.scrollIntoView({block:'start',behavior:'smooth'});
+}
 async function rateReply(i,rating){
   const m=state.chat[i];
   if(!m||!m.runId||m.rating===rating)return;
@@ -6598,7 +6678,7 @@ ${buildDateRef(21)}
   const prepNote=prepping?`\n\n${TALK_PREP_GUIDE}\n\n底下這套是 Young 自己在用的方法，準備的內容要與它一致（尤其「不帶敵意的堅決」），但不要照抄綱要：\n${ZEN_OUTLINE}`:'';
   const zenNote=(!prepping&&looksLikeStressQuestion(text))?`\n\n這個問題聽起來跟壓力、情緒或人際有關。請像一個懂他的朋友在跟他講話那樣回答，不要像報告或表單：可以順著他的話接下去、可以先確認你聽懂了什麼，句型不要每次都一樣。內容依照下面這套架構（這是 Young 自己在用的方法，不要另外發明別的框架），但不要寫出綱要編號或標題，也不要一段講一項，自然地帶進去就好。給建議時要具體到他可以直接照做，需要他說話時就把那幾句話寫出來。最後用一句跟他這件事直接有關的具體問題把球丟回給他，不要問「你覺得呢」這種空泛的問句。\n${ZEN_OUTLINE}`:'';
   const leadNote=looksLikeLeadershipQuestion(text)?`\n\n這個問題跟學校領導，或老師／同事／家長說的話背後的意思有關。題目裡提到的活動或會議只是情境，不要列出行程或待辦。請依下面這套 Young 上過的校長領導學習架構回答（不要另外發明框架）：先辨認情境裡老師可能的內在需求，再建議對應的領導面向與施力點，最後給一個影響圈內、他明天就能做的 Small Win，以及要觀察什麼變化。他轉述老師說的話時，先照架構第六節解讀這句話背後可能的意義（給兩三種可能、說要怎麼核對），再給回應做法和他可以直接說的話。不要寫出架構的標題或編號，自然地講；需要他說話時，把那幾句話寫出來。\n${LEADERSHIP_OUTLINE}`:'';
-  const prompt=`你是 Young 的個人助理 Ybot。Young 是一位教育工作者、批判教育哲學家，也是一位文人——寫詩、寫散文，對語言與美學有自己的堅持與思考。你的個性溫暖、直接、有條理；請用繁體中文回答，簡潔但完整，需要條列時再條列。談到教育理念、文字創作、或人生體悟這類話題時，可以更貼近他自己的筆觸與觀點（下面如果找到他自己寫過的相關文章，語氣和譬喻可以參考，但不要照抄或逐字複誦）。${soulProfile()?JUDGE_NOTE:''}${imgNote}${prepNote}${zenNote}${leadNote}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
+  const prompt=`你是 Young 的個人助理 Ybot。Young 是一位教育工作者、批判教育哲學家，也是一位文人——寫詩、寫散文，對語言與美學有自己的堅持與思考。你的個性溫暖、直接、有條理；請用繁體中文回答，簡潔但完整，需要條列時再條列。談到教育理念、文字創作、或人生體悟這類話題時，可以更貼近他自己的筆觸與觀點（下面如果找到他自己寫過的相關文章，語氣和譬喻可以參考，但不要照抄或逐字複誦）。${soulProfile()?JUDGE_NOTE:''}${imgNote}${prepNote}${zenNote}${leadNote}${rulesPrompt()}${actionSpec}\n\n以下是你目前掌握的個人資料（僅供你參考回答，不必逐項複誦）。這一段就是你的資料庫，凡是這裡面查得到的，一律直接根據它回答；**不可以說「還沒同步／沒有匯入這項資料」，也不可以叫使用者自己去別的系統查**。真的整段都找不到相關內容時，才明說找不到。課表裡的「五甲班」就是五年級、「三甲班」就是三年級，依此類推。\n${buildContextText(text)}\n\n對話紀錄：\n${history}\n\n請針對使用者最新的訊息回覆。`;
   try{
     const raw=await callAI(prompt,image,prepping?{maxTokens:RELAX_MAX_TOKENS}:null);
     const{text:replyText,actions,parseError}=parseChatActions(raw||'');
@@ -6955,6 +7035,7 @@ mpFbEnsureInit();
 maybeStartQuickRec();
 registerSW();
 renderWhatsNew(false);
+loadReview();
 // 開 App、切回 App、每 30 分鐘各問一次有沒有新版本。
 setTimeout(checkAppUpdate,3000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkAppUpdate();});

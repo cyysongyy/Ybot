@@ -1,6 +1,7 @@
 """手機大小的瀏覽器測試。後台是假的，其他網路一律擋掉。只放虛構資料。
 執行：pip install playwright && playwright install chromium && python tests/app_test.py"""
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -27,6 +28,9 @@ def main():
         errors, posts = [], []
         page.on('pageerror', lambda e: errors.append(str(e)))
 
+        stats = {'total': 3, 'up': 1, 'down': 1, 'errors': 0}
+        review = {'pending': [{'id': 'r1', 'text': '<b>先講結論</b>', 'why': '虛構原因'}], 'active': [], 'stats': {'week': stats, 'last': stats}}
+
         def route(r):
             url = r.request.url
             if url.startswith('file:'):
@@ -34,8 +38,13 @@ def main():
             if not url.startswith('https://script.google.com/'):
                 return r.abort()
             if r.request.method == 'POST':
-                posts.append(json.loads(r.request.post_data))
+                body = json.loads(r.request.post_data)
+                posts.append(body)
                 res = {'ok': True}
+                if body['action'].startswith('rule'):
+                    if body['action'] == 'ruleDecision':
+                        review.update(pending=[], active=[{'id': 'r1', 'text': '<b>先講結論</b>'}])
+                    res = dict(ok=True, **review)
             else:
                 res = {'ok': True, 'qa': [], 'forgotten': [], 'notes': []}
             return r.fulfill(json=res, headers={'Access-Control-Allow-Origin': '*'})
@@ -84,6 +93,21 @@ def main():
         assert all('question' not in x for x in posts if x['action'] == 'logReply')
         assert [x for x in posts if x['action'] == 'agentFeedback'][-1]['question'] == '明天有什麼行程？'
         print('pass 回答評分')
+
+        page.evaluate('openReview()')
+        page.wait_for_timeout(700)
+        card = page.locator('#reviewCard')
+        assert card.is_visible() and '等你決定' in card.inner_text()
+        assert page.evaluate('rulesPrompt()') == '', '核准前不能給備用 AI'
+        assert card.locator('b').count() == 0, '規則文字不能被當成 HTML'
+        assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), '手機畫面不能左右捲'
+        if os.environ.get('SHOT'):
+            card.screenshot(path=os.environ['SHOT'])
+        card.get_by_text('✅ 採用').click()
+        page.wait_for_timeout(700)
+        assert [x for x in posts if x['action'] == 'ruleDecision'] == [dict(posts[-1])]
+        assert '先講結論' in page.evaluate('rulesPrompt()')
+        print('pass 每週檢討')
 
         assert not errors, errors
         print('app tests passed')

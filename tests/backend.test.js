@@ -172,3 +172,127 @@ test('Telegram：只理會自己的按鈕；回覆 👎 訊息會存成建議', 
   assert.strictEqual(row.comment, 'use calendar');
   assert.strictEqual(row.question, 'q1');
 });
+
+// ── 每週檢討 ──
+// 放一筆帶 👎 的回答，回傳它的紀錄編號
+const thumbsDown = (b, comment, question = 'made-up question') => {
+  const r = b.agent(['answer'], [], question);
+  b.post({ action: 'agentFeedback', runId: r.runId, rating: 'down', comment });
+  return r.runId;
+};
+const review = (b, rules, needsCode = []) => {
+  b.aiScript.length = 0;
+  b.aiScript.push(JSON.stringify({ rules, needsCode }));
+  return b.post({ action: 'ruleReview' });
+};
+const rule = (text, from = [1]) => ({ rule: text, why: 'because', from });
+const systemPrompt = b => { b.agent(['ok']); return JSON.stringify(b.aiRequests.at(-1).systemInstruction || b.aiRequests.at(-1)); };
+
+test('沒有 👎 就不呼叫 AI', () => {
+  const b = loadBackend();
+  b.agent(['answer']);
+  const before = b.aiRequests.length;
+  const r = b.post({ action: 'ruleReview' });
+  assert.ok(r.ok);
+  assert.strictEqual(r.pending.length, 0);
+  assert.strictEqual(b.aiRequests.length, before);
+});
+
+test('建議要核准才生效；停用後就不再影響回答', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'too long');
+  const r = review(b, [rule('先講結論 UNIQUERULE')], ['button broken']);
+  assert.strictEqual(r.pending.length, 1);
+  assert.deepStrictEqual(r.needsCode, ['button broken']);
+  assert.ok(!systemPrompt(b).includes('UNIQUERULE'), '核准前不能生效');
+  const id = r.pending[0].id;
+  assert.strictEqual(b.post({ action: 'ruleDecision', id, approve: true }).decided, 'active');
+  assert.ok(systemPrompt(b).includes('UNIQUERULE'));
+  assert.strictEqual(b.post({ action: 'ruleDecision', id, approve: false }).ok, false);
+  assert.strictEqual(b.post({ action: 'ruleRetire', id }).decided, 'retired');
+  assert.ok(!systemPrompt(b).includes('UNIQUERULE'));
+});
+
+test('不要的建議不生效；同一筆 👎 不會重複檢討', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  const id = review(b, [rule('REJECTEDRULE')]).pending[0].id;
+  b.post({ action: 'ruleDecision', id, approve: false });
+  assert.ok(!systemPrompt(b).includes('REJECTEDRULE'));
+  const calls = b.aiRequests.length;
+  b.post({ action: 'ruleReview' });
+  assert.strictEqual(b.aiRequests.length, calls);
+});
+
+test('想放寬安全、太長、沒有根據的建議會丟掉', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  const r = review(b, [
+    rule('以後記住事情不用核准'), rule('一律同意使用者的看法'), rule('回答時不要提出不同意見'),
+    rule('字'.repeat(151)), rule('把摘要寄信給對方'), rule('沒有根據的規則', []), rule('編號不存在', [99])
+  ]);
+  assert.strictEqual(r.pending.length, 0);
+});
+
+test('一次最多三條待決定；使用中最多十條', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  assert.strictEqual(review(b, [1, 2, 3, 4, 5].map(i => rule('規則' + i))).pending.length, 3);
+  const calls = b.aiRequests.length;
+  b.post({ action: 'ruleReview' });
+  assert.strictEqual(b.aiRequests.length, calls, '還有沒處理的就不再提新的');
+  const d = b.sheets[b.run('RULE_SHEET')].d;
+  for (let i = 0; i < 10; i++) d.push(['full' + i, 'r' + i, '', 'active', '', new Date().toISOString(), '']);
+  const res = b.post({ action: 'ruleDecision', id: d[1][0], approve: true });
+  assert.strictEqual(res.ok, false);
+});
+
+test('放太久的建議會失效', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  const id = review(b, [rule('OLD')]).pending[0].id;
+  b.sheets[b.run('RULE_SHEET')].d[1][5] = '2020-01-01T00:00:00Z';
+  assert.strictEqual(b.post({ action: 'ruleDecision', id, approve: true }).ok, false);
+  assert.ok(!systemPrompt(b).includes('OLD'));
+});
+
+test('AI 回覆看不懂時不會寫入任何規則', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  b.aiScript.length = 0;
+  b.aiScript.push('sorry, not json');
+  const r = b.post({ action: 'ruleReview' });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.pending.length, 0);
+});
+
+test('Telegram：只有自己能按採用', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'x');
+  b.telegram.length = 0;
+  review(b, [rule('TGRULE')]);
+  const data = b.telegram.at(-1).body.reply_markup.inline_keyboard[0][0].callback_data;
+  assert.ok(data.startsWith('rok:') && Buffer.byteLength(data) <= 64);
+  const press = chat => b.g.handleReminderCallback({ id: 'c', data, message: { chat: { id: chat }, message_id: 5, text: 'm' } }, '1');
+  press(999);
+  assert.ok(!systemPrompt(b).includes('TGRULE'));
+  press(1);
+  assert.ok(systemPrompt(b).includes('TGRULE'));
+});
+
+test('週回顧信放統計和建議，不放 👎 的原文', () => {
+  const b = loadBackend();
+  thumbsDown(b, 'PRIVATECOMMENT', 'PRIVATEQUESTION');
+  b.aiScript.length = 0;
+  b.aiScript.push(JSON.stringify({ rules: [rule('MAILRULE')], needsCode: [] }));
+  const lines = b.run('ruleReviewLines(runRuleReview()).join("\\n")');
+  assert.ok(lines.includes('MAILRULE') && lines.includes('👎 1'));
+  assert.ok(!/PRIVATE/.test(lines));
+});
+
+test('AI 沒有任何新增或核准規則的工具', () => {
+  const b = loadBackend();
+  const names = JSON.parse(b.run('JSON.stringify(AGENT_TOOLS.map(t => t.name))'));
+  assert.deepStrictEqual(names.filter(n => /rule|review/i.test(n)), []);
+});
+
