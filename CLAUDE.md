@@ -67,6 +67,8 @@
 - 工具呼叫只支援 Gemini 與 OpenAI；NVIDIA 只當純文字備援。
 - 記憶保護：新工具如果回傳別人寫得進來的內容（信件、行事曆、網頁、外部檔案），要加進
   `AGENT_OUTSIDE_TOOLS`，之後的 `remember`／`forget` 才會改成等使用者核准。不要給 AI 自己核准的工具。
+- 手機端的記憶動作（`execChatActions` 的 remember／forget）一律等使用者核准。新增任何回答路徑時，
+  用 `localReply()` 建立訊息，才會有 👍／👎 和紀錄。
 - 執行紀錄（試算表「Ybot執行紀錄」）可能含使用者按 👎 時的問題與建議：不可以放進 repo、PR 或測試資料。
 
 ## 「Ybot 後台程式」複製頁（2026-11-27 起，使用者要求同步）
