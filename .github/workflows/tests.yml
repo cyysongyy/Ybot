@@ -1,0 +1,30 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test tests/*.test.js
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  app:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.55.0
+      - run: playwright install --with-deps chromium
+      - run: python tests/app_test.py
