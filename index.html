@@ -1085,7 +1085,7 @@ a.ovMailItem:hover{text-decoration:underline;}
         對話時附上校務系統資料給 AI 參考
       </label>
       <div id="schoolDbStatus" class="hint" style="margin-top:8px;"></div>
-      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，直接唯讀讀取行事曆／行政業務／研習記錄／教職員資料（含身分證字號、薪資、聯絡方式）／學生名冊／學生成績，內容不受限制；週四品格圍圈輪值另外從校務系統網頁直接讀取。這些資料會連同對話一起送給你設定的 AI 服務。需先在同一瀏覽器打開過一次 <a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
+      <div class="hint" style="margin-top:8px;">與校務系統同一個網域，唯讀讀取行事曆、行政業務、研習記錄、教職員姓名與職稱、各班學生人數和班級成績平均（5 人以上的組）；週四品格圍圈輪值另外從校務系統網頁讀取。不會送身分證字號、薪資、電話、地址、生日，也不送學生姓名、學號和個人成績。行政業務和研習名稱是自由文字，裡面如果寫了人名還是會一起送出。這些資料會連同對話送給你設定的 AI 服務。需先在同一瀏覽器打開過一次校務管理系統並登入。<a href="https://cyysongyy.github.io/CK-SCHADMIN/" target="_blank" rel="noopener">校務管理系統</a>並登入，本機才會有快取資料。</div>
     </div>
 
     <div class="card">
@@ -1533,7 +1533,7 @@ function openEmbeddedApp(id){
   renderAppsPane();
 }
 function reloadAppFrame(){const l=(state.links||[]).find(x=>x.id===_appId);if(l)document.getElementById('appsFrame').setAttribute('src',l.url);}
-function openAppWindow(){const l=(state.links||[]).find(x=>x.id===_appId);if(l)window.open(l.url,'_blank','noopener');}
+function openAppWindow(){const l=(state.links||[]).find(x=>x.id===_appId);if(l&&safeUrl(l.url)!=='#')window.open(l.url,'_blank','noopener');}
 
 // ── 🏫 今日校長助理（首頁卡）──────────
 // 讀校長助理在同網域留下的「今天／明天手動記事」與「今日代課」，不用連雲端。
@@ -1810,7 +1810,12 @@ function gasErrText(e){
   }
   return msg||'讀取失敗';
 }
-function gasGet(action,params){
+// 讀取也用 POST，通關密語才不會出現在網址裡。
+// 後台還是舊版時退回原本的 GET（密語會在網址裡），不然更新後台之前整個 App 會讀不到資料。
+async function gasGet(action,params){
+  const r=await gasPost({action:'read',get:action,params:params||{}});
+  const d=await r.clone().json().catch(()=>null);
+  if(!d||d.error!=='Unknown action: read')return r;
   const u=gasUrlOrThrow();
   u.searchParams.set('action',action);
   if(state.gasToken)u.searchParams.set('t',state.gasToken);
@@ -1838,8 +1843,14 @@ function showTokenStatus(kind,text){
 // 很多更新是後台或 Telegram 上的功能，首頁長得一模一樣，使用者會覺得「什麼都沒變」。
 // 所以每次改版都在這裡寫一筆（最新的放最上面），App 更新後首頁會自己跳出一張卡片
 // 說這次多了什麼、去哪裡用；按「知道了」就收起來，☰ →「🆕 更新紀錄」可以再打開。
-const APP_VERSION='2026-11-28-3';
+const APP_VERSION='2026-11-28-4';
 const CHANGELOG=[
+  {v:'2026-11-28-4',d:'11/28',items:[
+    '隱私加強：校務系統資料不再送身分證字號、薪資、電話、地址、生日，也不送學生姓名、學號和個人成績，只送各班人數和 5 人以上的班級平均。所以 Ybot 不能再回答個別學生的成績。',
+    '手機端 AI 和會議整理想新增、修改、完成、刪除或加行程時，都要你按「✅ 執行」才會做。後台 Agent 看過信件或行事曆之後也一樣，Telegram 會傳按鈕。',
+    '擋掉不安全的連結；讀取資料時，通關密語不再放在網址裡。',
+    '要更新 Ybot 後台才完整生效（打開「Ybot 後台程式」複製頁，或設定頁「📋 複製最新後台程式」），貼進 Apps Script、存檔，再用「管理部署作業」建立新版本。',
+  ]},
   {v:'2026-11-28-3',d:'11/28',items:[
     '每週檢討多了「🔧 可能要改程式」清單。按「📋 複製給 Claude 修」，先刪掉個人資料，再複製貼給 Claude。修好要不要上線由你決定。',
     '建議規則和使用中的規則可以按「🧪 試答」：用固定的虛構題目比較甲、乙兩種回答，你先評，再看哪邊有套用規則。每次會用掉 6 次 AI 呼叫。',
@@ -2518,7 +2529,7 @@ function renderLinkChips(){
   if(!box)return;
   const items=state.links.filter(l=>l.name&&l.url);
   box.innerHTML=items.length
-    ? items.map(l=>`<a class="chip" href="${esc(l.url)}" target="_blank" rel="noopener">🔗 ${esc(l.name)}</a>`).join('')
+    ? items.map(l=>`<a class="chip" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">🔗 ${esc(l.name)}</a>`).join('')
     : `<div class="ovItem ovEmpty">還沒有常用連結，可在「設定 → 我的其他 App」新增</div>`;
   if(card)card.style.display='';
 }
@@ -2892,7 +2903,7 @@ async function meetingFinish(transcript,mins){
     }
     if(summary)qaAdd('會議重點：'+stamp,summary,'meeting');
     switchTab('chat');
-    qrSet('done','✅ 會議整理好了','摘要與待辦已經放進對話，逐字稿存在筆記裡。','🎙️','');
+    qrSet('done','✅ 會議整理好了','摘要已經放進對話，待辦要在對話裡按「執行」才會加入；逐字稿存在筆記裡。','🎙️','');
   }catch(err){
     qrSet('done','✅ 逐字稿已存起來','重點整理失敗（'+(err.message||'AI 沒有回應')+'），但逐字稿沒有弄丟，在「待辦與筆記」裡。','🎙️','');
   }
@@ -4027,6 +4038,10 @@ function shareOneNote(id){
   if(navigator.share){navigator.share({text}).catch(()=>{});}
   else window.location.href='https://line.me/R/msg/text/?'+encodeURIComponent(text);
 }
+// 只讓 http／https 的網址變成可以點的連結（擋掉 javascript: 這類）
+function safeUrl(u){
+  try{const x=new URL(String(u||''),location.href);return x.protocol==='https:'||x.protocol==='http:'?String(u):'#';}catch(e){return '#';}
+}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 // ── 🧠 記憶小遊戲 ──────────────────────────────
@@ -4674,7 +4689,7 @@ function renderOverview(){
   const newsHtml=hasNews
     ? newsGroups.filter(([,list])=>list&&list.length).map(([label,list])=>
         `<div class="ovNewsGroup"><b>${label}</b>`+
-        list.map(n=>`<div class="ovItem">・<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a></div>`).join('')+
+        list.map(n=>`<div class="ovItem">・<a href="${esc(safeUrl(n.link))}" target="_blank" rel="noopener">${esc(n.title)}</a></div>`).join('')+
         `</div>`
       ).join('')
     : `<div class="ovItem ovEmpty">暫無新聞資料</div>`;
@@ -4835,11 +4850,17 @@ function renderChat(){
   }).join('');
   box.scrollTop=box.scrollHeight;
 }
-function decideLocalMemory(m,approve){
+async function decideLocalMemory(m,approve){
   const mem=m.mem;
   delete m.mem;
   if(Date.now()-mem.at>LOCAL_MEM_DAYS*86400000)m.text+='\n超過 '+LOCAL_MEM_DAYS+' 天，已失效';
-  else if(!approve)m.text+='\n❌ 已取消，記憶沒有變動';
+  else if(!approve)m.text+='\n❌ 已取消，沒有變動';
+  else if(mem.op==='act'){
+    save();renderChat();   // 按鈕先收掉，避免連按做兩次
+    const r=await runLocalAction(mem.action);
+    m.text+='\n'+r.text;
+    if(r.undo)m.undo=r.undo;
+  }
   else if(mem.op==='forget'){profileDelete(mem.targetId);m.text+='\n✅ 已忘記';}
   else{profileAdd(mem.text,'ai');renderProfileList();m.text+='\n✅ 已記住';}
   save();renderChat();
@@ -4876,7 +4897,8 @@ function feedbackRow(m,i){
 }
 function memButtons(m,i){
   if(!m.mem)return '';
-  return `<span class="memAct"><button class="undoBtn" onclick="decideMemory(${i},true)">${m.mem.op==='forget'?'✅ 忘記':'✅ 記住'}</button><button class="undoBtn" onclick="decideMemory(${i},false)">❌ 不要</button></span>`;
+  const yes=String(m.mem.op).startsWith('act')?'✅ 執行':m.mem.op==='forget'?'✅ 忘記':'✅ 記住';
+  return `<span class="memAct"><button class="undoBtn" onclick="decideMemory(${i},true)">${yes}</button><button class="undoBtn" onclick="decideMemory(${i},false)">❌ 不要</button></span>`;
 }
 async function loopPost(body){
   const r=await gasPost(body);
@@ -5038,7 +5060,7 @@ async function decideMemory(i,approve){
   const m=state.chat[i];
   if(!m||!m.mem||m.deciding)return;
   const mem=m.mem;
-  if(mem.local){decideLocalMemory(m,approve);return;}
+  if(mem.local){await decideLocalMemory(m,approve);return;}
   m.deciding=true;
   try{
     const d=await loopPost({action:'memoryDecision',id:mem.id,approve});
@@ -5047,10 +5069,12 @@ async function decideMemory(i,approve){
     if(!d||(!d.ok&&!d.status)){loopFail('沒有處理成功：'+((d&&d.error)||'後台沒有回覆'));return;}
     delete m.mem;
     if(!d.ok)m.text+='\n'+d.error;
-    else if(d.status==='rejected')m.text+='\n❌ 已取消，記憶沒有變動';
-    else m.text+=d.op==='forget'?'\n✅ 已忘記':'\n✅ 已記住';
+    else if(d.status==='rejected')m.text+='\n❌ 已取消，沒有變動';
+    else if(d.op==='act:queue_pc_task')m.text+='\n✅ 已排入佇列（還要到試算表把狀態改成 approved 才會執行）';
+    else m.text+=String(d.op).startsWith('act:')?'\n✅ 已執行':d.op==='forget'?'\n✅ 已忘記':'\n✅ 已記住';
     save();renderChat();
-    qaSync({silent:true}).catch(()=>{});
+    if(String(mem.op).startsWith('act:'))refreshContext().catch(()=>{});
+    else qaSync({silent:true}).catch(()=>{});
   }catch(e){delete m.deciding;loopFail('沒有處理成功：'+gasErrText(e));}
 }
 // 把某一則動作訊息記錄的動作反向做回去。復原後拿掉 undo 欄位，避免重複按。
@@ -5082,19 +5106,9 @@ function undoChatAction(i){
 function quickAsk(text){document.getElementById('chatInput').value=text;sendChat();}
 // 校務管理系統（CK-SCHADMIN）是同一個 origin 下的另一個 App，直接唯讀讀取其
 // localStorage 快取（該 App 自己會把 Firebase 資料同步進 localStorage）。
-// 依使用者指示，行事曆／行政業務／研習記錄／教職員資料（含身分證字號、薪資）／
-// 學生名冊／學生成績全部帶入，供對話時查詢——這些內容會連同對話一起送給
-// 使用者設定的 AI 服務（Gemini／OpenAI／NVIDIA）。
-// 教職員的 birth 欄位是民國年月日（6或7碼數字，例如「700101」），直接原封不動
-// 塞給 AI 很容易被誤解析或猜錯月份，這裡先轉成「8/10」這種好判斷的月/日格式，
-// 讓「幾月有誰生日」這類查詢能用真實資料正確回答，而不是憑印象亂猜。
-function parseRocBirthMonthDay(birth){
-  if(!birth||!/^\d{6,7}$/.test(birth))return null;
-  const mmdd=birth.slice(-4);
-  const mm=parseInt(mmdd.slice(0,2),10),dd=parseInt(mmdd.slice(2,4),10);
-  if(mm<1||mm>12||dd<1||dd>31)return null;
-  return `${mm}/${dd}`;
-}
+// 送給 AI 的只有行事曆、行政業務、研習、教職員姓名與職稱、各班人數和班級平均。
+// 個資（身分證／職編、薪資、聯絡方式、地址、生日、學生姓名與個人成績）一律不送，
+// 要加回任何欄位前先問使用者。
 // ── 週四品格圍圈輪值 ────────────────────────────────────
 // 這份名單「寫死在 CK-SCHADMIN 的原始碼裡」（const SEL_ROTATION），不像行事曆
 // 那些會被同步進 localStorage，所以光讀 localStorage 永遠撈不到。作法跟課表一樣：
@@ -5170,6 +5184,25 @@ function buildSelRotationContext(){
   return lines.join('\n');
 }
 
+// 同一次評量、同一班、同一科算平均。不到 5 位學生的組不送：人太少，平均就等於個人成績。
+const GRADE_MIN_STUDENTS=5;
+function schoolGradeAverages(grades){
+  const rows=grades&&Array.isArray(grades.data)?grades.data:[];
+  const groups={};
+  rows.forEach(g=>{
+    const score=Number(g.score);
+    if(g.score===''||g.score==null||!isFinite(score))return;
+    const key=`${g.year}學年${g.semester}學期${g.stage} ${g.cls} ${g.subject}`;
+    const x=groups[key]||(groups[key]={sum:0,n:0,who:new Set(),date:''});
+    x.sum+=score;x.n++;x.who.add(String(g.name||''));
+    if(String(g.date||'')>x.date)x.date=String(g.date||'');
+  });
+  const list=Object.keys(groups).filter(k=>groups[k].who.size>=GRADE_MIN_STUDENTS)
+    .sort((a,b)=>groups[b].date.localeCompare(groups[a].date)).slice(0,60);
+  if(!list.length)return '';
+  return '班級成績平均（只列 '+GRADE_MIN_STUDENTS+' 位學生以上的組）：'+
+    list.map(k=>`${k} 平均${(groups[k].sum/groups[k].n).toFixed(1)}分（${groups[k].who.size}人）`).join('；');
+}
 function buildSchoolDbContext(){
   const lines=[];
   const read=k=>{try{return JSON.parse(localStorage.getItem(k));}catch(e){return null;}};
@@ -5191,29 +5224,25 @@ function buildSchoolDbContext(){
     const recent=trainings.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,15);
     if(recent.length)lines.push('教師研習記錄（近期）：'+recent.map(t=>`${t.teacher}·${t.name}(${t.hours}小時${t.date?'·'+t.date:''})`).join('；'));
   }
+  // 隱私：名冊只給姓名、單位、職稱。身分證／職編、薪資、電話、地址、生日、到職日、職等、備註一律不送。
   const staffList=read('ck_staff');
   if(Array.isArray(staffList)&&staffList.length){
-    lines.push('教職員名冊（共'+staffList.length+'位）：'+
+    lines.push('教職員名冊（共'+staffList.length+'位，只有姓名與職稱）：'+
       staffList.slice(0,60).map(s=>{
-        const md=parseRocBirthMonthDay(s.birth);
-        const parts=[s.unit,s.title,s.rank,s.idno?'身分證/職編'+s.idno:'',s.salary?'薪點'+s.salary:'',
-          s.phone?'電話'+s.phone:'',s.mobile?'手機'+s.mobile:'',
-          md?'生日'+md:(s.birth?'出生'+s.birth:''),s.startDate?'到職'+s.startDate:'',s.addr?'地址'+s.addr:'',s.note].filter(Boolean);
-        return `${s.name}(${parts.join('·')})`;
+        const parts=[s.unit,s.title].filter(Boolean);
+        return parts.length?`${s.name}(${parts.join('·')})`:String(s.name||'');
       }).join('；'));
   }
+  // 隱私：學生只給各班人數和成績平均，不送姓名、學號、座號和個人成績。
   const roster=read('ck_roster_cache');
   if(Array.isArray(roster)&&roster.length){
-    lines.push('學生名冊（共'+roster.length+'位）：'+
-      roster.slice(0,200).map(r=>`${r.name||'(無姓名)'}(${r.cls}第${r.seat}號·學號${r.sid})`).join('；'));
+    const byClass={};
+    roster.forEach(r=>{const c=String(r.cls||'未分班');byClass[c]=(byClass[c]||0)+1;});
+    lines.push('學生人數（共'+roster.length+'位）：'+Object.keys(byClass).map(c=>`${c} ${byClass[c]}人`).join('；'));
   }
-  const grades=read('cksch_grades');
-  const gradeRows=grades&&Array.isArray(grades.data)?grades.data:null;
-  if(gradeRows&&gradeRows.length){
-    const recent=gradeRows.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,150);
-    lines.push('學生成績（共'+gradeRows.length+'筆，僅列最近150筆）：'+
-      recent.map(g=>`${g.name}(${g.cls})${g.subject}${g.score}分(${g.year}學年${g.semester}學期${g.stage}${g.date?'·'+g.date:''})`).join('；'));
-  }
+  const gradeAverages=schoolGradeAverages(read('cksch_grades'));
+  if(gradeAverages)lines.push(gradeAverages);
+  if(roster||read('cksch_grades'))lines.push('（為了保護隱私，這裡沒有學生姓名和個人成績；被問到個別學生時，請他到校務系統查。）');
   const rotation=buildSelRotationContext();
   if(rotation)lines.push(rotation);
   return lines.join('\n');
@@ -6548,23 +6577,89 @@ function resolveNote(a,undoneOnly){
 }
 const LOCAL_MEM_MAX=300,LOCAL_MEM_PER_REPLY=3,LOCAL_MEM_DAYS=7;
 // 回傳 [{text, undo?, mem?}]：text 顯示給使用者，undo 存在時該則訊息會長出「↩ 復原」按鈕。
+// ── 手機端 AI 提出的動作：一律先給使用者看，按「執行」才做 ──
+// 手機端 AI 的資料裡幾乎一定有信件主旨、行事曆這些別人寫得進來的內容。
+const LOCAL_ACT_PER_REPLY=20;
+const ACT_FIELD_LABELS={type:'類型',content:'內容',dueAt:'時間',owner:'交辦給',title:'標題',start:'開始',end:'結束'};
+// 回傳 {text, action}（action 只留會用到的欄位，而且對象固定用 id）、{error}，或 null（不用做）
+function proposeLocalAction(a){
+  const flat=v=>String(v??'').replace(/[\r\n\u2028\u2029]+/g,' ⏎ ');
+  const field=(k,v)=>{
+    if((k==='dueAt'||k==='start'||k==='end')&&v&&!isNaN(new Date(v)))v=fmtDateTime(v);
+    if(k==='type')v=TYPE_LABEL[v]||v;
+    return (ACT_FIELD_LABELS[k]||k)+'：'+(v===''||v==null?'（清空）':flat(v));
+  };
+  const lines=[];let action;
+  if(a.op==='add_note'){
+    const content=String(a.content||'').trim();
+    if(!content)return null;
+    const type=NOTE_TYPES.includes(a.type)?a.type:'note';
+    action={op:a.op,type,content,dueAt:a.dueAt||'',owner:cleanOwner(a.owner)};
+    lines.push('新增'+TYPE_LABEL[type],field('content',content));
+    if(action.dueAt&&!isNaN(new Date(action.dueAt)))lines.push(field('dueAt',action.dueAt));
+    if(action.owner)lines.push(field('owner',action.owner));
+  }else if(a.op==='add_calendar_event'&&a.start){
+    action={op:a.op,title:String(a.title||'(未命名事件)'),start:String(a.start),end:a.end?String(a.end):''};
+    lines.push('加入 Google 日曆',field('title',action.title),field('start',action.start));
+    if(action.end)lines.push(field('end',action.end));
+  }else if(a.op==='complete_note'||a.op==='delete_note'||a.op==='update_note'){
+    const r=resolveNote(a,a.op==='complete_note');
+    if(!r.note)return {error:r.error};
+    if(a.op==='complete_note'&&!CHECKABLE_TYPES.includes(r.note.type))return {error:`「${r.note.content}」是${TYPE_LABEL[r.note.type]}，沒有完成與否的狀態`};
+    action={op:a.op,id:r.note.id};
+    lines.push({complete_note:'標記完成',delete_note:'🗑️ 刪除',update_note:'修改'}[a.op],'對象：'+flat(r.note.content));
+    if(a.op==='update_note'){
+      const keys=EDITABLE_NOTE_FIELDS.filter(k=>k in a);
+      if(!keys.length)return {error:`「${r.note.content}」沒有可套用的變更`};
+      // 看不懂的時間會把原本的時間清掉，所以直接擋下來
+      if(a.dueAt&&isNaN(new Date(a.dueAt)))return {error:`看不懂時間：${a.dueAt}`};
+      keys.forEach(k=>{action[k]=a[k];lines.push(field(k,a[k]));});
+    }
+  }else return {error:`不支援的動作：${a.op||'(未指定)'}`};
+  return {text:lines.join('\n'),action};
+}
 async function execChatActions(actions){
-  const log=[];
-  const add=(text,undo)=>log.push(undo?{text,undo}:{text});
-  // 手機端 AI 看得到信件主旨與行事曆（會議整理看的是別人講的話），所以記憶一律先問過再動。
-  let asked=0;
+  const proposals=[];
+  let asked=0,acts=0,skipped=0;
   const askMemory=(op,text,targetId)=>{
     if(asked>=LOCAL_MEM_PER_REPLY)return;
     asked++;
-    log.push({text:'🛡️ 要'+(op==='forget'?'忘記':'記住')+'這一條嗎？（手機端 AI 提出的）\n「'+text+'」',
+    proposals.push({text:'🛡️ 要'+(op==='forget'?'忘記':'記住')+'這一條嗎？（手機端 AI 提出的）\n「'+text+'」',
       mem:{local:true,op,text,targetId:targetId||'',at:Date.now()}});
   };
   for(const a of actions){
     try{
+      if(a.op==='remember'){
+        const t=String(a.text||'').trim();
+        // 重複的就安靜跳過
+        if(!t||profileList().some(x=>String(x.text||'').trim()===t))continue;
+        if(t.length>LOCAL_MEM_MAX){proposals.push({text:'⚠️ 想記的內容太長，這次沒有記'});continue;}
+        askMemory('remember',t);
+      }else if(a.op==='forget'){
+        const target=profileList().find(x=>x.id===a.id);
+        if(target)askMemory('forget',target.text,target.id);
+      }else{
+        const p=proposeLocalAction(a);
+        if(!p)continue;
+        if(p.error){proposals.push({text:'⚠️ '+p.error});continue;}
+        if(acts>=LOCAL_ACT_PER_REPLY){skipped++;continue;}
+        acts++;
+        proposals.push({text:'🛡️ 要執行這個動作嗎？（手機端 AI 提出的）\n'+p.text,mem:{local:true,op:'act',action:p.action,at:Date.now()}});
+      }
+    }catch(e){proposals.push({text:'⚠️ 執行失敗：'+e.message});}
+  }
+  if(skipped)proposals.push({text:'⚠️ 動作太多，還有 '+skipped+' 個沒有列出來'});
+  return proposals;
+}
+// 使用者按了「執行」才會走到這裡。回傳 {text, undo?}
+async function runLocalAction(a){
+  const log=[];
+  const add=(text,undo)=>log.push(undo?{text,undo}:{text});
+    try{
       if(a.op==='add_note'){
         const type=NOTE_TYPES.includes(a.type)?a.type:'note';
         const content=(a.content||'').trim();
-        if(!content)continue;
+        if(!content)return {text:'⚠️ 內容是空的'};
         const dueAt=a.dueAt&&!isNaN(new Date(a.dueAt))?new Date(a.dueAt).toISOString():'';
         const owner=cleanOwner(a.owner);
         const n={id:'n'+Date.now()+Math.random().toString(36).slice(2,7),type,content,dueAt,done:false,createdAt:new Date().toISOString(),notifiedAt:'',owner};
@@ -6572,52 +6667,42 @@ async function execChatActions(actions){
         if(state.gasUrl)gasPost({action:'addNote',note:n}).catch(()=>{});
         add(`➕ 已新增「${TYPE_LABEL[type]}」${owner?`（交辦 ${owner}）`:''}：${content}${dueAt?`（${fmtDateTime(dueAt)}）`:''}`,{op:'add_note',id:n.id});
       }else if(a.op==='add_calendar_event'&&a.start){
-        if(!state.gasUrl){add(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);continue;}
+        if(!state.gasUrl){add(`⚠️ 尚未設定雲端後台，無法建立日曆事件：${a.title||''}`);return log[0];}
         const r=await gasPost({action:'addCalendarEvent',title:a.title||'(未命名事件)',start:a.start,end:a.end});
         const d=await r.json();
         // 日曆是雲端資料，這裡沒有反向刪除的動作，所以不給復原按鈕。
         add(d.ok?`📅 已加入 Google 日曆：${a.title||''}（${fmtDateTime(a.start)}）`:`⚠️ 日曆建立失敗：${d.error||'未知錯誤'}`);
       }else if(a.op==='complete_note'){
         const r=resolveNote(a,true);
-        if(!r.note){add('⚠️ '+r.error);continue;}
+        if(!r.note){add('⚠️ '+r.error);return log[0];}
         if(!CHECKABLE_TYPES.includes(r.note.type)){
-          add(`⚠️ 「${r.note.content}」是${TYPE_LABEL[r.note.type]}，沒有完成與否的狀態`);continue;
+          add(`⚠️ 「${r.note.content}」是${TYPE_LABEL[r.note.type]}，沒有完成與否的狀態`);return log[0];
         }
         r.note.done=true;
         if(state.gasUrl)gasPost({action:'updateNote',id:r.note.id,patch:{done:'true'}}).catch(()=>{});
         add(`✅ 已標記完成：${r.note.content}`,{op:'complete_note',id:r.note.id});
       }else if(a.op==='delete_note'){
         const r=resolveNote(a);
-        if(!r.note){add('⚠️ '+r.error);continue;}
+        if(!r.note){add('⚠️ '+r.error);return log[0];}
         const label=r.note.content,id=r.note.id;
         deleteNote(id);
         add(`🗑️ 已刪除：${label}`,{op:'delete_note',id});
-      }else if(a.op==='remember'){
-        const t=String(a.text||'').trim();
-        // 重複的就安靜跳過
-        if(!t||profileList().some(x=>String(x.text||'').trim()===t))continue;
-        if(t.length>LOCAL_MEM_MAX){add('⚠️ 想記的內容太長，這次沒有記');continue;}
-        askMemory('remember',t);
-      }else if(a.op==='forget'){
-        const target=profileList().find(x=>x.id===a.id);
-        if(target)askMemory('forget',target.text,target.id);
       }else if(a.op==='update_note'){
         const r=resolveNote(a);
-        if(!r.note){add('⚠️ '+r.error);continue;}
+        if(!r.note){add('⚠️ '+r.error);return log[0];}
         const label=r.note.content;
         const patch={};
         for(const k of EDITABLE_NOTE_FIELDS)if(k in a)patch[k]=a[k];
         const res=updateNoteFields(r.note.id,patch);
-        if(!res){add(`⚠️ 「${label}」沒有可套用的變更`);continue;}
+        if(!res){add(`⚠️ 「${label}」沒有可套用的變更`);return log[0];}
         add(`✏️ 已更新：${label}（${Object.keys(res.applied).join('、')}）`,{op:'update_note',id:r.note.id,before:res.before});
       }else{
         // 以前不認得的 op 會被默默略過，使用者只看到 AI 說「好了」卻什麼都沒發生。
         add(`⚠️ 不支援的動作：${a.op||'(未指定)'}`);
       }
     }catch(e){add(`⚠️ 執行失敗：${e.message}`);}
-  }
-  if(log.length){save();renderNotes();renderOverview();}
-  return log;
+  save();renderNotes();renderOverview();
+  return log[0]||{text:'⚠️ 沒有做任何事'};
 }
 // ── 談話前的準備 ────────────────────────────────────────
 // 校長一天要跟很多人談事情：主任、工友、家長、老師。真正難的不是不知道要說什麼，
@@ -6725,7 +6810,7 @@ async function sendChat(){
 - complete_note 只能用在 todo 與 reminder，瑣事與心法沒有完成狀態。
 - update_note 只要放真的要改的欄位，沒要改的欄位不要放。
 - owner 是「這件事誰要去做」。使用者說「請陳主任處理」「交給總務」就填進去；他自己要做的就不要填。填了之後這筆會出現在「🤝 我交辦的」清單裡，提醒他去追進度——所以不要把自己的事也填上他的名字。
-- remember 和 forget 要等使用者按核准才生效，回覆裡不可以說「已經記住了」或「已經忘掉了」。
+- 所有動作（新增、完成、修改、刪除、加行程、remember、forget）都要等使用者按核准才生效。回覆裡要說「請按下面的按鈕確認」，不可以說已經新增、刪除、記住或做好了。
 - remember 用在「以後每次對話都用得到」的事：怎麼稱呼某個人、偏好多長的回答、固定的做事方式、職務與負責範圍、在意什麼。**不要**拿它記一次性的待辦、當下的心情、或這次問題的答案——那些本來就會進待辦和問答庫。一次對話最多記一件事，沒有真正新的就不要記。
 - 上面「關於使用者」那段每條前面的 [pxxxxx] 就是記憶 id。使用者說某條已經不成立了（換職務、改習慣），用 forget 指名刪掉。
 一次可以有多個 actions。
@@ -6809,13 +6894,15 @@ async function sendChatViaAgent(text,byVoice){
   const steps=Array.isArray(d.steps)?d.steps:[];
   if(steps.length){
     const seen=new Set();const labels=[];
-    steps.forEach(s=>{const l=s.label||s.tool;if(!seen.has(l)){seen.add(l);labels.push(l+(s.ok===false?'（失敗）':''));}});
+    steps.forEach(s=>{const l=(s.label||s.tool)+(s.pending?'（等你核准）':'');if(!seen.has(l)){seen.add(l);labels.push(l+(s.ok===false?'（失敗）':''));}});
     state.chat.push({role:'sys',text:'🔧 '+labels.join('、')});
   }
   if(d.warning)state.chat.push({role:'sys',text:'⚠️ '+d.warning});
   // 等核准的記憶：完整內容要看得到，才知道自己在核准什麼
   (Array.isArray(d.pending)?d.pending:[]).forEach(p=>{
-    state.chat.push({role:'sys',text:'🛡️ 要'+(p.op==='forget'?'忘記':'記住')+'這一條嗎？（這次對話看過信件或行事曆）\n「'+p.text+'」',mem:{id:p.id,op:p.op}});
+    const ask=String(p.op).startsWith('act:')?'🛡️ 要執行這個動作嗎？（這次對話看過信件或行事曆）\n'+p.text
+      :'🛡️ 要'+(p.op==='forget'?'忘記':'記住')+'這一條嗎？（這次對話看過信件或行事曆）\n「'+p.text+'」';
+    state.chat.push({role:'sys',text:ask,mem:{id:p.id,op:p.op}});
   });
   if(byVoice)speakText(reply);
   qaAdd(text,reply,'chat');

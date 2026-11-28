@@ -367,3 +367,151 @@ test('試答失敗或規則不存在時回報錯誤', () => {
   assert.strictEqual(b.post({ action: 'ruleTrial', id }).ok, false);
   assert.strictEqual(b.post({ action: 'ruleTrial', id: 'nope' }).ok, false);
 });
+
+// ── 看過外部內容之後，改東西也要核准 ──
+const readCal = ['list_calendar', {}];
+const noteRows = b => { b.run('setupSheets()'); return b.rows(b.run('NOTE_SHEET')); };
+const decide = (b, id, approve = true) => b.post({ action: 'memoryDecision', id, approve });
+function withCalendar(b) {
+  const made = [], changed = [];
+  const ev = {
+    title: '虛構會議', getTitle() { return this.title; }, setTitle(t) { changed.push(t); this.title = t; },
+    setLocation(l) { changed.push(l); }, getStartTime: () => new Date('2030-01-02T01:00:00Z'),
+    getEndTime: () => new Date('2030-01-02T02:00:00Z'), setTime() { changed.push('time'); }
+  };
+  b.g.CalendarApp = {
+    getAllCalendars: () => [],
+    getDefaultCalendar: () => ({
+      getEventById: id => (id === 'ev1' ? ev : null),
+      createEvent: t => { made.push(t); return { getId: () => 'new', addPopupReminder() {} }; }
+    })
+  };
+  return { made, changed };
+}
+
+test('沒看過外部內容時，新增待辦照舊直接做', () => {
+  const b = loadBackend();
+  const r = b.agent([[['add_note', { type: 'todo', content: '虛構待辦' }]], 'ok']);
+  assert.strictEqual(r.pending.length, 0);
+  assert.strictEqual(noteRows(b).length, 1);
+});
+
+test('看過信件後新增待辦要核准，核准後只會做一次', () => {
+  const b = loadBackend();
+  const r = b.agent([[readsMail], [['add_note', { type: 'todo', content: '虛構待辦', extra: 'x' }]], 'ok']);
+  assert.strictEqual(noteRows(b).length, 0);
+  assert.strictEqual(r.pending[0].op, 'act:add_note');
+  assert.ok(r.pending[0].text.includes('虛構待辦'));
+  assert.strictEqual(r.steps[1].pending, true);
+  assert.ok(JSON.stringify(b.telegram).includes('mok:' + r.pending[0].id));
+  assert.strictEqual(decide(b, r.pending[0].id).status, 'approved');
+  assert.strictEqual(decide(b, r.pending[0].id).ok, false);
+  assert.deepStrictEqual(noteRows(b).map(n => n.content), ['虛構待辦']);
+});
+
+test('不要就完全不做', () => {
+  const b = loadBackend();
+  const id = b.agent([[readCal], [['add_note', { type: 'todo', content: 'X' }]], 'ok']).pending[0].id;
+  assert.strictEqual(decide(b, id, false).status, 'rejected');
+  assert.strictEqual(decide(b, id).ok, false);
+  assert.strictEqual(noteRows(b).length, 0);
+});
+
+test('修改和完成要核准，而且看得到改的是哪一筆', () => {
+  const b = loadBackend();
+  b.post({ action: 'addNote', note: { id: 'n1', type: 'todo', content: '原本的內容', createdAt: '2030-01-01T00:00:00Z' } });
+  const r = b.agent([[readsMail], [['update_note', { id: 'n1', content: '新內容' }], ['complete_note', { id: 'n1' }]], 'ok']);
+  assert.strictEqual(noteRows(b)[0].content, '原本的內容');
+  assert.ok(!noteRows(b)[0].done);
+  assert.strictEqual(r.pending.length, 2);
+  r.pending.forEach(p => assert.ok(p.text.includes('原本的內容')));
+  r.pending.forEach(p => assert.strictEqual(decide(b, p.id).status, 'approved'));
+  assert.strictEqual(noteRows(b)[0].content, '新內容');
+  assert.ok(noteRows(b)[0].done);
+});
+
+test('行事曆新增和修改要核准', () => {
+  const b = loadBackend();
+  const cal = withCalendar(b);
+  const r = b.agent([[readsMail], [
+    ['add_calendar_event', { title: '虛構行程', start: '2030-01-03 09:00' }],
+    ['update_calendar_event', { eventId: 'ev1', title: '改名', start: '' }]
+  ], 'ok']);
+  assert.deepStrictEqual([cal.made, cal.changed], [[], []]);
+  assert.ok(r.pending[1].text.includes('虛構會議'));
+  r.pending.forEach(p => assert.strictEqual(decide(b, p.id).status, 'approved'));
+  assert.deepStrictEqual([cal.made, cal.changed], [['虛構行程'], ['改名']]);
+});
+
+test('每一個會改東西的工具都有核准關卡', () => {
+  const b = loadBackend();
+  const writes = b.run("AGENT_TOOLS.map(t => t.name).filter(n => /^(add|update|complete|delete|queue|send|create|remove|set)_/.test(n))");
+  writes.forEach(n => assert.ok(b.run(`ACT_TOOLS.indexOf('${n}')`) >= 0, n));
+});
+
+test('電腦任務在看過外部內容後多一道核准，試算表那道還在', () => {
+  const b = loadBackend();
+  b.props[b.run('TOKEN_PROP')] = 'made-up-pass';
+  const post = body => b.post(Object.assign({ t: 'made-up-pass' }, body));
+  b.aiScript.push([readsMail], [['queue_pc_task', { task: '虛構工作' }]], 'ok');
+  const r = post({ action: 'agent', question: 'q', history: [] });
+  assert.strictEqual(b.rows(b.run('PC_SHEET')).length, 0);
+  assert.strictEqual(post({ action: 'memoryDecision', id: r.pending[0].id, approve: true }).status, 'approved');
+  assert.deepStrictEqual(b.rows(b.run('PC_SHEET')).map(x => x.status), ['pending_approval']);
+});
+
+test('核准畫面放不下、找不到對象、時間看不懂就不收', () => {
+  const b = loadBackend();
+  const r = b.agent([[readsMail], [
+    ['add_note', { type: 'todo', content: 'x'.repeat(2000) }],
+    ['complete_note', { id: 'nope' }],
+    ['add_note', { type: 'reminder', content: 'a', dueAt: '改天' }]
+  ], 'ok']);
+  assert.strictEqual(r.pending.length, 0);
+  assert.strictEqual(noteRows(b).length, 0);
+});
+
+test('內容裡的換行不能假裝成別的欄位；一次最多五個', () => {
+  const b = loadBackend();
+  const calls = [1, 2, 3, 4, 5, 6, 7].map(i => ['add_note', { type: 'todo', content: i + '\n交辦給：別人' }]);
+  const r = b.agent([[readsMail], calls, 'ok']);
+  assert.strictEqual(r.pending.length, 5);
+  assert.ok(!r.pending[0].text.split('\n').some(l => l.startsWith('交辦給')));
+});
+
+test('核准後執行失敗要回報，而且不能重按', () => {
+  const b = loadBackend();
+  const id = b.agent([[readsMail], [['add_note', { type: 'todo', content: 'Y' }]], 'ok']).pending[0].id;
+  b.run("AGENT_TOOLS.find(t => t.name === 'add_note').run = () => { throw new Error('fake failure'); }");
+  assert.strictEqual(decide(b, id).status, 'failed');
+  assert.strictEqual(decide(b, id).ok, false);
+});
+
+test('讀取可以用 POST，密語錯了讀不到', () => {
+  const b = loadBackend();
+  b.props[b.run('TOKEN_PROP')] = 'made-up-pass';
+  const read = (t, get) => b.post({ t, action: 'read', get, params: { t: 'made-up-pass' } });
+  assert.strictEqual(read('made-up-pass', 'qa').ok, true);
+  assert.strictEqual(read('wrong', 'qa').ok, false);
+  assert.strictEqual(read('', 'notes').ok, false);
+});
+
+test('產生通關密語時會印在執行記錄', () => {
+  const b = loadBackend();
+  const out = [];
+  b.g.console = { log: s => out.push(String(s)) };
+  b.run('generateApiToken()');
+  assert.ok(out.join('').includes(b.props[b.run('TOKEN_PROP')]));
+});
+
+test('Telegram 按「執行」會做一次，而且不會放掉輪詢拿著的鎖', () => {
+  const b = loadBackend();
+  const id = b.agent([[readsMail], [['add_note', { type: 'todo', content: 'Z' }]], 'ok']).pending[0].id;
+  let released = 0;
+  b.g.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() { released++; } }) };
+  const press = () => b.g.handleLoopCallback({ id: 'c', data: 'mok:' + id, message: { message_id: 1, chat: { id: 1 }, text: 't' } }, '1');
+  press();
+  press();
+  assert.strictEqual(released, 0);
+  assert.deepStrictEqual(noteRows(b).map(n => n.content), ['Z']);
+});
