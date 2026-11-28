@@ -45,6 +45,9 @@ def main():
                     if body['action'] == 'ruleDecision':
                         review.update(pending=[], active=[{'id': 'r1', 'text': '<b>先講結論</b>'}])
                     res = dict(ok=True, **review)
+                    if body['action'] == 'ruleTrial':
+                        res['trial'] = {'ruleId': 'r1', 'rule': '<b>先講結論</b>', 'total': 1, 'withRule': 'b',
+                                        'items': [{'q': '虛構題目', 'a': '<img src=x>甲的回答', 'b': '乙的回答'}]}
             else:
                 res = {'ok': True, 'qa': [], 'forgotten': [], 'notes': []}
             return r.fulfill(json=res, headers={'Access-Control-Allow-Origin': '*'})
@@ -108,6 +111,31 @@ def main():
         assert [x for x in posts if x['action'] == 'ruleDecision'] == [dict(posts[-1])]
         assert '先講結論' in page.evaluate('rulesPrompt()')
         print('pass 每週檢討')
+
+        review.update(issues=[{'id': 'i1', 'text': '虛構問題：按鈕沒反應'}],
+                      active=[{'id': 'r1', 'text': '<b>先講結論</b>', 'flags': 2, 'flagWhy': '虛構原因'}],
+                      history={'adopted': 1, 'rejected': 0, 'retired': 0, 'expired': 0, 'hint': ''})
+        page.evaluate('openReview()')
+        page.wait_for_timeout(700)
+        card.get_by_text('📋 複製給 Claude 修').click()
+        box = page.locator('#repairBox')
+        assert '虛構問題' in box.input_value() and '不要自己合併' in box.input_value()
+        box.fill('使用者改過的內容')
+        page.evaluate('window.copied = null; window.copyTextSafe = async t => { window.copied = t; return true; }')
+        card.get_by_text('複製這段文字').click()
+        page.wait_for_timeout(300)
+        assert page.evaluate('window.copied') == '使用者改過的內容', '要複製使用者改過的版本'
+        card.get_by_text('🧪 試答').click()
+        page.wait_for_timeout(700)
+        trial = page.locator('#trialBox')
+        assert '套用規則的是' not in trial.inner_text(), '看答案前不能洩漏'
+        assert page.locator('#reviewCard img, #reviewCard b:text-is("先講結論")').count() == 0
+        trial.get_by_text('看哪邊有套用規則').click()
+        assert '套用規則的是：乙' in trial.inner_text()
+        assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+        if os.environ.get('SHOT'):
+            card.screenshot(path=os.environ['SHOT'])
+        print('pass 修正清單和試答')
 
         assert not errors, errors
         print('app tests passed')
